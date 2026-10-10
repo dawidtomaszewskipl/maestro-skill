@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# route2-state — the only writer of director bookkeeping (docs/checkpoint.md, "Audit").
+#
+#   route2-state --gen N write  <file>     replace <file> with stdin
+#   route2-state --gen N append <file>     append stdin (one or more lines) to <file>
+#   route2-state verify <file>             exit 0 iff <file> matches its last audit entry
+#
+# <file> is relative to .route2/ and must be bookkeeping: CHECKPOINT.md, ledger.jsonl, or
+# tasks/<id>/CHECKPOINT-entry.json. Inside the fence (route2-lock exec) it first verifies the
+# file against its last audit entry and stops on a mismatch — so an edit made outside route2 is
+# never read, preserved and re-hashed by the next legitimate write — then writes (tmp + mv) and
+# appends {file, sha256_after, gen, at} to audit.jsonl in the same fenced section.
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+
+SD="$(r2_state_dir)"
+
+allowed() {
+  case "$1" in
+    CHECKPOINT.md|ledger.jsonl|pending-decision.md|tasks/*/entry.json) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if [[ "${1:-}" == "__locked" ]]; then
+  op="$2" rel="$3" src="$4" gen="$5"
+  if ! r2_audit_verify "$SD" "$rel"; then
+    rm -f "$src"
+    jq -cn --arg f "$rel" '{result: "tampered", file: $f}'
+    exit 5
+  fi
+  mkdir -p "$(dirname "$SD/$rel")"
+  case "$op" in
+    write)  r2_atomic_write "$SD/$rel" < "$src" ;;
+    append) { cat "$SD/$rel" 2>/dev/null || true; cat "$src"; } | r2_atomic_write "$SD/$rel" ;;
+  esac
+  rm -f "$src"
+  r2_audit_record "$SD" "$rel" "$gen"
+  jq -cn --arg f "$rel" --arg s "$(r2_sha256_file "$SD/$rel")" '{result: "written", file: $f, sha256: $s}'
+  exit 0
+fi
+
+gen=""
+if [[ "${1:-}" == "--gen" ]]; then gen="$2"; shift 2; fi
+op="${1:-}" rel="${2:-}"
+[[ -n "$op" && -n "$rel" ]] || r2_die "usage: route2-state [--gen N] write|append|verify <file>"
+allowed "$rel" || r2_die "route2-state: $rel is not bookkeeping (CHECKPOINT.md, ledger.jsonl, pending-decision.md, tasks/<id>/entry.json)"
+
+case "$op" in
+  verify)
+    if r2_audit_verify "$SD" "$rel"; then jq -cn --arg f "$rel" '{result: "ok", file: $f}'
+    else jq -cn --arg f "$rel" '{result: "tampered", file: $f}'; exit 5; fi ;;
+  write|append)
+    [[ -n "$gen" ]] || r2_die "route2-state $op needs --gen N"
+    mkdir -p "$SD/tmp"
+    src="$(mktemp "$SD/tmp/state.XXXXXX")"
+    cat > "$src"
+    exec "$R2_BIN/route2-lock" exec --gen "$gen" -- "$0" __locked "$op" "$rel" "$src" "$gen" ;;
+  *) r2_die "route2-state: unknown operation $op" ;;
+esac

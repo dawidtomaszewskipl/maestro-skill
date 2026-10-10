@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# route2-kill — stop a job without ever signalling a test (docs/hosts.md, "Jobs").
+#
+#   route2-kill <job-id> --gen N [--grace S]
+#
+# One step per call (a host may cap a foreground command, so the director calls it again until
+# the result is final). Prints {job_id, result, …}:
+#   waiting-tests  protected test processes are alive; nothing was signalled (call again later)
+#   signalled      SIGTERM sent to the remaining members, individually (call again after --grace)
+#   killed         SIGKILL sent to members still alive after the grace period (call again)
+#   done           terminated: {state: exited|lost}
+#   blocked        members cannot be classified, survive SIGKILL, or /proc is uncertain
+#
+# Protected = test roots (a member whose full command line equals a recorded test command, or
+# whose argv holds a recorded test-runner path such as vendor/bin/pest) + every recorded
+# descendant of a test root + shell wrappers between the leader and a test root. Signals go to
+# members one by one, never to the process group, and only inside the fence.
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+
+SD="$(r2_state_dir)"
+
+if [[ "${1:-}" == "__signal" ]]; then   # inside the fence: __signal <TERM|KILL> <pid:starttime>…
+  shift; sig="$1"; shift
+  for ps in "$@"; do
+    p="${ps%%:*}"; s="${ps#*:}"
+    if r2_pid_same "$p" "$s"; then kill "-$sig" "$p" 2>/dev/null || true; fi
+  done
+  exit 0
+fi
+
+job="${1:-}"; shift || true
+gen="" grace="${ROUTE2_KILL_GRACE:-10}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --gen) gen="$2"; shift 2 ;;
+    --grace) grace="$2"; shift 2 ;;
+    *) r2_die "route2-kill: unknown option $1" ;;
+  esac
+done
+[[ -n "$job" && -n "$gen" ]] || r2_die "usage: route2-kill <job-id> --gen N [--grace S]"
+J="$SD/jobs/$job"
+[[ -f "$J/meta.json" ]] || r2_die "route2-kill: no job $job"
+[[ "$(jq -r .kind "$J/meta.json")" == test ]] && {
+  jq -cn --arg j "$job" '{job_id: $j, result: "refused", reason: "test jobs are never killed"}'; exit 0; }
+
+snap="$("$R2_BIN/route2-wait" "$job" --peek)"
+state="$(jq -r .state <<<"$snap")"
+case "$state" in
+  exited|lost) jq -cn --arg j "$job" --arg s "$state" '{job_id: $j, result: "done", state: $s}'; exit 0 ;;
+  uncertain)   jq -cn --arg j "$job" --argjson snap "$snap" '{job_id: $j, result: "blocked", reason: "proc uncertain", snapshot: $snap}'; exit 0 ;;
+esac
+
+# Live set = leader (if alive) + live members.
+pid="$(jq -r '.pid // empty' "$J/meta.json")"; pst="$(jq -r '.pid_starttime // empty' "$J/meta.json")"
+wpid="$(jq -r '.wrapper_pid // empty' "$J/meta.json")"
+live="$(jq -c '.live_members' <<<"$snap")"
+if [[ -n "$pid" ]] && r2_pid_same "$pid" "$pst"; then
+  live="$(jq -c --arg p "$pid" --arg s "$pst" --arg a "$(r2_pid_cmdline "$pid")" --arg e "$(r2_pid_exe "$pid")" \
+    '. + [{pid: ($p|tonumber), starttime: $s, ppid: null, argv: $a, exe: $e, leader: true}]' <<<"$live")"
+fi
+
+# Classification against the recorded tree (members.jsonl keeps each process's ORIGINAL ppid, so a
+# chain survives re-parenting). chain(p) = p, its recorded parent, … up to the wrapper.
+classified="$(jq -c --slurpfile rec <(cat "$J/members.jsonl" 2>/dev/null || true) \
+  --argjson meta "$(cat "$J/meta.json")" --arg w "${wpid:-0}" '
+  ($rec | map({key: (.pid | tostring), value: .}) | from_entries) as $byp
+  | def chain: [recurse(($byp[tostring].ppid) // empty)] | map(tostring);
+    def is_shell: ((.exe // "") | test("/(ba|da|z)?sh$")) or ((.argv // "") | test("^(\\S*/)?(ba|da|z)?sh( |$)"));
+    def is_test_root: . as $m
+      | ((($meta.test_cmds // []) | index($m.argv)) != null)
+        or ([ ($meta.test_runners // [])[] as $r | ($m.argv | split(" "))[]
+              | select(. == $r or endswith("/" + $r)) ] | length > 0);
+  [ $rec[] | select(is_test_root) | .pid | tostring ] as $roots
+  | map(. + {chain: (.pid | chain)})
+  | map(. + {test: (.chain | any(. as $c | $roots | index($c) != null)),
+             classifiable: ((.leader // false) or (.chain | index($w) != null)
+                            or ((($byp[.pid | tostring].pgid) // -1 | tostring) == $w))})
+  | . as $all
+  | map(. as $m | . + {wrapper_of_test: (($m | is_shell) and
+        ([ $all[] | select(.test and (.pid != $m.pid)) | .chain | index($m.pid | tostring) != null ] | any))})
+  | map(del(.chain))
+  ' <<<"$live")"
+
+if jq -e 'any(.[]; .classifiable | not)' <<<"$classified" >/dev/null; then
+  jq -cn --arg j "$job" --argjson c "$classified" '{job_id: $j, result: "blocked", reason: "member outside the recorded tree", members: $c}'
+  exit 0
+fi
+if jq -e 'any(.[]; .test or .wrapper_of_test)' <<<"$classified" >/dev/null; then
+  jq -cn --arg j "$job" --argjson c "$classified" '{job_id: $j, result: "waiting-tests", protected: [ $c[] | select(.test or .wrapper_of_test) | {pid, argv} ]}'
+  exit 0
+fi
+
+targets=()
+mapfile -t targets < <(jq -r '.[] | "\(.pid):\(.starttime)"' <<<"$classified")
+ks="$(cat "$J/kill.state" 2>/dev/null || echo '{}')"
+term_at="$(jq -r '.term_at // empty' <<<"$ks")"
+now="$(date +%s)"
+if [[ ${#targets[@]} -eq 0 ]]; then
+  jq -cn --arg j "$job" '{job_id: $j, result: "done", state: "lost"}'; exit 0
+fi
+if [[ -z "$term_at" ]]; then
+  "$R2_BIN/route2-lock" exec --gen "$gen" -- "$0" __signal TERM "${targets[@]}"
+  jq -cn --argjson t "$now" '{term_at: $t}' | r2_atomic_write "$J/kill.state"
+  jq -cn --arg j "$job" --argjson n "${#targets[@]}" '{job_id: $j, result: "signalled", count: $n}'
+elif (( now - term_at < grace )); then
+  jq -cn --arg j "$job" --argjson left "$(( grace - (now - term_at) ))" '{job_id: $j, result: "signalled", grace_left_s: $left}'
+elif [[ -z "$(jq -r '.kill_at // empty' <<<"$ks")" ]]; then
+  "$R2_BIN/route2-lock" exec --gen "$gen" -- "$0" __signal KILL "${targets[@]}"
+  jq -c --argjson t "$now" '. + {kill_at: $t}' <<<"$ks" | r2_atomic_write "$J/kill.state"
+  jq -cn --arg j "$job" --argjson n "${#targets[@]}" '{job_id: $j, result: "killed", count: $n}'
+else
+  jq -cn --arg j "$job" --argjson c "$classified" '{job_id: $j, result: "blocked", reason: "members survived SIGKILL", members: $c}'
+fi

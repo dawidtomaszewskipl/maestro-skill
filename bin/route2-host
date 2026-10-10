@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+# route2-host — detect which agent host runs the director (docs/hosts.md, "Detection").
+#
+# Prints one JSON line:
+#   {host, interactive, session_key, host_pid, host_pid_starttime, director_family,
+#    director_model, director_line, evidence: [...]}
+# host ∈ claude-code | codex | cursor | agy | unknown.
+#
+# Order: the NEAREST ancestor whose executable is a known host wins (outer hosts' markers are
+# inherited by children and are not a conflict); that host's own marker must be present. With no
+# visible ancestry, markers decide only when exactly one host's markers are present.
+#
+# Env for tests: ROUTE2_PROC (fake /proc), ROUTE2_HOST_START_PID (first pid to inspect),
+# CODEX_HOME (rollout lookup).
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+
+evidence=()
+ev() { evidence+=("$1"); }
+
+# --- classification of one process ---------------------------------------------------------------
+host_of_pid() {
+  local pid="$1" exe argv0 argv1 b0 be
+  exe="$(r2_pid_exe "$pid")"
+  local -a argv=()
+  if [[ -r "$(r2_proc)/$pid/cmdline" ]]; then
+    mapfile -d '' -t argv < "$(r2_proc)/$pid/cmdline" || true
+  fi
+  argv0="${argv[0]:-}"; argv1="${argv[1]:-}"
+  b0="${argv0##*/}"; be="${exe##*/}"
+  if [[ "$be" == "codex" || "$b0" == "codex" ]]; then echo codex; return; fi
+  if [[ "$exe" == */cursor-agent/* || "$argv1" == */cursor-agent/* \
+        || "$b0" == "cursor-agent" || ( "$b0" == "agent" && "$be" == node* ) ]]; then
+    echo cursor; return
+  fi
+  if [[ "$be" == "agy" || "$b0" == "agy" ]]; then echo agy; return; fi
+  if [[ "$exe" == */claude/versions/* || "$b0" == "claude" ]]; then echo claude-code; return; fi
+  echo ""
+}
+
+# Headless when the host was started in print/exec mode.
+interactive_of_pid() {
+  local pid="$1" host="$2" a
+  local -a argv=()
+  mapfile -d '' -t argv < "$(r2_proc)/$pid/cmdline" 2>/dev/null || true
+  case "$host" in
+    codex)
+      for a in "${argv[@]:1}"; do
+        [[ "$a" == -* ]] && continue
+        [[ "$a" == "exec" || "$a" == "e" ]] && { echo false; return; }
+        break
+      done ;;
+    claude-code|cursor|agy)
+      for a in "${argv[@]:1}"; do
+        [[ "$a" == "-p" || "$a" == "--print" ]] && { echo false; return; }
+      done ;;
+  esac
+  echo true
+}
+
+# Markers: which hosts' markers are present in this environment?
+marker_present() {
+  case "$1" in
+    codex)       [[ -n "${CODEX_THREAD_ID:-}" ]] ;;
+    cursor)      [[ "${CURSOR_AGENT:-}" == "1" && -n "${CURSOR_CONVERSATION_ID:-}" ]] ;;
+    claude-code) [[ "${CLAUDECODE:-}" == "1" ]] ;;
+    agy)         [[ -n "${ROUTE2_AGY_MARKER_VAR:-}" && -n "${!ROUTE2_AGY_MARKER_VAR:-}" ]] ;;
+    *)           return 1 ;;
+  esac
+}
+
+session_key_of() {
+  case "$1" in
+    codex)       printf '%s' "${CODEX_THREAD_ID:-}" ;;
+    cursor)      printf '%s' "${CURSOR_CONVERSATION_ID:-}" ;;
+    claude-code) printf '%s' "${CLAUDE_CODE_SESSION_ID:-}" ;;
+    agy)         if [[ -n "${ROUTE2_AGY_MARKER_VAR:-}" ]]; then printf "%s" "${!ROUTE2_AGY_MARKER_VAR:-}"; fi ;;
+  esac
+}
+
+model_family() {
+  case "$1" in
+    claude-*|opus|sonnet|fable|haiku) echo claude ;;
+    gpt-*|o[0-9]*) echo openai ;;
+    gemini-*) echo google ;;
+    grok-*) echo xai ;;
+    *) echo "" ;;
+  esac
+}
+
+model_line() {
+  local m="$1"
+  case "$m" in
+    claude-opus-*|opus) echo opus ;;
+    claude-fable-*|fable) echo fable ;;
+    claude-sonnet-*|sonnet) echo sonnet ;;
+    claude-haiku-*|haiku) echo haiku ;;
+    gpt-*-astra) echo astra ;; gpt-*-sol) echo sol ;; gpt-*-luna) echo luna ;; gpt-*-terra) echo terra ;;
+    gemini-*-flash*) echo gemini ;;
+    grok-*) echo grok ;;
+    *) echo "" ;;
+  esac
+}
+
+# --- walk the ancestry --------------------------------------------------------------------------
+start="${ROUTE2_HOST_START_PID:-$PPID}"
+host="" host_pid="" visible=false pid="$start" hops=0
+while [[ -n "$pid" && "$pid" -gt 1 && $hops -lt 64 ]]; do
+  if [[ -r "$(r2_proc)/$pid/stat" ]]; then
+    visible=true
+    h="$(host_of_pid "$pid")"
+    if [[ -n "$h" ]]; then host="$h"; host_pid="$pid"; ev "ancestor $pid is $h"; break; fi
+  fi
+  pid="$(r2_pid_ppid "$pid")"
+  hops=$((hops + 1))
+done
+
+if [[ -n "$host" ]]; then
+  if marker_present "$host"; then
+    ev "marker for $host present"
+  else
+    ev "nearest host $host has no marker in this environment"
+    host="unknown"
+  fi
+else
+  present=()
+  for h in codex cursor agy claude-code; do marker_present "$h" && present+=("$h"); done
+  if [[ "$visible" == true ]]; then ev "no host executable in the visible ancestry"; fi
+  if [[ ${#present[@]} -eq 1 ]]; then
+    host="${present[0]}"; ev "markers-only: exactly one host marker (${present[0]})"
+  elif [[ ${#present[@]} -gt 1 ]]; then
+    host="unknown"; ev "markers-only: several host markers (${present[*]}), nesting order unknown"
+  else
+    host="unknown"; ev "no ancestry and no marker"
+  fi
+fi
+
+interactive=null starttime="" skey="" dmodel="" dfamily="" dline=""
+if [[ "$host" != "unknown" ]]; then
+  skey="$(session_key_of "$host")"
+  if [[ -n "$host_pid" ]]; then
+    interactive="$(interactive_of_pid "$host_pid" "$host")"
+    starttime="$(r2_pid_starttime "$host_pid")"
+  fi
+  case "$host" in
+    claude-code)
+      dfamily=claude
+      ev "claude-code: the director states its own model (it knows it)" ;;
+    codex)
+      ch="${CODEX_HOME:-$HOME/.codex}"
+      rollout="$(find "$ch/sessions" -name "rollout-*-${CODEX_THREAD_ID}.jsonl" 2>/dev/null | head -1 || true)"
+      if [[ -n "$rollout" ]]; then
+        dmodel="$(grep '"type":"turn_context"' "$rollout" | tail -1 | jq -r '.payload.model // empty' 2>/dev/null || true)"
+        [[ -n "$dmodel" ]] && ev "codex director model from $rollout (latest turn_context.payload.model)"
+      else
+        ev "codex rollout for thread ${CODEX_THREAD_ID} not found"
+      fi
+      dfamily="$(model_family "$dmodel")"; dline="$(model_line "$dmodel")" ;;
+    cursor|agy)
+      ev "$host: no measured source for the director model; director_family unknown" ;;
+  esac
+fi
+
+jq -cn --arg host "$host" --argjson interactive "$interactive" --arg skey "$skey" \
+  --arg hpid "$host_pid" --arg hst "$starttime" --arg fam "$dfamily" --arg model "$dmodel" \
+  --arg line "$dline" --args '{
+    host: $host, interactive: $interactive,
+    session_key: (if $skey == "" then null else $skey end),
+    host_pid: (if $hpid == "" then null else ($hpid | tonumber) end),
+    host_pid_starttime: (if $hst == "" then null else $hst end),
+    director_family: (if $fam == "" then null else $fam end),
+    director_model: (if $model == "" then null else $model end),
+    director_line: (if $line == "" then null else $line end),
+    evidence: $ARGS.positional }' "${evidence[@]}"

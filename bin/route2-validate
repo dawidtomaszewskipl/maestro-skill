@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+# route2-validate — envelope, verdict extraction and schema check for every CLI
+# (docs/commands.md, "Validating a verdict").
+#
+#   route2-validate <schema.json> <file> --envelope codex|agy|claude|cursor|raw [--role read-only|writer]
+#
+# 1. Envelope (envelope failure is not an invalid verdict):
+#    codex   the -o file is the answer text
+#    agy     {status: "SUCCESS", response: non-empty, denied_actions: absent or []} → response
+#    claude  stream-json/json: the `result` event with subtype "success", is_error false, and for
+#            read-only roles permission_denials == [] → structured_output if present, else result
+#    cursor  stream-json/json: the `result` event with subtype "success", is_error false → result
+#    raw     the file itself
+# 2. Extraction: strip one surrounding Markdown fence; exactly ONE top-level JSON object must
+#    parse; leading prose is allowed, trailing non-whitespace is not. agy's toolAction/toolSummary
+#    keys are dropped.
+# 3. Schema: type, enum, required, properties, additionalProperties:false, items — recursively.
+# Prints {valid, stage, errors, verdict}; exit 0 iff valid.
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+
+schema="${1:-}" file="${2:-}"; shift 2 || true
+envelope="raw" role="read-only"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --envelope) envelope="$2"; shift 2 ;;
+    --role) role="$2"; shift 2 ;;
+    *) r2_die "route2-validate: unknown option $1" ;;
+  esac
+done
+[[ -f "$schema" && -f "$file" ]] || r2_die "usage: route2-validate <schema.json> <file> --envelope … [--role …]"
+
+fail() { jq -cn --arg st "$1" --arg e "$2" '{valid: false, stage: $st, errors: [$e], verdict: null}'; exit 1; }
+
+# --- 1. envelope ------------------------------------------------------------------------------
+last_result() {  # the last `result` event of a json or stream-json transcript
+  jq -cs '[ .[] | if type == "array" then .[] else . end | select(type == "object" and .type == "result") ] | last // empty' "$file" 2>/dev/null
+}
+case "$envelope" in
+  raw|codex) text="$(cat "$file")" ;;
+  agy)
+    jq -e . "$file" >/dev/null 2>&1 || fail envelope "agy envelope is not JSON"
+    [[ "$(jq -r .status "$file")" == SUCCESS ]] || fail envelope "agy status $(jq -r .status "$file")"
+    [[ "$(jq '(.denied_actions // []) | length' "$file")" == 0 ]] || fail envelope "agy denied_actions: $(jq -c .denied_actions "$file")"
+    text="$(jq -r '.response // ""' "$file")"
+    [[ -n "$text" ]] || fail envelope "agy response is empty" ;;
+  claude|cursor)
+    res="$(last_result)"
+    [[ -n "$res" ]] || fail envelope "no result event"
+    [[ "$(jq -r .subtype <<<"$res")" == success && "$(jq -r .is_error <<<"$res")" == false ]] \
+      || fail envelope "result: subtype $(jq -r .subtype <<<"$res"), is_error $(jq -r .is_error <<<"$res")"
+    if [[ "$envelope" == claude && "$role" == read-only ]]; then
+      [[ "$(jq '(.permission_denials // []) | length' <<<"$res")" == 0 ]] \
+        || fail envelope "permission_denials on a read-only role: $(jq -c '[.permission_denials[].tool_name]' <<<"$res")"
+    fi
+    if [[ "$(jq 'has("structured_output") and .structured_output != null' <<<"$res")" == true ]]; then
+      text="$(jq -c .structured_output <<<"$res")"
+    else
+      text="$(jq -r '.result // ""' <<<"$res")"
+    fi ;;
+  *) r2_die "route2-validate: unknown envelope $envelope" ;;
+esac
+
+# --- 2. extraction: one top-level object --------------------------------------------------------
+# shellcheck disable=SC2016  # jq program
+extract='
+  # strip one surrounding fence
+  (if test("^\\s*```[a-zA-Z]*\\s*\\n") and test("\\n\\s*```\\s*$")
+   then sub("^\\s*```[a-zA-Z]*\\s*\\n"; "") | sub("\\n\\s*```\\s*$"; "") else . end) as $t
+  | ($t | explode) as $c
+  # scan for top-level {...} spans, honouring strings and escapes
+  | reduce range(0; $c | length) as $i ({depth: 0, instr: false, esc: false, start: null, spans: []};
+      ($c[$i]) as $ch
+      | if .instr then
+          if .esc then .esc = false
+          elif $ch == 92 then .esc = true
+          elif $ch == 34 then .instr = false
+          else . end
+        elif $ch == 34 then (if .depth > 0 then .instr = true else . end)
+        elif $ch == 123 then (if .depth == 0 then .start = $i else . end) | .depth += 1
+        elif $ch == 125 then
+          if .depth > 0 then .depth -= 1
+            | if .depth == 0 then .spans += [[.start, $i]] | .start = null else . end
+          else . end
+        else . end)
+  | .spans as $spans
+  | [ $spans[] as [$a, $b] | ($c[$a:$b + 1] | implode) as $s
+      | ($s | try fromjson catch null) as $o
+      | select($o != null and ($o | type) == "object") | {o: $o, end: $b} ] as $objs
+  | if ($objs | length) == 0 then {error: "no JSON object found"}
+    elif ($objs | length) > 1 then {error: "more than one top-level JSON object"}
+    else ($c[$objs[0].end + 1:] | implode | test("^\\s*$")) as $clean
+      | if $clean then {ok: ($objs[0].o | del(.toolAction, .toolSummary))}
+        else {error: "text after the JSON object"} end
+    end'
+ext="$(jq -Rs "$extract" <<<"$text")" || fail extract "extraction failed"
+if [[ "$(jq 'has("error")' <<<"$ext")" == true ]]; then fail extract "$(jq -r .error <<<"$ext")"; fi
+verdict="$(jq -c .ok <<<"$ext")"
+
+# --- 3. schema ----------------------------------------------------------------------------------
+# shellcheck disable=SC2016  # jq program
+check='
+  def typeok($t): (type) as $x
+    | if $t == "integer" then ($x == "number" and (. == floor))
+      elif $t == "number" then $x == "number"
+      elif $t == "array" then $x == "array"
+      elif $t == "object" then $x == "object"
+      elif $t == "string" then $x == "string"
+      elif $t == "boolean" then $x == "boolean"
+      elif $t == "null" then $x == "null" else true end;
+  def errs($s; $p):
+    . as $v
+    | [ (if $s.type and (($s.type | type) == "string") and ($v | typeok($s.type) | not)
+         then "\($p): expected \($s.type), got \($v | type)" else empty end),
+        (if $s.enum and (($s.enum | index([$v])) == null) then "\($p): \($v | tojson) not in enum" else empty end),
+        (if ($v | type) == "object" then
+           ( ($s.required // [])[] as $r | if ($v | has($r)) then empty else "\($p): missing required \($r)" end ),
+           ( if $s.additionalProperties == false then
+               ($v | keys[]) as $k | if (($s.properties // {}) | has($k)) then empty else "\($p): unexpected key \($k)" end
+             else empty end ),
+           ( ($s.properties // {}) | to_entries[] as $e
+             | if ($v | has($e.key)) then ($v[$e.key] | errs($e.value; "\($p).\($e.key)"))[] else empty end )
+         else empty end),
+        (if ($v | type) == "array" and $s.items then
+           ($v | to_entries[] | .key as $i | .value | errs($s.items; "\($p)[\($i)]"))[]
+         else empty end) ];
+  errs($schema[0]; "$")'
+errors="$(jq -c --slurpfile schema "$schema" "$check" <<<"$verdict")"
+if [[ "$errors" == "[]" ]]; then
+  jq -cn --argjson v "$verdict" '{valid: true, stage: "schema", errors: [], verdict: $v}'
+else
+  jq -cn --argjson e "$errors" --argjson v "$verdict" '{valid: false, stage: "schema", errors: $e, verdict: $v}'
+  exit 1
+fi

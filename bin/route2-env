@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# route2-env — run a worker CLI without the director's host markers and injected customisations
+# (docs/hosts.md, "Worker environment").
+#
+#   route2-env -- <command> [args…]
+#
+# Removed: every variable that marks the director's host (so the worker's own detection and the
+# director's ancestry checks are not confused) and every variable that injects plugins, hooks or
+# session plumbing into a child CLI. Measured: an inherited CLAUDE_CODE_PLUGIN_DIRS loaded a
+# hook-carrying plugin into a `claude -p` critic until it was removed. Auth is untouched (it lives
+# in files under $HOME / $CODEX_HOME, not in these variables).
+set -euo pipefail
+
+[[ "${1:-}" == "--" ]] && shift
+[[ $# -gt 0 ]] || { echo "usage: route2-env -- <command> [args…]" >&2; exit 2; }
+
+drop=(CLAUDECODE AI_AGENT)
+while IFS='=' read -r name _; do
+  case "$name" in
+    CLAUDE_CONFIG_DIR) ;;                       # where Claude Code's auth lives: keep
+    CLAUDE_*) drop+=("$name") ;;                # CLAUDE_CODE_*, CLAUDE_PLUGIN_*, CLAUDE_EFFORT, CLAUDE_PID…
+    CODEX_THREAD_ID|CODEX_SESSION_ID|CODEX_CI|CODEX_SANDBOX|CODEX_SANDBOX_NETWORK_DISABLED) drop+=("$name") ;;
+    CURSOR_AGENT|CURSOR_CONVERSATION_ID|CURSOR_INVOKED_AS|CURSOR_REQUEST_ID|CURSOR_SANDBOX) drop+=("$name") ;;
+    __CURSOR_SANDBOX_ENV_RESTORE|AGENT_TRANSCRIPTS) drop+=("$name") ;;
+  esac
+done < <(env)
+# agy's host marker, once measured, is listed in ROUTE2_AGY_MARKER_VAR (docs/hosts.md).
+[[ -n "${ROUTE2_AGY_MARKER_VAR:-}" ]] && drop+=("$ROUTE2_AGY_MARKER_VAR")
+
+args=()
+for v in "${drop[@]}"; do args+=(-u "$v"); done
+exec env "${args[@]}" "$@"

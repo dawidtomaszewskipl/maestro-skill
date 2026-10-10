@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+# route2-run — launch a worker or test as a detached job (docs/hosts.md, "Jobs").
+#
+#   route2-run --gen N --job ID --run RUN --role ROLE [--kind worker|test] [--cwd DIR]
+#              [--test-cmd "CMD"]… [--test-runner PATH]… -- <command…>
+#
+# Prints {job_id, pid, pgid, pid_starttime, dir} and returns at once; the job runs outside the
+# fence. Files in .route2/jobs/<ID>/: meta.json (written once, inside the fence), out, err (the
+# command's stdout/stderr — route2-run owns the redirection, so the command line carries none),
+# members.jsonl (every process ever seen in the job's tree), exit (integer code, signal:<n> or
+# launch-failed), wrapper.pid.
+#
+# The command runs under a wrapper started with setsid (own session and process group), stdin
+# /dev/null and every descriptor above 2 closed, so it never inherits the fence's lock.
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+
+SD="$(r2_state_dir)"
+POLL="${ROUTE2_MEMBER_POLL:-1}"
+
+# ------------------------------------------------------------------------------------------------
+# __wrapper <jobdir>: the session leader. Starts the command, records members, writes exit.
+if [[ "${1:-}" == "__wrapper" ]]; then
+  set +e
+  J="$2"
+  mapfile -d '' -t CMD < "$J/cmd"
+  cd "$(cat "$J/cwd")" 2>/dev/null || { printf 'launch-failed' > "$J/exit.tmp"; mv "$J/exit.tmp" "$J/exit"; exit 0; }
+  if ! command -v "${CMD[0]}" >/dev/null 2>&1; then
+    printf 'launch-failed' > "$J/exit.tmp"; mv "$J/exit.tmp" "$J/exit"; exit 0
+  fi
+  echo "$$" > "$J/wrapper.pid"
+  "${CMD[@]}" < /dev/null > "$J/out" 2> "$J/err" &
+  child=$!
+  echo "$child" > "$J/leader.pid.tmp"; mv "$J/leader.pid.tmp" "$J/leader.pid"
+
+  declare -A seen=()
+  record_members() {
+    # Descendants of the wrapper (by ppid chain) and members of its process group.
+    local -A ppid_of=() pgid_of=()
+    local p st rest pp pg changed
+    for d in "$(r2_proc)"/[0-9]*; do
+      p="${d##*/}"
+      st="$(cat "$d/stat" 2>/dev/null)" || continue
+      rest="${st##*) }"
+      read -r _ pp pg _ <<<"$rest"
+      ppid_of[$p]="$pp"; pgid_of[$p]="$pg"
+    done
+    local -A inset=([$$]=1)
+    for p in "${!seen[@]}"; do inset[${p%%:*}]=1; done
+    changed=1
+    while [[ $changed -eq 1 ]]; do
+      changed=0
+      for p in "${!ppid_of[@]}"; do
+        [[ -n "${inset[$p]:-}" ]] && continue
+        if [[ -n "${inset[${ppid_of[$p]}]:-}" || "${pgid_of[$p]}" == "$$" ]]; then
+          inset[$p]=1; changed=1
+        fi
+      done
+    done
+    for p in "${!inset[@]}"; do
+      [[ "$p" == "$$" ]] && continue
+      local stt key
+      stt="$(r2_pid_starttime "$p")"; [[ -n "$stt" ]] || continue
+      key="$p:$stt"
+      [[ -n "${seen[$key]:-}" ]] && continue
+      seen[$key]=1
+      jq -cn --arg pid "$p" --arg st "$stt" --arg pp "${ppid_of[$p]:-}" --arg pg "${pgid_of[$p]:-}" \
+        --arg argv "$(r2_pid_cmdline "$p")" --arg cwd "$(r2_pid_cwd "$p")" --arg exe "$(r2_pid_exe "$p")" \
+        '{pid: ($pid|tonumber), starttime: $st, ppid: ($pp|tonumber? // null), pgid: ($pg|tonumber? // null),
+          argv: $argv, cwd: $cwd, exe: $exe}' >> "$J/members.jsonl"
+    done
+  }
+  record_members
+  while kill -0 "$child" 2>/dev/null; do
+    sleep "$POLL"
+    record_members
+  done
+  wait "$child"; rc=$?
+  record_members
+  if (( rc > 128 )); then code="signal:$((rc - 128))"; else code="$rc"; fi
+  printf '%s' "$code" > "$J/exit.tmp"; mv "$J/exit.tmp" "$J/exit"
+  exit 0
+fi
+
+# ------------------------------------------------------------------------------------------------
+parse_args() {
+  gen="" job="" run="" role="" kind="worker" cwd="$PWD"
+  tests=() runners=() cmd=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --gen) gen="$2"; shift 2 ;;
+      --job) job="$2"; shift 2 ;;
+      --run) run="$2"; shift 2 ;;
+      --role) role="$2"; shift 2 ;;
+      --kind) kind="$2"; shift 2 ;;
+      --cwd) cwd="$2"; shift 2 ;;
+      --test-cmd) tests+=("$2"); shift 2 ;;
+      --test-runner) runners+=("$2"); shift 2 ;;
+      --) shift; cmd=("$@"); break ;;
+      *) r2_die "route2-run: unknown option $1" ;;
+    esac
+  done
+  [[ ${#cmd[@]} -gt 0 && -n "$gen" && -n "$job" && -n "$run" && -n "$role" ]] \
+    || r2_die "usage: route2-run --gen N --job ID --run RUN --role ROLE [...] -- <command…>"
+  [[ "$job" =~ ^[A-Za-z0-9._:-]+$ ]] || r2_die "route2-run: job id may hold only [A-Za-z0-9._:-]"
+  [[ "$kind" == worker || "$kind" == test ]] || r2_die "route2-run: --kind is worker or test"
+}
+
+json_list() { if [[ $# -gt 0 ]]; then printf '%s\n' "$@" | jq -R . | jq -sc .; else echo '[]'; fi; }
+
+# __locked <original args…>: the launch step, inside the fence. Creates the job, spawns the
+# wrapper and returns; nothing of the job exists if the fence refused.
+if [[ "${1:-}" == "__locked" ]]; then
+  shift
+  parse_args "$@"
+  J="$SD/jobs/$job"
+  mkdir -p "$SD/jobs"
+  mkdir "$J" 2>/dev/null || r2_die "route2-run: job $job already exists ($J) — job ids are never reused"
+  printf '%s\0' "${cmd[@]}" > "$J/cmd"
+  printf '%s' "$cwd" > "$J/cwd"
+  # Spawn: setsid, stdin /dev/null, stdout/stderr away, every fd above 2 closed.
+  (
+    fds=()
+    for fd in "/proc/$BASHPID/fd"/*; do fds+=("${fd##*/}"); done
+    for n in "${fds[@]}"; do (( n > 2 )) && eval "exec $n>&-" 2>/dev/null; done
+    exec setsid "$0" __wrapper "$J" < /dev/null > /dev/null 2>&1
+  ) &
+  # Wait (<= 10 s) for the wrapper to publish the leader pid or a launch failure.
+  for _ in $(seq 100); do
+    [[ -f "$J/leader.pid" || -f "$J/exit" ]] && break
+    sleep 0.1
+  done
+  pid=""; pgid=""; st=""
+  if [[ -f "$J/leader.pid" ]]; then
+    pid="$(cat "$J/leader.pid")"; st="$(r2_pid_starttime "$pid")"; pgid="$(r2_pid_pgid "$pid")"
+  fi
+  jq -n --arg job "$job" --arg run "$run" --arg role "$role" --arg kind "$kind" --arg cwd "$cwd" \
+    --arg at "$(r2_now)" --arg host "${ROUTE2_HOST:-}" --arg skey "${ROUTE2_SESSION_KEY:-}" \
+    --arg pid "$pid" --arg pgid "$pgid" --arg st "$st" \
+    --arg wpid "$(cat "$J/wrapper.pid" 2>/dev/null || true)" \
+    --argjson t "$(json_list "${tests[@]+"${tests[@]}"}")" \
+    --argjson r "$(json_list "${runners[@]+"${runners[@]}"}")" \
+    --args '{job_id: $job, run_id: $run, role: $role, kind: $kind, cwd: $cwd, started_at: $at,
+             host: $host, session_key: $skey, cmd: $ARGS.positional, test_cmds: $t, test_runners: $r,
+             pid: ($pid|tonumber? // null), pgid: ($pgid|tonumber? // null),
+             pid_starttime: (if $st == "" then null else $st end),
+             wrapper_pid: ($wpid|tonumber? // null)}' "${cmd[@]}" | r2_atomic_write "$J/meta.json"
+  jq -c --arg dir "$J" '{job_id, pid, pgid, pid_starttime, dir: $dir}' "$J/meta.json"
+  exit 0
+fi
+
+parse_args "$@"
+[[ -e "$SD/jobs/$job" ]] && r2_die "route2-run: job $job already exists — job ids are never reused"
+exec "$R2_BIN/route2-lock" exec --gen "$gen" -- "$0" __locked "$@"

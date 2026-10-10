@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# route2-wait — report or wait for a job's state (docs/hosts.md, "Jobs").
+#
+#   route2-wait <job-id> [--max S] [--peek] [--also FILE]
+#
+# Prints one JSON line: {job_id, state, code, elapsed, last_progress_at, progress_source,
+# live_members, unowned}. state:
+#   running    the leader (or the wrapper finishing it) is alive
+#   exited     exit written and no member left — terminated; success only for code "0"
+#   lingering  exit written but members remain (e.g. a writer left a background process)
+#   orphaned   leader gone, no exit, members remain
+#   lost       leader gone, no exit, no member left — terminated, outcome unknown
+#   uncertain  /proc unreadable: never counted as terminated
+# Blocks up to --max seconds (default $ROUTE2_WAIT_MAX or 25) while running; --peek never blocks
+# and never updates the progress record. --also FILE counts FILE's growth as progress too (agy's
+# CLI log). Progress = new bytes on stdout, or on stderr/--also with a last line different from
+# the previous one (a repeated identical error line is not progress).
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+
+SD="$(r2_state_dir)"
+job="${1:-}"; shift || true
+max="${ROUTE2_WAIT_MAX:-25}" peek=0 also=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --max) max="$2"; shift 2 ;;
+    --peek) peek=1; shift ;;
+    --also) also="$2"; shift 2 ;;
+    *) r2_die "route2-wait: unknown option $1" ;;
+  esac
+done
+[[ -n "$job" ]] || r2_die "usage: route2-wait <job-id> [--max S] [--peek] [--also FILE]"
+J="$SD/jobs/$job"
+[[ -d "$J" ]] || r2_die "route2-wait: no job $job"
+
+snapshot() {
+  local leader_alive=false wrapper_alive=false code="" state live="[]" unowned="[]"
+  if [[ ! -r "$(r2_proc)/self/stat" && ! -r "$(r2_proc)/1/stat" ]]; then
+    jq -cn --arg j "$job" '{job_id: $j, state: "uncertain", reason: "/proc unreadable"}'; return
+  fi
+  [[ -f "$J/exit" ]] && code="$(cat "$J/exit")"
+  if [[ ! -f "$J/meta.json" ]]; then
+    if [[ "$code" == "launch-failed" ]]; then
+      jq -cn --arg j "$job" '{job_id: $j, state: "exited", code: "launch-failed"}'
+    else
+      jq -cn --arg j "$job" '{job_id: $j, state: "uncertain", reason: "meta.json missing"}'
+    fi
+    return
+  fi
+  local pid st wpid
+  pid="$(jq -r '.pid // empty' "$J/meta.json")"; st="$(jq -r '.pid_starttime // empty' "$J/meta.json")"
+  wpid="$(jq -r '.wrapper_pid // empty' "$J/meta.json")"
+  [[ -n "$pid" ]] && r2_pid_same "$pid" "$st" && leader_alive=true
+  if [[ -n "$wpid" ]] && kill -0 "$wpid" 2>/dev/null \
+     && [[ "$(r2_pid_cmdline "$wpid")" == *"__wrapper $J"* ]]; then wrapper_alive=true; fi
+
+  # Live members: recorded (pid, starttime) pairs still alive, leader excluded.
+  if [[ -f "$J/members.jsonl" ]]; then
+    live="$(jq -c --arg leader "${pid:-0}" 'select((.pid|tostring) != $leader)' "$J/members.jsonl" \
+      | while IFS= read -r m; do
+          p="$(jq -r .pid <<<"$m")"; s="$(jq -r .starttime <<<"$m")"
+          if r2_pid_same "$p" "$s"; then printf '%s\n' "$m"; fi
+        done | jq -sc 'unique_by(.pid)')"
+  fi
+
+  if [[ "$leader_alive" == true ]]; then state=running
+  elif [[ -z "$code" && "$wrapper_alive" == true ]]; then state=running
+  elif [[ -n "$code" ]]; then
+    if [[ "$(jq 'length' <<<"$live")" -gt 0 ]]; then state=lingering; else state=exited; fi
+  else
+    if [[ "$(jq 'length' <<<"$live")" -gt 0 ]]; then state=orphaned; else state=lost; fi
+  fi
+
+  # Unowned: processes in the job's cwd whose FULL command line equals one this job recorded,
+  # that were never members. Reported, never signalled.
+  local cwd want
+  cwd="$(jq -r .cwd "$J/meta.json")"
+  want="$(jq -c '[(.cmd | join(" "))] + (.test_cmds // [])' "$J/meta.json")"
+  unowned="$(for p in $(r2_own_pids); do
+      [[ "$p" == "$$" || "$p" == "$PPID" ]] && continue
+      c="$(r2_pid_cwd "$p")"; [[ "$c" == "$cwd" || "$c" == "$cwd"/* ]] || continue
+      cl="$(r2_pid_cmdline "$p")"
+      jq -e --arg cl "$cl" 'index($cl) != null' <<<"$want" >/dev/null || continue
+      grep -q "\"pid\":$p," "$J/members.jsonl" 2>/dev/null && continue
+      jq -cn --arg p "$p" --arg cl "$cl" '{pid: ($p|tonumber), argv: $cl}'
+    done | jq -sc .)"
+
+  # Progress.
+  local now ob eb ab lastline prev pb pe pa pl lp src=""
+  now="$(date +%s)"
+  ob="$(stat -c %s "$J/out" 2>/dev/null || echo 0)"; eb="$(stat -c %s "$J/err" 2>/dev/null || echo 0)"
+  ab=0; [[ -n "$also" ]] && ab="$(stat -c %s "$also" 2>/dev/null || echo 0)"
+  lastline="$( { tail -n1 "$J/err" 2>/dev/null || true
+                  if [[ -n "$also" ]]; then tail -n1 "$also" 2>/dev/null || true; fi; } | sha256sum | cut -c1-16)"
+  prev="$(cat "$J/progress" 2>/dev/null || echo '{}')"
+  pb="$(jq -r '.out_bytes // 0' <<<"$prev")"; pe="$(jq -r '.err_bytes // 0' <<<"$prev")"
+  pa="$(jq -r '.also_bytes // 0' <<<"$prev")"; pl="$(jq -r '.last_line // ""' <<<"$prev")"
+  lp="$(jq -r '.last_progress_at // empty' <<<"$prev")"
+  [[ -n "$lp" ]] || lp="$(date -d "$(jq -r .started_at "$J/meta.json")" +%s 2>/dev/null || echo "$now")"
+  if (( ob > pb )); then lp="$now"; src="stdout"
+  elif (( eb > pe || ab > pa )) && [[ "$lastline" != "$pl" ]]; then lp="$now"; src="stderr/log"
+  fi
+  if [[ $peek -eq 0 ]]; then
+    jq -cn --argjson ob "$ob" --argjson eb "$eb" --argjson ab "$ab" --arg ll "$lastline" --argjson lp "$lp" \
+      '{out_bytes: $ob, err_bytes: $eb, also_bytes: $ab, last_line: $ll, last_progress_at: $lp}' \
+      | r2_atomic_write "$J/progress"
+  fi
+  local started elapsed
+  started="$(date -d "$(jq -r .started_at "$J/meta.json")" +%s 2>/dev/null || echo "$now")"
+  elapsed=$(( now - started ))
+  jq -cn --arg j "$job" --arg state "$state" --arg code "$code" --argjson el "$elapsed" \
+    --argjson lp "$lp" --arg src "$src" --argjson live "$live" --argjson un "$unowned" \
+    '{job_id: $j, state: $state, code: (if $code == "" then null else $code end), elapsed: $el,
+      last_progress_at: ($lp | todate), idle_s: (now - $lp | floor),
+      progress_source: (if $src == "" then null else $src end),
+      live_members: $live, unowned: $un}'
+}
+
+if [[ $peek -eq 1 ]]; then snapshot; exit 0; fi
+deadline=$(( $(date +%s) + max ))
+while :; do
+  out="$(snapshot)"
+  st="$(jq -r .state <<<"$out")"
+  if [[ "$st" != running || $(date +%s) -ge $deadline ]]; then printf '%s\n' "$out"; exit 0; fi
+  sleep 2
+done

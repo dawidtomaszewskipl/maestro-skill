@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# route2-roles — resolve critics and reviewer under the cross-family rule (SKILL.md, "The
+# cross-family rule"; docs/hosts.md has no part in it). Deterministic, so it can be tested.
+#
+#   route2-roles < input.json
+#
+# Input:  {builder: slot, drafter: slot|null, high_stakes: bool, eligible: [slot…],
+#          named_critics: [slot…], policy_critic: slot|null, policy_reviewer: slot|null,
+#          fable_budget: bool, director_family: family|null}
+#   eligible = slots with at least one eligible (model, transport) pair this run; "self" counts
+#   as the director's family.
+# Output: {critics: [slot…], reviewer: slot|null, degraded: family|null, notes: [...],
+#          stop: null | {reason, remedy}}
+set -euo pipefail
+
+# shellcheck disable=SC2016  # jq program
+exec jq -c '
+. as $in
+| def fam($s): if $s == "self" then ($in.director_family // "unknown")
+    elif ($s | IN("opus","fable","sonnet","haiku")) then "claude"
+    elif ($s | IN("astra","sol","luna","terra")) then "openai"
+    elif $s == "gemini" then "google" elif $s == "grok" then "xai" else "unknown" end;
+  def line($s): if $s == "self" then null else $s end;
+($in.eligible // []) as $el
+| (fam($in.builder)) as $bf
+| (if $in.drafter then fam($in.drafter) else null end) as $df
+| ([$bf, $df] | map(select(. != null))) as $excl
+| ($el | map(fam(.)) | unique | map(select(. != "unknown"))) as $fams
+| { claude: {critic: ["sol","astra","gemini","grok"], hs: ["astra","sol","gemini","grok"], second: ["google","xai","openai"]},
+    openai: {critic: ["opus","gemini","grok","sonnet"],
+             hs: ((if $in.fable_budget then ["fable"] else [] end) + ["opus","gemini","grok"]),
+             second: ["google","xai","claude"]},
+    google: {critic: ["sol","opus","grok"], hs: ["astra","fable","opus","grok"], second: ["openai","claude","xai"]},
+    xai:    {critic: ["sol","opus","gemini"], hs: ["astra","fable","opus","gemini"], second: ["openai","claude","google"]} } as $T
+| def ok($s): ($el | index($s)) != null and (($excl | index(fam($s))) == null);
+  def first_of($l): [ $l[] | select(ok(.)) ] | first // null;
+  def slot_of_family($f): {openai: ["sol","astra","luna"], claude: ["opus","fable","sonnet"],
+                           google: ["gemini"], xai: ["grok"]}[$f] // [] | first_of(.);
+  def prov($s): if $s == "grok" then ["grok is provisional (unmeasured)"] else [] end;
+
+# --- the builder family must be known -----------------------------------------------------------
+if $bf == "unknown" then
+  {critics: [], reviewer: null, degraded: null, notes: [],
+   stop: {reason: "builder family unknown (self with an unknown director model)", remedy: "pick an external builder, or state the director model from a measured source"}}
+
+# --- named critics: they beat policy, never the family rule -----------------------------------
+elif (($in.named_critics // []) | length) > 0 then
+  ($in.named_critics) as $n
+  | ([ $n[] | . as $x | select(($excl | index(fam($x))) != null) ]) as $bad
+  | if ($bad | length) > 0 then
+      {critics: [], reviewer: null, degraded: null, notes: [],
+       stop: {reason: "named critic \($bad | join(",")) shares the builder or drafter family", remedy: "name a critic from another family"}}
+    elif $in.high_stakes and ($n | length) == 2 and fam($n[0]) == fam($n[1]) then
+      {critics: [], reviewer: null, degraded: null, notes: [],
+       stop: {reason: "two named critics from one family on a high-stakes change", remedy: "name critics from two families"}}
+    else
+      {critics: $n,
+       reviewer: ($in.policy_reviewer as $r | if $r and ok($r) then $r else $n[0] end),
+       degraded: null, notes: ([ $n[] | prov(.)[] ]), stop: null}
+    end
+
+# --- single eligible family: degraded same-family critique ---------------------------------------
+elif ($fams | length) == 1 then
+  ($fams[0]) as $f
+  | ([ $in.builder, $in.drafter ] | map(select(. != null)) | map(line(.))) as $used
+  | (if $f == "claude" then
+       (if ($in.builder | IN("sonnet","opus")) then ["fable","opus","sonnet"] else ["opus","fable","sonnet"] end)
+     elif $f == "openai" then
+       (if $in.builder == "astra" then ["sol","luna"] else ["astra","sol","luna"] end)
+     else [] end) as $order
+  | ([ $order[] | . as $x | select(($el | index($x)) != null and ($used | index($x)) == null) ] | first // null) as $c
+  | if $c == null then
+      {critics: [], reviewer: null, degraded: $f, notes: [],
+       stop: {reason: "only the \($f) family is eligible and it has no second model line for critique", remedy: "make another family eligible"}}
+    else
+      {critics: [$c], reviewer: $c, degraded: $f,
+       notes: (["families=\($f) (degraded: same-family critique)"]
+              + (if $f == "openai" and $c == "astra" then ["Astra critiques an OpenAI build: allowed only in OpenAI-only degraded mode"] else [] end)),
+       stop: null}
+    end
+
+# --- the ordinary rule -----------------------------------------------------------------------------
+else
+  ($T[$bf] // null) as $row
+  | if $row == null then
+      {critics: [], reviewer: null, degraded: null, notes: [],
+       stop: {reason: "builder family unknown", remedy: "the director family must be known for self, or pick an external builder"}}
+    else
+      ($in.policy_critic as $p | if $p and ok($p) then $p else null end) as $pc
+      | (if $pc then $pc else first_of(if $in.high_stakes then $row.hs else $row.critic end) end) as $c1
+      | if $c1 == null then
+          {critics: [], reviewer: null, degraded: null, notes: [],
+           stop: (if $df then
+                    {reason: "cascade: no eligible critic outside both the implementer and the drafter families",
+                     remedy: (if $in.high_stakes then "drop the cascade" else "drop the cascade or change the drafter" end)}
+                  else {reason: "no eligible cross-family critic", remedy: "make another family eligible"} end)}
+        else
+          (if $in.high_stakes then
+             ([ $row.second[] | select(. != fam($c1)) | slot_of_family(.) | select(. != null) ] | first // null)
+           else null end) as $c2
+          | ($in.policy_reviewer as $r | if $r and ok($r) then $r else $c1 end) as $rev
+          | {critics: ([$c1, $c2] | map(select(. != null))), reviewer: $rev, degraded: null,
+             notes: ( (if $pc then ["critic=\($pc) (policy)"] else [] end)
+                      + (if $in.high_stakes and $c2 == null then ["high stakes: no second critic (fewer than three eligible families)"] else [] end)
+                      + prov($c1) + (if $c2 then prov($c2) else [] end) ),
+             stop: null}
+        end
+    end
+end
+'
