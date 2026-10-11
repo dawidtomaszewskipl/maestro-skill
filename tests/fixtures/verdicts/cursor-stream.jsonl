@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","model":"Grok 4.7 256K Medium","session_id":"s"}
+{"type":"result","subtype":"success","is_error":false,"result":"Sprawdzam plan.{\"verdict\":\"approve\",\"blocking_findings\":[],\"major_findings\":[],\"non_blocking_notes\":[\"n\"],\"assumptions\":[]}","session_id":"s","usage":{"inputTokens":1,"outputTokens":1}}

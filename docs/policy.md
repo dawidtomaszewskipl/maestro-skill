@@ -1,6 +1,6 @@
 # Roster policy
 
-Route's routing is a written rubric (see "Roster" in `SKILL.md` and "How the
+route2's routing is a written rubric (see "Roster" in `SKILL.md` and "How the
 director decides" in the README). A policy file lets you bend that rubric once instead of correcting
 the director every run — "never pick Fable here", "critic is always Gemini", "this repo builds with
 Sol by default".
@@ -9,8 +9,12 @@ Sol by default".
 
 | File | Scope | Typical use |
 | --- | --- | --- |
-| `route.policy.yml` at the repository root | the project, committed | team conventions: default implementer, banned slots, a family the team does not license |
-| `~/.claude/route.policy.yml` | you, every project | your own budget: "I never spend Fable on builds" |
+| `route2.policy.yml` at the repository root | the project, committed | team conventions: default implementer, banned slots or transports, a family the team does not license, pinned models |
+| `~/.config/route2/policy.yml` | you, every project, every host | your own budget: "I never spend Fable on builds", "no Claude through Cursor" |
+
+The user file lives outside `~/.claude` because route2 runs in four hosts. route's own policy
+files (`route.policy.yml`, `~/.claude/route.policy.yml`) are **not** read: their schema has no xAI
+family, no transports and no pins.
 
 Precedence, highest first: **command-line flags → repo policy → user policy → skill defaults**,
 resolved **per key**: a scalar, each `effort.*` entry and each `families.*` entry is taken from the
@@ -30,10 +34,13 @@ All optional. Slot names are the `--model` values; effort values are the CLI voc
 | `reviewer: slot` | Preferred cross-family reviewer for `--review=full` and `--review=cross`. |
 | `cascade_drafter: slot` | Default drafter for `--cascade` (default `luna`). |
 | `critique_rounds: n` | Plan-critique cap, 1–8 (default 2). `--rounds` beats it. |
-| `effort: {critique, high_stakes_critique, build, review, draft}` | Per-stage effort for OpenAI and Google workers (defaults `medium`, `high`, `medium`, `high`, `medium`). Each stage takes one value, or a per-family pair (`openai:` / `google:`) when the families need different levels. A single value above a family's range is clamped to that family's maximum (Gemini: `high`) and marked `(clamped)`. Claude subagents have no dial. |
-| `families: {openai\|google: on\|off}` | Switch a family off even if its CLI is installed and signed in, or `on` to lift a lower-level `off`. Claude cannot be switched off — it is the director. |
+| `effort: {critique, high_stakes_critique, build, review, draft}` | Per-stage effort (defaults `medium`, `high`, `medium`, `high`, `medium`), one vocabulary `low\|medium\|high\|xhigh\|max`. Each stage takes one value, or per-family values (`openai:`, `google:`, `xai:`, `claude:`) when the families need different levels. A value above a transport's range is clamped to its maximum (agy: `high`; Grok: `xhigh`) and marked `(clamped)`. The Agent tool has no dial; `claude -p`, agy and Cursor Claude slugs do. |
+| `families: {claude\|openai\|google\|xai: on\|off}` | Switch a family off even if its CLIs are installed and signed in, or `on` to lift a lower-level `off`. Claude can be switched off too — route2's director is whatever host runs it, and `self` follows the director's family. |
+| `transports: {deny: [<slot>@<transport>, …]}` | Transports the director never picks on its own, e.g. `fable@cursor` (Cursor's Fable is "NO ZDR"), `opus@agy`. A denied transport is skipped in the slot's order and never switched onto; an explicit `@transport` naming it still wins, with a warning. |
+| `pin: {<slot>: "<version>" \| {<transport>: "<slug>"}}` | Fix a line instead of following the newest model (`docs/catalog.md`, "Pins"): `pin: {sol: "6.1"}` (every transport must serve 6.1), `pin: {sol: {codex: "gpt-6.1-sol"}}` (that slug, other transports off), `pin: {opus: {native: "claude-opus-5"}}`. A pin missing from the catalog halts. |
+| `cursor_fast: true\|false` | Allow Cursor's `-fast` variants (default `false`). |
 
-The example with comments: [`examples/route.policy.yml`](examples/route.policy.yml).
+The example with comments: [`examples/route2.policy.yml`](examples/route2.policy.yml).
 
 ## How it is applied
 
@@ -62,12 +69,15 @@ alternative is chosen. A slot whose model probe fails is different: the run halt
 
 Like an illegal flag, an illegal policy stops the loop with a question instead of guessing:
 
-- a slot name that is not in the roster (`gemini-pro`, `gpt-5`);
+- a slot name that is not in the roster (`gemini-pro`, `gpt-5`), or a transport a slot does not have
+  (`haiku@agy`, `fable@agy`, `grok@codex`);
+- a `pin` whose version or slug is not in that transport's catalog;
 - a `cascade_drafter` other than `luna`, `haiku` or `gemini`;
 - a `critique_rounds` outside 1–8;
 - an effort that is not a level at all (`hgih`), or a per-family value outside that family's range
-  — Gemini takes `low|medium|high`, an OpenAI model its own catalog list (Astra/Sol/Terra: up to
-  `ultra`, Luna: up to `max`); a single shared value is clamped instead (see `effort` above);
+  — agy takes `low|medium|high`, Grok `low…xhigh`, Cursor Claude `low…max`, an OpenAI model its own
+  catalog list (up to `ultra` for Astra/Sol/Terra, `max` for Luna); a single shared value is
+  clamped instead (see `effort` above);
 - an effective, non-overridden `implementer` or `cascade_drafter` that is denied or belongs to a
   family switched off;
 - an unavailable family that a flag requires;

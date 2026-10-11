@@ -22,10 +22,9 @@ while IFS='=' read -r name _; do
     CODEX_THREAD_ID|CODEX_SESSION_ID|CODEX_CI|CODEX_SANDBOX|CODEX_SANDBOX_NETWORK_DISABLED) drop+=("$name") ;;
     CURSOR_AGENT|CURSOR_CONVERSATION_ID|CURSOR_INVOKED_AS|CURSOR_REQUEST_ID|CURSOR_SANDBOX) drop+=("$name") ;;
     __CURSOR_SANDBOX_ENV_RESTORE|AGENT_TRANSCRIPTS) drop+=("$name") ;;
+    ANTIGRAVITY_*) drop+=("$name") ;;           # agy's session plumbing (measured 2026-10-11)
   esac
 done < <(env)
-# agy's host marker, once measured, is listed in ROUTE2_AGY_MARKER_VAR (docs/hosts.md).
-[[ -n "${ROUTE2_AGY_MARKER_VAR:-}" ]] && drop+=("$ROUTE2_AGY_MARKER_VAR")
 
 args=()
 for v in "${drop[@]}"; do args+=(-u "$v"); done

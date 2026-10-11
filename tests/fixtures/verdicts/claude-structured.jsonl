@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","model":"claude-opus-5-5","session_id":"s","tools":["Read","Grep","Glob"]}
+{"type":"result","subtype":"success","is_error":false,"result":"","structured_output":{"verdict":"approve","blocking_findings":[],"major_findings":[],"non_blocking_notes":["n"],"assumptions":[]},"permission_denials":[],"session_id":"s"}

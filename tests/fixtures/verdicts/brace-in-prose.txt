@@ -1,0 +1,2 @@
+I checked the {curly} braces in section 3 first.
+{"verdict":"approve","blocking_findings":[],"major_findings":[],"non_blocking_notes":["n"],"assumptions":[]}

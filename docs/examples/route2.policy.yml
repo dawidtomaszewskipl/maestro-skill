@@ -1,0 +1,63 @@
+# route2.policy.yml — standing roster preferences for the route2 skill.
+#
+# Put this file at the root of a repository (team-shared, committed) or at
+# ~/.config/route2/policy.yml (your own defaults). Precedence:
+#   command-line flags  >  repo route2.policy.yml  >  ~/.config/route2/policy.yml  >  skill defaults
+# Every key is optional. Slot names are the --model values:
+#   sonnet opus fable haiku astra sol luna terra gemini grok self
+# Transports: native agy cursor codex (a slot@transport pair names one).
+# Effort values: low medium high xhigh max (ultra for OpenAI only); clamped per transport.
+
+# Slots the director never picks on its own. An explicit --model still wins,
+# with a warning in the assignment line.
+deny:
+  - fable
+  - haiku
+
+# Default implementer when --model is absent. Without this key the rubric decides.
+implementer: sol
+
+# Preferred critic and reviewer when the cross-family rule allows them
+# (Opus is cross-family to the Sol implementer above; Fable is denied, so it is not listed here).
+critic: opus
+reviewer: opus
+
+# Default drafter for --cascade (luna | haiku | gemini; Google is switched off below).
+cascade_drafter: luna
+
+# Plan-critique cap, 1-8 (default 2). --rounds on the command line beats it.
+critique_rounds: 2
+
+# Per-stage effort. A stage takes one value, or per-family values (openai/google/xai/claude)
+# when the families need different levels (agy stops at high, Grok at xhigh; a single higher
+# value is clamped and marked (clamped)).
+effort:
+  critique: medium
+  high_stakes_critique:
+    openai: xhigh
+    google: high
+  build: medium
+  review: high
+  draft: medium
+
+# Switch a family off even though its CLI is installed and signed in (on | off;
+# `on` lifts a lower-precedence `off`, it cannot make an absent CLI available).
+families:
+  google: off
+  # xai: on        # Grok through Cursor; on by default when `agent` is installed and signed in
+  # claude: on     # can be switched off too (route2's director is whatever host runs it)
+
+# Transports the director never picks on its own (an explicit slot@transport still wins).
+transports:
+  deny:
+    - fable@cursor     # Cursor's Fable models are "NO ZDR"
+    - opus@cursor
+
+# Pin a line instead of following the newest model (docs/catalog.md, "Pins").
+pin:
+  sol: "6.1"                         # every transport of the slot must serve 6.1
+  # opus:                           # exact slug on one transport, the others off
+  #   native: claude-opus-5-5
+
+# Allow Cursor's -fast variants (default false).
+cursor_fast: false

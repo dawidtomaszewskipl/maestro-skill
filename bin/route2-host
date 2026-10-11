@@ -64,7 +64,7 @@ marker_present() {
     codex)       [[ -n "${CODEX_THREAD_ID:-}" ]] ;;
     cursor)      [[ "${CURSOR_AGENT:-}" == "1" && -n "${CURSOR_CONVERSATION_ID:-}" ]] ;;
     claude-code) [[ "${CLAUDECODE:-}" == "1" ]] ;;
-    agy)         [[ -n "${ROUTE2_AGY_MARKER_VAR:-}" && -n "${!ROUTE2_AGY_MARKER_VAR:-}" ]] ;;
+    agy)         [[ "${ANTIGRAVITY_AGENT:-}" == "1" && -n "${ANTIGRAVITY_CONVERSATION_ID:-}" ]] ;;
     *)           return 1 ;;
   esac
 }
@@ -74,7 +74,7 @@ session_key_of() {
     codex)       printf '%s' "${CODEX_THREAD_ID:-}" ;;
     cursor)      printf '%s' "${CURSOR_CONVERSATION_ID:-}" ;;
     claude-code) printf '%s' "${CLAUDE_CODE_SESSION_ID:-}" ;;
-    agy)         if [[ -n "${ROUTE2_AGY_MARKER_VAR:-}" ]]; then printf "%s" "${!ROUTE2_AGY_MARKER_VAR:-}"; fi ;;
+    agy)         printf '%s' "${ANTIGRAVITY_CONVERSATION_ID:-}" ;;
   esac
 }
 
@@ -105,15 +105,32 @@ model_line() {
 # --- walk the ancestry --------------------------------------------------------------------------
 start="${ROUTE2_HOST_START_PID:-$PPID}"
 host="" host_pid="" visible=false pid="$start" hops=0
+declare -A seen_hosts=()
 while [[ -n "$pid" && "$pid" -gt 1 && $hops -lt 64 ]]; do
   if [[ -r "$(r2_proc)/$pid/stat" ]]; then
     visible=true
     h="$(host_of_pid "$pid")"
-    if [[ -n "$h" ]]; then host="$h"; host_pid="$pid"; ev "ancestor $pid is $h"; break; fi
+    if [[ -n "$h" ]]; then
+      seen_hosts[$h]=1
+      if [[ -z "$host" ]]; then host="$h"; host_pid="$pid"; ev "ancestor $pid is $h"; fi
+    fi
   fi
   pid="$(r2_pid_ppid "$pid")"
   hops=$((hops + 1))
 done
+
+# Markers are inherited downward, so a host whose marker is present ran somewhere above us. If
+# that host is not in the visible ancestry, a sandbox hid part of the chain (measured: Cursor's
+# sandbox hides the Cursor process; Codex's hides everything) and the nearest visible host may
+# be an OUTER one. Then the ancestry is not trusted and the markers-only rule decides.
+hidden=()
+for h in codex cursor agy claude-code; do
+  if marker_present "$h" && [[ -z "${seen_hosts[$h]:-}" ]]; then hidden+=("$h"); fi
+done
+if [[ -n "$host" && ${#hidden[@]} -gt 0 ]]; then
+  ev "marker of ${hidden[*]} present but not in the visible ancestry: ancestry incomplete"
+  host="" host_pid=""
+fi
 
 if [[ -n "$host" ]]; then
   if marker_present "$host"; then

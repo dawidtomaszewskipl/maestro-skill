@@ -1,14 +1,26 @@
 # Checkpoint
 
-`.route/CHECKPOINT.md` is what makes a route run resumable after a quota wall, an API failure, a
-safety stop or a closed laptop. It is rewritten in place — never appended — after every stage
-transition, at every worker launch (with the session id, the one write that saves resumability),
-at every worker finish, after each gate or fix round, and on any blocker.
+`.route2/CHECKPOINT.md` is what makes a route2 run resumable after a quota wall, an API failure, a
+safety stop, a closed laptop or a host that ended its session. It is rewritten in place — never
+appended — after every stage transition, at every worker launch (with the session id and the job
+id, the one write that saves resumability), at every worker finish, after each gate or fix round,
+and on any blocker. **It is written only through `"$R2/bin/route2-state" --gen N write
+CHECKPOINT.md`**: that checks the file against its last audit entry first and refuses one changed
+by anything else (`docs/hosts.md`, "Read-only proof" in `docs/commands.md`).
 
 ## Front matter
 
 ```yaml
-run_id: 2026-09-06T10-31-route-a1b2
+skill: route2              # a checkpoint without it is not route2's (route's lives in .route/)
+run_id: 2026-09-06T10-31-route2-a1b2
+host: {name: codex, interactive: true, session_key: 01a1283f-…, host_pid: 102147, host_pid_starttime: "14828171"}
+director: {family: openai, model_line: sol, model_id: gpt-6.1-sol, source: "rollout turn_context"}
+lock: {token: 9c0e…, generation: 3}   # the token is what --resume presents; the generation fences
+catalog:                   # frozen at stage 0 step 5 — sticky for the run; --resume re-probes these exact slugs
+  sol:    {version: "6.1", transport: codex, slug: gpt-6.1-sol, source: live}
+  opus:   {version: "5.5", transport: native, slug: claude-opus-5-5, order: [native, agy, cursor]}
+  gemini: {version: "3.8", transport: agy, slug: gemini-3.8-flash-medium}
+  grok:   {version: "4.7", transport: cursor, slug: grok-4.7-medium, provisional: true}
 written_at: 2026-09-06T11:02:14+02:00
 task: "CRUD screens for the tags dictionary"
 flags: "--model=sol --review=cross --cascade --rounds=2 --tests=covering"
@@ -17,9 +29,9 @@ plan_only: false        # true after a --plan-only run; plan_sha256 is then the 
 plan_sha256: ""
 tasks:                  # only after --setup with separate runs
   - {id: 1, text: "CRUD screens for the tags dictionary", flags: "--model=sol --review=cross --cascade --rounds=2 --tests=covering",
-     status: in_progress, plan: .route/tasks/1/PLAN.md, plan_sha256: "", critics: []}
+     status: in_progress, plan: .route2/tasks/1/PLAN.md, plan_sha256: "", critics: []}
   - {id: 2, text: "tag filter in the posts list", flags: "--model=opus --plan-only --tests=browser",
-     status: queued, plan: .route/tasks/2/PLAN.md, plan_sha256: "", critics: []}
+     status: queued, plan: .route2/tasks/2/PLAN.md, plan_sha256: "", critics: []}
                         # status: queued | in_progress | planned (a --plan-only run finished) | done
 current_task: 1
 branch: feature/tags-crud
@@ -29,33 +41,39 @@ round: 1
 fix_cap: 3              # fix-loop cap: 3 unless an answered decision raised it (docs/unattended.md;
                         # flag_sources names it); absent = 3; restored with the configuration
 roster:
-  implementer: {slot: sol, model_requested: gpt-6.1-sol, effort: medium}
+  implementer: {slot: sol, transport: codex, model_requested: gpt-6.1-sol, effort: medium}
   drafter:     {slot: luna, model_requested: gpt-6-luna, effort: medium}
-  critic:      {slot: gemini, model_requested: gemini-3.8-flash-medium, effort: medium}
+  critic:      {slot: gemini, transport: agy, model_requested: gemini-3.8-flash-medium, effort: medium}
   second_critic: {slot: "", model_requested: "", effort: ""}
-  reviewer:    {slot: fable, model_requested: fable, effort: ""}
+  reviewer:    {slot: fable, transport: native, model_requested: claude-fable-5-1, effort: high}
 codex: {config_mode: isolated, mode_reason: ""}   # the run default, decided at stage 0 step 3;
                          # pinned + the config.toml key that forced it. Never touched by a runtime refresh.
 sessions:
   codex:                 # one record per Codex thread; a continuation is built from it, not from the default
-    - {id: 01a075d7-9c4e-7580-b41d-0ce7c87bf4b9, role: build, config_mode: isolated, mode_reason: "",
-       rung: 1, approvals_form: "", rollout_offset: 0, worktree: "", baseline: "", fingerprint: ""}
+    - {id: 01a075d7-9c4e-7580-b41d-0ce7c87bf4b9, role: build, job: 2026-09-06T10-31-route2-a1b2.build.r1.a1,
+       config_mode: isolated, mode_reason: "", rung: 1, approvals_form: "", rollout_offset: 0,
+       worktree: "", baseline: "", fingerprint: ""}
                          # rollout_offset = the rollout's line count before the latest resume;
-                         # a parallel worker: worktree: .route/worktrees/<part>, baseline: <SHA of its start
+                         # a parallel worker: worktree: .route2/worktrees/<part>, baseline: <SHA of its start
                          # commit or latest route-integrated commit>, fingerprint as for `tree`, run inside it
-  agy:   [b538f8bb-9a0e-4978-bc3d-988ccef298eb]
-  claude: []             # subagent ids, continued with SendMessage within the session;
+  agy:   [{id: b538f8bb-9a0e-4978-bc3d-988ccef298eb, role: critic, slug: gemini-3.8-flash-medium, job: …}]
+  cursor: [{id: 65d9d73d-c2af-4e49-8102-08ee4bccb856, role: critic, slug: grok-4.7-medium, job: …,
+            init_model: "Grok 4.7 256K Medium"}]
+  claude_cli: [{id: 7c51bcf8-…, role: build, model: claude-opus-5-5, tools: "Read,Edit,Write,Glob,Grep", job: …}]
+  claude: []             # Agent-tool subagent ids, continued with SendMessage within the session;
                          # a worktree subagent as {id: …, worktree: <path>, baseline: <SHA>, fingerprint: …}
+                         # any session that ended by a transport switch: outcome: "transport-switch: native→agy (quota)"
 artifacts:
-  plan: .route/tasks/1/PLAN.md    # the run's PLAN.md (.route/PLAN.md without a queue)
-  briefs: [.route/brief-critique.md, .route/brief-build.md]
-  outputs: [.route/critique.json, .route/build.jsonl, .route/build.txt]
+  plan: .route2/tasks/1/PLAN.md    # the run's PLAN.md (.route2/PLAN.md without a queue)
+  briefs: [.route2/brief-critique.md, .route2/brief-build.md]
+  jobs: [.route2/jobs/2026-09-06T10-31-route2-a1b2.critique.r1.a1, …]   # every call's out/err/answer
 tree_state: dirty-worker   # clean | dirty-worker | dirty-draft | stashed:route-draft-<run_id>
 tree: {branch: feature/tags-crud, head: 3704e20…, fingerprint: 9f2c41…}
                            # rewritten with every checkpoint; fingerprint = sha256 of `git diff HEAD --binary`
                            # followed by each untracked file's path and sha256, in sorted order
 tests: {cmd: "vendor/bin/sail artisan test --compact", last_result: "1104/1104", duration_s: 412, T_slow_s: 417}
-runtime: {codex_version: 0.159.2, agy_version: 1.2.12, doctor_ok: true, probed_at: 2026-09-30T10:31:00+02:00}
+runtime: {codex_version: 0.162.1, agy_version: 1.3.3, agent_version: 2026.10.01, claude_version: 2.1.296,
+          doctor_ok: true, probed_at: 2026-10-11T10:31:00+02:00}
 agy_log: {path: ~/.gemini/antigravity-cli/log/cli-20260906_103105.log, baseline_bytes: 4120}
 blockers: []               # [{kind: quota|api|safety-pause|question, who, at, detail}]
 decisions:                 # answer-required decisions (docs/unattended.md), apart from `blockers`;
@@ -70,8 +88,8 @@ modes:                     # one entry per director session on this run;
 flag_sources: []           # [{flag: "--rounds=3", decision: d-<run_id>-3}]: flags and `fix_cap`
                            # values an answer changed
 open_findings: []
-next_action: "sample build.jsonl; on turn.completed run tests, then review stage"
-ledger: .route/ledger.jsonl
+next_action: "route2-wait the build job; on exited 0 run tests, then review stage"
+ledger: .route2/ledger.jsonl
 ```
 
 ## Body
@@ -109,7 +127,7 @@ recommendation: d-2026-09-06T10-31-route-a1b2-3.a
 answer: null
 ```
 
-**`.route/pending-decision.md`** holds a decision that has no run checkpoint to live in: a
+**`.route2/pending-decision.md`** holds a decision that has no run checkpoint to live in: a
 validation stop (nothing has started), a stop in stage 0 before the first checkpoint, a new
 non-resume task over an unfinished run, several candidates on an unattended resume with no
 answer, and a failed candidate check. It never touches an existing checkpoint; a decision about one
@@ -149,12 +167,22 @@ deleted once its `current` is answered and acted on; a new non-resume invocation
 
 ## Resume procedure
 
-1. Read the checkpoint, and `.route/pending-decision.md` when it exists. At `stage: report`: a
+0. **Lock, host, jobs** (route2). Read `run_id` and the lock token from the checkpoint and take the
+   lock with `route2-lock acquire --resume` — it takes over only a **stale** owner (a live director
+   keeps it: stop, attended ask / unattended row 2). Re-detect the host and your identity
+   (`route2-host`); a different host, family or model line than `host` / `director` → attended:
+   say what changes and ask; unattended: row 2 (`docs/unattended.md` A24). Then reconcile every
+   recorded job (`route2-wait <job> --peek`): `running` → back into the wait loop; `exited` /
+   `lost` → its output is read or the dirty-exit protocol runs; `lingering` / `orphaned` →
+   `route2-kill`; still alive → `result: blocked`, lock kept. Nothing is dispatched before this.
+1. Read the checkpoint, and `.route2/pending-decision.md` when it exists. At `stage: report`: a
    `queued` task starts as a new run with its recorded flags; a `planned` task, or `plan_only:
    true`, is built (SKILL.md, "Building a `--plan-only` plan"); with several candidates, ask which
    (above). With none of these and no open decision there is nothing to resume.
-2. **Re-probe**: `codex doctor --summary`, `agy --version`, the limits — overwrite `runtime` (only
-   `runtime`: the `codex` block and the session records are routing state). Never reason from a
+2. **Re-probe**: `codex doctor --summary`, `agy --version`, `agent status`, `claude auth status`,
+   the limits, and the frozen `catalog` slugs (each one's probe line — the catalog is **not**
+   re-resolved) — overwrite `runtime` (only `runtime`: the `codex` block, `catalog` and the
+   session records are routing state). Never reason from a
    remembered limit. While a decision stays unanswered (step 3) the re-probe is only a check: it is
    reported, not written. Then the `blockers`, attended or not:
    - `quota` and `api` are recoverable: once the re-probe shows the limit or the API back, the run
@@ -187,7 +215,8 @@ deleted once its `current` is answered and acted on; a new non-resume invocation
    under the recorded configuration (`flags`, roster, `fix_cap`), continuing each worker as SKILL.md
    "Launching workers" says: Codex by thread UUID (also after an API or quota stop), from its
    session record — mode, rung tokens, and for a worktree worker from inside its worktree — agy by
-   id only after a `SUCCESS` turn, Claude subagents with `SendMessage` in the same session or anew
-   after a restart.
+   id only after a `SUCCESS` turn, `claude -p` and Cursor by session id with every flag of the
+   role repeated, Claude subagents with `SendMessage` in the same session or anew after a restart.
+   A transport the frozen slot can no longer use → the transport switch (`docs/hosts.md`).
 6. A checkpoint with `plan_only: true` at `stage: report` is not resumed but built: SKILL.md,
    "Building a `--plan-only` plan".

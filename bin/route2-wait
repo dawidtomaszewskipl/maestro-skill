@@ -75,7 +75,7 @@ snapshot() {
   # that were never members. Reported, never signalled.
   local cwd want
   cwd="$(jq -r .cwd "$J/meta.json")"
-  want="$(jq -c '[(.cmd | join(" "))] + (.test_cmds // [])' "$J/meta.json")"
+  want="$(jq -c '[(.cmd | join(" ")), (.leader_argv // empty)] + (.test_cmds // [])' "$J/meta.json")"
   unowned="$(for p in $(r2_own_pids); do
       [[ "$p" == "$$" || "$p" == "$PPID" ]] && continue
       c="$(r2_pid_cwd "$p")"; [[ "$c" == "$cwd" || "$c" == "$cwd"/* ]] || continue

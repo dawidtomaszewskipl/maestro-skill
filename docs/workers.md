@@ -1,36 +1,42 @@
 # Workers and CLI mechanics
 
-Everything here was first checked against **Codex CLI 0.153.4** and **Antigravity CLI 1.1.27** on
-2026-09-06; the catalogs and the flags route uses were re-checked on **Codex CLI 0.155.1** and
-**agy 1.2.8** on 2026-09-22, and the Codex side again on **Codex CLI 0.159.2** on 2026-09-30 (the
-agy facts are still those of 1.2.8). Both rosters and both flag sets move; re-check with `codex exec --help`,
-`codex exec resume --help`, `agy --help` and `agy models` rather than trusting a table that has aged.
+The OpenAI and agy facts below were first checked against **Codex CLI 0.153.4** and **Antigravity
+CLI 1.1.27** on 2026-09-06 and re-checked up to Codex 0.159.2 (2026-09-30) for route 3.x. route2
+re-checked the parts it changes on **2026-10-11** with **Codex CLI 0.162.1**, **agy 1.3.3**,
+**Cursor agent 2026.10.01** and **Claude Code 2.1.296**; those statements say so. Catalogs and flag
+sets move: route2 reads the catalogs live (`docs/catalog.md`) and re-checks a flag with `--help`
+rather than trusting a table that has aged.
 
 ## Family is decided by the model, not by the CLI
 
-The Antigravity catalog is not Gemini-only:
+Two catalogs host other vendors' models next to their own (measured 2026-10-11):
 
 ```
-$ agy models
-gemini-3.8-flash-high     Gemini 3.8 Flash (High)
-gemini-3.8-flash-medium   Gemini 3.8 Flash (Medium)
-gemini-3.8-flash-low      Gemini 3.8 Flash (Low)
-gemini-3.7-flash-high     Gemini 3.7 Flash (High)    ← older Flash generations, also -medium/-low
-gemini-3.6-flash-high     Gemini 3.6 Flash (High)
-gemini-3.1-pro-high       Gemini 3.1 Pro (High)      ← still listed (and -low), removed from the route roster
-claude-sonnet-4-6         Claude Sonnet 4.6 (Thinking)
-claude-opus-4-6-thinking  Claude Opus 4.6 (Thinking)
-gpt-oss-120b-medium       GPT-OSS 120B (Medium)
+$ agy models                                  $ agent --list-models (excerpt)
+gemini-3.8-flash-high   Gemini 3.8 Flash      grok-4.7-high - Grok 4.7  High
+gemini-3.7-flash-high   …                     claude-opus-5-5-high - Claude Opus 5.5 1M High
+gemini-3.1-pro-high     Gemini 3.1 Pro        claude-fable-5-1-high - Claude Fable 5.1 1M (NO ZDR)
+claude-opus-5-5-high    Claude Opus 5.5       gpt-5.6-sol-high - GPT-5.6 Sol 1M High
+claude-sonnet-5-5-high  Claude Sonnet 5.5     gemini-3.7-flash-high - Gemini 3.7 Flash
+gpt-oss-120b-medium     GPT-OSS 120B          kimi-k3-high, glm-5.2-high, composer-2.5, …
 ```
 
-No Claude model newer than 4.6 is in the agy catalog — Opus 5.5 is reachable only as a Claude Code
-subagent. An `agy` call with no `--model` runs the account default. If that is a Claude model, "Google
-critiqued the Claude plan" was Claude critiquing Claude, and nothing in the output says so. Codex
-behaves the same way, taking its model from `~/.codex/config.toml` when `-m` is absent.
+So a slot's family follows the **model** it resolves to, whatever CLI serves it: `opus@agy` and
+`opus@cursor` are Claude, exactly like `opus` through the Agent tool. route2 uses agy's and
+Cursor's Claude models as further **transports** of the Claude slots (SKILL.md, "Roster"), and
+Cursor's Grok as the xAI family. Cursor's GPT and Gemini models are older than what codex and agy
+serve and are not transports; Kimi, GLM, Composer and Muse have no slot. Every Cursor Fable model
+is marked "NO ZDR" (no zero data retention) — a repository whose policy needs ZDR denies
+`fable@cursor` (`transports.deny`).
+
+An `agy` or `agent` call with no `--model` runs the account default, and Codex falls back to
+`~/.codex/config.toml`. If that default is from another family, "Google critiqued the Claude plan"
+was Claude critiquing Claude, and nothing in the output says so.
 
 **Availability is detected, not assumed.** Stage 0 checks three different things, all free of model
-turns: installation (`command -v codex`, `command -v agy`), sign-in (`codex login status` — prints
-`Logged in using ChatGPT` and exits 0; `agy models` succeeding, since it fetches the catalog) and
+turns: installation (`command -v codex|agy|agent|claude`), sign-in (`codex login status` — prints
+`Logged in using ChatGPT` and exits 0; `agy models` succeeding, since it fetches the catalog;
+`agent status` — `✓ Logged in as …`; `claude auth status`) and
 health (`codex doctor --summary`, exit 0 with `0 fail`, **run where the worker will run** — the same
 signed-in install fails doctor inside a sandbox with unreachable endpoints). A health failure makes the
 worker unavailable in that environment, not signed out; none of the checks proves entitlement to a
@@ -46,6 +52,12 @@ verified behaviour — omitting `--model` is the real risk).
 ## OpenAI — `codex exec`
 
 ### Models
+
+route2 resolves the OpenAI lines live (`docs/catalog.md`); the table below is the catalog as route
+3.3 measured it on 0.159.2, kept for its per-model notes. On 2026-10-11 `codex debug models`
+(0.162.1) listed the same `visibility: list` slugs except that `gpt-5.5` is now hidden; `sol`
+resolved to `gpt-6.1-sol`, `astra` to `gpt-6-astra`, `luna` to `gpt-6-luna`, `terra` to
+`gpt-5.6-terra`.
 
 Catalog of Codex CLI **0.159.2**, read from `~/.codex/models_cache.json` on 2026-09-30 (entries
 with `visibility: list`, in catalog priority order):
@@ -76,17 +88,11 @@ The read-only probe cost 18 585 input tokens (12 288 cached) and 8 s on 2026-09-
 keeps its slot; its strengths relative to Astra are not yet measured either. There is no GPT-6
 Terra; the `terra` slot stays on 5.6 and leaves the rubric.
 
-**The catalog is a candidate list, not proof.** `$CODEX_HOME/models_cache.json` (default
-`~/.codex`) is a snapshot: it carries `fetched_at`, `client_version` and an account `identity`, so a
-missing or stale cache says nothing about an upgrade, and a listed model can still be refused for the
-account. So the proof is a probe, remembered: `.route/model-probes.json` (kept across runs) holds
-each slug's last successful probe with the `codex --version`, the catalog `identity` and the config
-mode it ran under. Stage 0 treats a slot as usable when that record is under 7 days old and all three
-still match; otherwise
-it runs one read-only probe with model and effort pinned, in the run's config mode
-(`-c model_reasoning_effort=low`, "Reply with exactly: OK" — about 18.6k input tokens on
-2026-09-30; `docs/commands.md`). Only an error saying the client does not know
-the model means "upgrade Codex". Version minimums go stale with every model drop (Astra's was 0.153.1).
+**The catalog is a candidate list, not proof.** A listed model can still be refused for the account,
+so the proof is a probe, remembered in `.route2/model-probes.json` with its scope (CLI version,
+catalog `identity`, config mode, host) — `docs/catalog.md`, "Probes". A probe costs about 14–19k
+input tokens, mostly cached (14 011 for Astra on 2026-10-11). Only an error saying the client does
+not know the model means "upgrade Codex".
 
 `ultra` is a Codex catalog setting ("maximum reasoning with automatic task delegation"); the API's
 own list stops at `max`. `none` is rejected. Effort goes on the command line as
@@ -169,7 +175,7 @@ its `turn.completed.usage` reports zeros, so ledger token fields for review call
 
 ```bash
 codex exec review --uncommitted -m gpt-6.1-sol --ignore-user-config -c model_reasoning_effort=high --json \
-  -o .route/review.txt < /dev/null > .route/review.jsonl 2> .route/review.stderr.log
+  -o .route2/review.txt < /dev/null > .route2/review.jsonl 2> .route2/review.stderr.log
 codex exec review --base main …          # against a branch
 codex exec review --commit <sha> …       # one commit
 ```
@@ -310,24 +316,116 @@ without spending a model turn. A `/<skill>` prefix in the prompt expands that sk
 (verified: `-p "/xui-development …"` returned the skill's `name` and first heading; cost = the
 whole `SKILL.md` in input tokens).
 
-## Claude — subagents
+## Claude
+
+Four transports serve the Claude lines (SKILL.md, "Roster"): the `Agent` tool (only in an
+interactive Claude Code), `claude -p` (everywhere else, and for an exact native id), agy, and
+Cursor.
+
+### The Agent tool
 
 `Agent` with an explicit `model` and the default `subagent_type`. `subagent_type: "fork"` inherits
-context but **ignores** `model`. No effort dial on the call — the model choice is the dial. Parallel
-write-mode subagents need `isolation: "worktree"`; their briefs give paths relative to the worktree
-root, never the checkout's absolute paths; the director integrates each worktree's result into the
-checkout itself and keeps the worktrees until the report (SKILL.md, "Roster").
+context but **ignores** `model`. No effort dial on the call — the model choice is the dial. The
+`model` parameter takes only the aliases (`opus`, `fable`, `sonnet`, `haiku`), which follow the
+newest model of each line; the completion line names the model served, and route2 compares it with
+the slot's frozen id. Parallel write-mode subagents need `isolation: "worktree"`; their briefs give
+paths relative to the worktree root; the director integrates each worktree's result itself and
+keeps the worktrees until the report (SKILL.md, "Roster").
 
-| Slot | Model (2026-09-22) | Notes for the director |
-| --- | --- | --- |
-| `opus` | Opus 5.5 (`claude-opus-5-5`) | The alias follows the newest Opus. $4 / $20 per MTok (Opus 5: $5 / $25), cache reads $0.20. Anthropic reports gains mostly on multistep work in a real codebase and on code review (more bugs, fewer false alarms), with fewer tokens per finished task, and much more accurate reading of screenshots, charts and diagrams. Thinking is always on; at a given effort it thinks more than Opus 5. Its reports say plainly what it did and what it needs. |
-| `fable` | Fable 5.1 | Most capable and most expensive ($10 / $50). Long turns on hard tasks. Users pulled it out of worker roles over token burn; keep it for the hardest correctness and large UI redesigns. |
-| `sonnet` | Sonnet 5 | Mechanical, convention-heavy builds. |
-| `haiku` | Haiku 4.5 | Bulk edits without judgment; Claude-only cascade drafter. |
+Notes on the models, as measured or published at the time (they age; the ledger is the record):
 
-Claude Code's per-model effort setting (`modelSettings` in `settings.json`) is keyed by model id: an
-entry for `claude-opus-5` says nothing about `claude-opus-5-5`. Whether it reaches subagents at all
-is unverified — route treats subagent effort as unknown and does not record it.
+| Line | Notes |
+| --- | --- |
+| `opus` | Opus 5.5 (`claude-opus-5-5`, 2026-09): $4 / $20 per MTok, cache reads $0.20. Gains mostly on multistep work in a real codebase and on code review, fewer tokens per finished task, much more accurate reading of screenshots, charts and diagrams. Thinking always on. |
+| `fable` | Fable 5.1: most capable and most expensive ($10 / $50). Long turns on hard tasks. Keep it for the hardest correctness and large UI redesigns. |
+| `sonnet` | Mechanical, convention-heavy builds. Sonnet 5.5 in every catalog on 2026-10-11. |
+| `haiku` | Bulk edits without judgment; Claude-only cascade drafter. Haiku 5.5 (`claude-haiku-5-5`, measured through `claude -p --model haiku`). |
+
+Claude Code's per-model effort setting (`modelSettings` in `settings.json`) is keyed by model id;
+whether it reaches subagents is unverified — route2 treats Agent-tool effort as unknown.
+
+### `claude -p`
+
+Measured on Claude Code 2.1.296 (2026-10-11, haiku):
+
+| Flag | What it does for route2 |
+| --- | --- |
+| `--model <alias or full id>` | An alias resolves to the newest model of the line; the full id (`claude-opus-5-5`) pins it. The served model is in the `init` event and `result.modelUsage`. |
+| `--effort low\|medium\|high\|xhigh\|max` | The session effort. |
+| `--tools "<list>"` | **The exclusive built-in tool set** — `init.tools` was exactly the list (`["Glob","Grep","Read"]`); `""` disables every tool. |
+| `--allowedTools "<list>"` | Pre-approves those tools. With `--permission-mode dontAsk` anything not pre-approved is denied without a prompt (a headless run cannot answer one). |
+| `--permission-mode dontAsk\|acceptEdits\|plan\|…` | Critics `dontAsk` with the read tools pre-approved (measured: a `Read` succeeded); builders `acceptEdits`. `bypassPermissions` is never used. |
+| `--strict-mcp-config` (no `--mcp-config`) | No MCP server at all (`init.mcp_servers: []`). |
+| `--setting-sources ""` | No user, project or local settings — no hooks from them. Accepted, and the subscription login still worked (`apiKeySource: "none"`). |
+| `--output-format stream-json --verbose` | `system/init` first — `{model, session_id, tools, mcp_servers, plugins, permissionMode, apiKeySource}` — then events, then `result {subtype, is_error, result, structured_output?, permission_denials, modelUsage, usage, session_id}`. The session id is known before the work starts. |
+| `--json-schema '<schema>'` | Structured output; the verdict arrives as `result.structured_output`. |
+| `--resume <session_id>` | Continues a session. Every safety flag of the role is repeated on it. |
+
+**Inherited customisations.** Measured: a `claude -p` started from a Claude Code session inherited
+`CLAUDE_CODE_PLUGIN_DIRS` and loaded a non-builtin plugin that ships `hooks.json` — into a
+"read-only" critic. `bin/route2-env` removes it (and every other `CLAUDE_*` variable except
+`CLAUDE_CONFIG_DIR`, including `CLAUDE_EFFORT`, which would override `--effort`); with it removed
+`init.plugins` held only Claude Code's builtin plugins. route2 checks `init` on every launch and
+kills a session whose tools, MCP servers, plugins (anything not `@builtin`) or permission mode are
+not the requested ones.
+
+**Edits-only by default.** A `claude -p` builder gets `--tools "Read,Edit,Write,Glob,Grep"` — no
+Bash — and the director runs the tests. A denied Edit or Write fails the turn; a denied Bash on an
+edits-only builder is expected. Writes under `~/.claude/` are refused as "sensitive" whatever the
+mode (measured), so scratch repositories for tests live elsewhere.
+
+**`--bare` is not used**: it reads only `ANTHROPIC_API_KEY` (OAuth and the keychain are never
+read), so it cannot run on a subscription login.
+
+### Claude through agy
+
+`agy --model claude-opus-5-5-<effort>` (and `claude-sonnet-5-5-<effort>`), efforts `low|medium|high`
+— the same lines as Gemini otherwise: headless print mode denies every command, so an agy Claude
+builder is edits-only and an agy Claude critic reads nothing (whole brief in `-p`). agy has no
+Fable and no Haiku. The envelope has no served-model field.
+
+### Claude through Cursor
+
+`agent -p --model claude-opus-5-5-<effort>` (`low…max`; also `fable-5-1`, `sonnet-5-5`,
+`haiku-5-5`), the same mechanics as Grok below. On 2026-10-11 the Cursor account's Claude quota was
+exhausted, so these slugs probe unavailable there; route2 marks them ineligible until a probe
+passes, and verifies the `init.model` mapping on that first successful probe.
+
+## xAI — Cursor `agent`
+
+Measured on agent 2026.10.01 (2026-10-11, `grok-4.7-low`/`-medium`):
+
+| Flag / behaviour | Measured |
+| --- | --- |
+| `-p` | Headless, all tools. A shell command not on the allowlist is `Rejected:` and the run continues (`is_error: false`). |
+| `--output-format stream-json` | `system/init {model: "Grok 4.7 256K Low", session_id, permissionMode, apiKeySource, cwd}` first, `thinking` deltas, tool calls, then `result {subtype, is_error, result, session_id, request_id, usage{inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens}, duration_ms}`. `init.model` is a label: match family, version and effort and ignore decoration such as the context size. |
+| `--mode plan` | Refused a write even together with `--force` ("planning mode blocks changes"). Read-only roles use it. A critique run this way left the checkout fingerprint unchanged in six rounds. |
+| `--sandbox enabled` (no `--force`) | Commands run sandboxed: writes to the workspace and `/tmp` allowed, writes elsewhere (another directory under `$HOME`, `$HOME` itself) denied, outbound network refused by Cursor's proxy (`CONNECT tunnel failed, response 403`), `CURSOR_SANDBOX=native` set. |
+| `--sandbox disabled` (no `--force`) | Shell calls follow the allowlist (`~/.cursor/cli-config.json`, `<project>/.cursor/cli.json`); everything else `Rejected:`. |
+| **`--force` / `--yolo`** | **Turns the sandbox off entirely**: with `--force --sandbox enabled` a worker wrote outside the workspace, into `$HOME`, and reached the network. Never used by route2 except a per-run, user-approved rung 4. |
+| `--resume <session_id>` | Continues the session (same id returned). |
+| `--trust` | Trusts the workspace without a prompt — needed headless. |
+| `--workspace <dir>` | The workspace (a worktree for a parallel writer). |
+| language | The result follows the user's language unless told otherwise; it opened with a prose sentence before the JSON in 2 of 7 critique rounds → `route2-validate` allows leading prose. |
+| schema flag | None. The schema goes into the brief and `route2-validate` checks the verdict. |
+
+Grok as a worker is **provisional** — unmeasured as a builder — and every Assign line says so until
+the ledger shows otherwise. As a critic in route2's own plan review (seven rounds, 2026-10-11) it
+raised findings the other two critics confirmed later.
+
+Not used: `--worktree` (Cursor-managed under `~/.cursor/worktrees` — route2 makes its own),
+`--auto-review`, `--approve-mcps`, `--continue`, `--force` (above), `-fast` model variants unless
+policy `cursor_fast: true`.
+
+## Not used, with the reason
+
+| Option | Why route2 leaves it out |
+| --- | --- |
+| **Codex SDK** (`@openai/codex-sdk`) | It spawns the `codex` binary with `--experimental-json` (documented, `sdk/typescript/src/exec.ts`) — the same thread, events and resume as `codex exec --json`, plus a Node dependency the skill does not otherwise need. |
+| **Claude Agent SDK** | It starts a Claude Code process (documented: `spawnClaudeCodeProcess`); `claude -p` with `stream-json` gives the same session id, events, tools restriction, permission mode and resume. A Python or Node runtime for the same thing is cost without gain. |
+| `claude --bare` | API-key-only authentication (above). |
+| Cursor `--force`, `--yolo`, `--worktree`, `--auto-review`, `--approve-mcps` | Above. |
+| agy `--dangerously-skip-permissions` | route uses `--mode` settings; the flag approves everything. |
 
 ## Schemas
 
@@ -340,9 +438,9 @@ with the same file (critique and gate; review uses the same constructs). The rul
 
 ## Briefs
 
-Write the brief to a file under `.route/` and pass `"$(cat file)"` with `< /dev/null`. External
+Write the brief to a file under `.route2/` and pass `"$(cat file)"` with `< /dev/null`. External
 workers start cold. A brief that works carries: absolute paths (a worktree worker: file references
-and edit boundaries relative to its worktree root, its artifacts at absolute `$REPO/.route/…`
+and edit boundaries relative to its worktree root, its artifacts at absolute `$REPO/.route2/…`
 paths); explicit change boundaries; the
 project's convention files; the binding skills by name; what "done" looks like and which command
 proves it; the output contract. Block-structured (task / boundaries / verification / output), not

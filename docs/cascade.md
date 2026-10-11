@@ -22,6 +22,11 @@ mechanical half.
 
 ## Drafters
 
+route2 keeps the drafters `luna`, `haiku` and `gemini`; **Grok is not a drafter** (it is
+provisional, and a cascade's value rests on a measured cheap drafter). `haiku` drafts through the
+native transport only; on a host without the Agent tool that is `claude -p` with the edits-only tool
+set, so the director runs the drafter's tests as it does for a Gemini drafter.
+
 | Value | Model | Use when |
 | --- | --- | --- |
 | `luna` (default) | GPT-6 Luna via Codex, effort `medium` | the ChatGPT pool is open |
@@ -34,8 +39,9 @@ Illegal: `--cascade` with `--model=luna|haiku`, a drafter equal to the implement
 **Critic family.** Either the implementer or the drafter may end up the builder, and no plan critic
 may share the committed builder's family. So every plan critic comes from a family other than both
 (Opus implements, Luna drafts → `gemini` critiques the plan; Claude only: a Claude model different
-from both). When the eligible families cannot give that (implementer and drafter from two
-families and no third one eligible), `--cascade` halts with a question at the assignment step: drop
+from both; with four families this is satisfiable more often — `route2-roles` removes the drafter's
+family from every critic order first). When the eligible families cannot give that (implementer and
+drafter from two families and no other one eligible), `--cascade` halts with a question at the assignment step: drop
 the cascade or change the drafter. On a high-stakes change it halts with one remedy only: drop the
 cascade.
 
@@ -43,20 +49,20 @@ cascade.
 
 1. **Preconditions.** Plan approved by every required critic; clean tree; `base_sha` in the
    checkpoint.
-2. **Draft.** Write `.route/brief-draft.md` — `.route/brief-build.md` plus the appendix below — and,
-   for a Gemini drafter, `.route/stub-draft.md` pointing at it. The drafter runs at the effective
+2. **Draft.** Write `.route2/brief-draft.md` — `.route2/brief-build.md` plus the appendix below — and,
+   for a Gemini drafter, `.route2/stub-draft.md` pointing at it. The drafter runs at the effective
    draft effort (default `medium` since 3.2: the one recorded `low` draft failed on finish — one-liners, missing tests — not on shape). Background, watchdog as usual, wall cap 25 minutes for the draft only.
 3. **Gate A — mechanical, no model.** The change inventory is `git diff --name-only <base_sha>`
    **plus** `git ls-files --others --exclude-standard` (new files are untracked and invisible to the
    diff); all of it must stay inside the plan's boundaries. **First, whatever comes next, write
-   `.route/draft.diff` fresh from the current tree** — the tracked diff plus each new file as
+   `.route2/draft.diff` fresh from the current tree** — the tracked diff plus each new file as
    `git diff --no-index /dev/null <file>` — so every later step, escalation included, sees this
    draft and never an earlier run's. A `DRAFT_ABORT` line or a draft stopped at its wall cap then goes
    straight to escalation — under `--unattended` a `DRAFT_ABORT` only after the abort classification
    below; otherwise the director runs the tests (never killed) and writes a test summary.
 4. **Gate B — critic from a different eligible family than the drafter** (Claude only: a different
    Claude model than the drafter, marked degraded), at the critique effort. Self-contained brief with
-   the plan, the diff and the test summary; read-only review; `.route/gate-schema.json` enforced. Transport follows the
+   the plan, the diff and the test summary; read-only review; `.route2/gate-schema.json` enforced. Transport follows the
    brief rules in SKILL.md: Codex and Claude get the diff embedded under 40 KB, otherwise its path;
    a Gemini gate reads nothing, so everything goes into `-p`, split into parts above ~100 KB; each
    part names the plan items its slice covers, and the parts combine as SKILL.md "Briefs" says (every
@@ -68,8 +74,8 @@ cascade.
    rounds; every remaining critic/reviewer assignment is re-checked against the actual builder's
    family (in degraded mode, its model).
 7. **Escalate** — also after the second gate round without an accept; that is the planned fallback,
-   not a stop. Drafter session finished or killed. Copy `.route/draft.diff` to
-   `.route/draft-rejected.diff` (`.route/` is untouched by the stash). A draft that left no changes
+   not a stop. Drafter session finished or killed. Copy `.route2/draft.diff` to
+   `.route2/draft-rejected.diff` (`.route2/` is untouched by the stash). A draft that left no changes
    (an early `DRAFT_ABORT`) needs no stash: `tree_state` stays `clean` and the implementer gets the
    empty diff. Otherwise
    `git stash push -u -m route-draft-<run_id>` returns the tree to `base_sha`; the stash name goes into the checkpoint's `tree_state`. The
@@ -88,7 +94,7 @@ Under `--unattended` the director classifies **every** `DRAFT_ABORT` reason befo
 - **Authority** — `DRAFT_ABORT: authority: <question>`, or any reason that is a question about
   authorization, budget, scope or a high-stakes decision: row 2. The run stops with
   `needs-decision` and does **not** escalate — the implementer would face the same gap. The draft
-  is kept as `.route/draft.diff` (written fresh in step 3); the tree is handled as step 7 handles
+  is kept as `.route2/draft.diff` (written fresh in step 3); the tree is handled as step 7 handles
   it — `git stash push -u -m route-draft-<run_id>`, or nothing when the draft left no changes — and
   `tree_state` records it. The decision goes into the checkpoint at `stage: draft`, its options
   saying how to go on with the answer (a new draft with the answer in the brief, or escalation
@@ -124,7 +130,7 @@ Review the draft below against the plan. You are the gate: decide accept / revis
 </task>
 <plan>…contents of the run's PLAN.md…</plan>
 <boundaries>…files/dirs the plan allows…</boundaries>
-<draft_diff>…contents of .route/draft.diff (or: read .route/draft.diff)…</draft_diff>
+<draft_diff>…contents of .route2/draft.diff (or: read .route2/draft.diff)…</draft_diff>
 <tests>…the director's test summary: command, pass/fail counts, failures verbatim…</tests>
 <rules>
 - accept only if the diff covers every plan item, stays inside the boundaries, and the tests pass

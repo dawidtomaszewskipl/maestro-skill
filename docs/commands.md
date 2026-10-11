@@ -1,211 +1,249 @@
 # Launch commands
 
-Read this before the first external launch of a run. `SKILL.md` keeps the invariants; this file
-keeps the exact lines.
+Read this before the first external launch of a run. `SKILL.md` keeps the invariants,
+`docs/hosts.md` how this host launches and waits; this file keeps the exact lines.
 
 ## Launch rules
 
-- Every model turn through an external CLI (`codex exec`, an `agy -p` that reaches a model) and
-  every test run goes through the Bash tool's background mode (`run_in_background: true`), stdout and
-  stderr redirected under `.route/`. Short checks without a model turn (`codex login status`,
-  `codex doctor`, `codex sandbox -- …`, `agy models`, `agy --version`, the `/skills` probe) run in
-  the foreground, and so does the effective-config check (below). Claude workers go through the `Agent` tool instead (section "Claude subagents"). **Never detach in the
-  shell** — no trailing `&`, `nohup`, `setsid`, `disown`: the tool returns at once, no harness task
-  exists, and the completion notification that wakes the director never arrives. A process that must
-  outlive the shell is awaited by the same background command
-  (`until ! kill -0 "$PID"; do sleep 20; done`).
+- **Every call's files live in its job directory**, `.route2/jobs/<job>/` with `<job>` =
+  `<run_id>.<role>.r<round>.a<attempt>` (never reused): the brief the call reads may sit in
+  `.route2/`, but everything the call *writes* — the CLI's stdout and stderr, Codex's `-o` answer —
+  goes into the job directory. The read-only fingerprint treats every other file under `.route2/`
+  as a protected input (`docs/hosts.md`), so an answer written next to the plan would look like a
+  critic editing the run's state.
+- **How a line is run depends on the host** (`docs/hosts.md`, "Adapters"):
+  - **interactive Claude Code**: create the job directory (`mkdir -p .route2/jobs/<job>`) and run
+    the line with the Bash tool's `run_in_background: true`, redirecting stdout and stderr into
+    the job directory yourself — never `&`, `nohup`, `setsid`, `disown`;
+  - **every other host**: `"$R2/bin/route2-run" --gen N --job <job> --run <run_id> --role <role>
+    -- "$R2/bin/route2-env" -- <line>` — route2-run creates the job directory and owns stdout and
+    stderr (`out`, `err`), so the line carries **no redirection of its own**; then
+    `"$R2/bin/route2-wait" <job> --max <n>` in a loop.
+  The lines below are written for the second form (no redirections). In an interactive Claude
+  Code append `< /dev/null > .route2/jobs/<job>/out 2> .route2/jobs/<job>/err` and prefix
+  `"$R2/bin/route2-env" --`.
+- **Every external worker runs through `route2-env`** (it strips your host markers and the
+  variables that inject plugins, hooks or a different effort into a child CLI).
 - **Codex config mode.** Every Codex line, exec and resume, carries `--ignore-user-config`
-  (**isolated**, the default): `$CODEX_HOME/config.toml` is not read, so its MCP servers, plugins,
-  default effort, `personality`, `service_tier` and above all an `approvals_reviewer = "auto_review"`
-  never reach a worker; auth still comes from `CODEX_HOME`. Stage 0 switches to **pinned** when that
-  file sets a connection or auth key (`docs/workers.md`, "Config modes"): the lines then carry the
-  3.2 pins instead (section "Pinned mode"). Never both — an MCP override of a server the ignored file
-  defined fails at startup (`docs/troubleshooting.md`).
-- **Rung 3** (`docs/sandbox-and-preflight.md`): every line of that worker, resumes included, adds
-  `-c approvals_reviewer="auto_review"` — on 0.159.2 this alone turns `approval_policy` from `never`
-  into `on-request` with automatic review (verified on exec and resume). `--approve-for-me` is the
-  flag form; it implies `workspace-write` and cannot be combined with `-s`.
-- Briefs are files; the prompt is `"$(cat file)"`; **stdin is closed with `< /dev/null`** — an open
-  stdin (a heredoc in the same command) is the only confirmed cause of a "hung" Codex.
-- The lines below are **templates** shown with the stage defaults. On every launch and resume
-  substitute the effective model and per-stage effort after policy resolution (Gemini: the slug
-  suffix and `--effort` together).
+  (**isolated**, the default) or, in **pinned** mode, the pins below — never both
+  (`docs/workers.md`, "Config modes").
+- **Rung 3** (`docs/sandbox-and-preflight.md`): every line of that Codex worker, resumes included,
+  adds `-c approvals_reviewer="auto_review"`.
+- Briefs are files; the prompt is `"$(cat file)"`; stdin is closed (`route2-run` does it; in the
+  background tool add `< /dev/null`).
+- The lines are **templates** with the stage defaults: substitute the slot's frozen slug and the
+  stage's effort after policy resolution and clamping.
 
 ## Codex
 
 ```bash
+J="$REPO/.route2/jobs/<job>"      # the job directory (route2-run creates it)
+
 # critique — read-only, context embedded in the brief
-codex exec -m gpt-6.1-sol -s read-only --color never --json --ignore-user-config -c model_reasoning_effort=medium \
-  --output-schema .route/critique-schema.json -o .route/critique.json \
-  "$(cat .route/brief-critique.md)" < /dev/null > .route/critique.jsonl 2> .route/critique.stderr.log
-#   high stakes: -m gpt-6-astra -c model_reasoning_effort=high
+codex exec -m <gpt-…-sol> -s read-only --color never --json --ignore-user-config -c model_reasoning_effort=medium \
+  --output-schema .route2/critique-schema.json -o "$J/answer" "$(cat .route2/brief-critique.md)"
+#   high stakes: the astra slug, model_reasoning_effort=high
 
 # build — workspace-write
-codex exec -m gpt-6.1-sol -s workspace-write --color never --json --ignore-user-config -c model_reasoning_effort=medium \
-  -o .route/build.txt "$(cat .route/brief-build.md)" < /dev/null > .route/build.jsonl 2> .route/build.stderr.log
+codex exec -m <slug> -s workspace-write --color never --json --ignore-user-config -c model_reasoning_effort=medium \
+  -o "$J/answer" "$(cat .route2/stub-build.md)"
 
 # builder resume — NO -s / --color / -C; sandbox via -c; ALWAYS the thread UUID from
-# thread.started.thread_id in the run's .jsonl. --last is banned: it picks the newest
-# session in the cwd, whatever started it. Before it, record the rollout offset (Reading results).
-codex exec resume <THREAD_UUID> --ignore-user-config --json -m gpt-6.1-sol -c 'sandbox_mode="workspace-write"' \
-  -c model_reasoning_effort=medium -o .route/fix1.txt \
-  "$(cat .route/brief-fix1.md)" < /dev/null > .route/fix1.jsonl 2> .route/fix1.stderr.log
+# thread.started.thread_id in the first job's `out`. --last is banned. Before it, record the
+# rollout offset (Effective-config check). Run from the worker's own directory.
+codex exec resume <THREAD_UUID> --ignore-user-config --json -m <slug> -c 'sandbox_mode="workspace-write"' \
+  -c model_reasoning_effort=medium -o "$J/answer" "$(cat .route2/brief-fix1.md)"
 # a critic, gate or reviewer keeps its role on resume: read-only and its schema
-codex exec resume <THREAD_UUID> --ignore-user-config --json -m gpt-6.1-sol -c 'sandbox_mode="read-only"' \
-  -c model_reasoning_effort=medium \
-  --output-schema .route/critique-schema.json -o .route/critique-r2.json \
-  "$(cat .route/brief-critique-r2.md)" < /dev/null > .route/critique-r2.jsonl 2> .route/critique-r2.stderr.log
+codex exec resume <THREAD_UUID> --ignore-user-config --json -m <slug> -c 'sandbox_mode="read-only"' \
+  -c model_reasoning_effort=medium --output-schema .route2/critique-schema.json -o "$J/answer" \
+  "$(cat .route2/brief-critique-r2.md)"
 
-# visual fix round for a Codex builder — screenshots as attachments. Use --image=<png>[,<png>…]
-# (or --image <png> before the other flags): a bare "-i shot.png" right before the prompt takes
-# the prompt as a second file ("No prompt provided via stdin", exit 1).
-codex exec resume <THREAD_UUID> --ignore-user-config --json -m gpt-6.1-sol -c 'sandbox_mode="workspace-write"' \
-  -c model_reasoning_effort=medium -o .route/fix2.txt \
-  --image=.route/evidence/01-desktop-light.png,.route/evidence/03-mobile-light.png \
-  "$(cat .route/brief-fix2.md)" < /dev/null > .route/fix2.jsonl 2> .route/fix2.stderr.log
+# visual fix round for a Codex builder — screenshots as attachments: --image=<png>[,<png>…]
+codex exec resume <THREAD_UUID> --ignore-user-config --json -m <slug> -c 'sandbox_mode="workspace-write"' \
+  -c model_reasoning_effort=medium -o "$J/answer" \
+  --image=.route2/evidence/01-desktop-light.png,.route2/evidence/03-mobile-light.png "$(cat .route2/brief-fix2.md)"
 
-# cross review — read-only, with a contract: the brief carries the spec, PLAN.md, the acceptance
-# criteria, the diff (embedded under 40 KB, else the path; untracked files included) and the verdict
-# rule "approve iff no blocking or major finding and every plan item is done; minors never change
-# the verdict";
-# effort = the `review` stage (default high)
-codex exec -m gpt-6.1-sol -s read-only --color never --json --ignore-user-config -c model_reasoning_effort=high \
-  --output-schema .route/review-schema.json -o .route/review.json \
-  "$(cat .route/brief-review.md)" < /dev/null > .route/review.jsonl 2> .route/review.stderr.log
-# `codex exec review --uncommitted` has its own built-in contract and sees no plan: a manual extra,
-# never the cross reviewer.
+# cross review — read-only, with a contract (spec, PLAN.md, acceptance criteria, diff; the verdict
+# rule "approve iff no blocking or major finding and every plan item is done"); effort = review
+codex exec -m <slug> -s read-only --color never --json --ignore-user-config -c model_reasoning_effort=high \
+  --output-schema .route2/review-schema.json -o "$J/answer" "$(cat .route2/brief-review.md)"
 
-# model probe (stage 0 step 5) — one per slug when .route/model-probes.json has no fresh success
-codex exec -m gpt-6.1-sol -s read-only --color never --json --ignore-user-config -c model_reasoning_effort=low \
-  -o .route/probe-gpt-6.1-sol.txt "Reply with exactly: OK" \
-  < /dev/null > .route/probe-gpt-6.1-sol.jsonl 2> .route/probe-gpt-6.1-sol.stderr.log
-#   success = exit 0 and the -o file says OK; then record in .route/model-probes.json:
-#   {"gpt-6.1-sol": {"ok": true, "probed_at": "<ISO time>", "codex_version": "<codex --version>",
-#                    "identity": "<identity from $CODEX_HOME/models_cache.json>", "config_mode": "isolated"}}
+# model probe (stage 0 step 5)
+codex exec -m <slug> -s read-only --color never --json --ignore-user-config -c model_reasoning_effort=low \
+  -o "$J/answer" "Reply with exactly: OK"
+#   success = exit 0 and the answer says OK → route2-catalog record-probe --gen N codex <slug> ok --scope …
+#   "model not found"/"not available" → record-probe … denied (the walk-down tries the next candidate)
 
 # cascade drafter
-codex exec -m gpt-6-luna -s workspace-write --color never --json --ignore-user-config -c model_reasoning_effort=medium \
-  -o .route/draft.txt "$(cat .route/brief-draft.md)" < /dev/null > .route/draft.jsonl 2> .route/draft.stderr.log
+codex exec -m <gpt-…-luna> -s workspace-write --color never --json --ignore-user-config -c model_reasoning_effort=medium \
+  -o "$J/answer" "$(cat .route2/brief-draft.md)"
+
+# catalog (no model turn): codex debug models   — route2-catalog runs it
 ```
 
-### Pinned mode
+**Pinned mode**: replace `--ignore-user-config` with `-c approvals_reviewer="user"`, and on the
+read-only lines also add `-c mcp_servers.<name>.enabled=false` for each `[mcp_servers.<name>]` in
+`$CODEX_HOME/config.toml`.
 
-When stage 0 chose `pinned`, make one substitution on every line above: replace
-`--ignore-user-config` with `-c approvals_reviewer="user"`, and on the read-only lines (critique,
-gate, review, probe and their resumes) also add `-c mcp_servers.<name>.enabled=false` for each
-`[mcp_servers.<name>]` in `$CODEX_HOME/config.toml` (here `perplexity` and `playwright`). Writers
-keep the file's MCP servers, and every other key of the file reaches every worker; stage 0 reports
-the ones that change the rung or the cost. For example:
+**Parallel Codex workers**: the director creates each worktree first (`git worktree add --detach
+"$REPO/.route2/worktrees/<part>" HEAD`, inside the fence) and launches with `-C "$REPO/.route2/worktrees/<part>"`
+(route2-run's `--cwd` set to the worktree, so a resume runs there too). Codex's own `--worktree` is
+not used (it cannot be combined with `--ignore-user-config`).
+
+## Claude — `claude -p`
 
 ```bash
-codex exec -m gpt-6.1-sol -s read-only --color never --json -c approvals_reviewer="user" -c model_reasoning_effort=medium \
-  -c mcp_servers.perplexity.enabled=false -c mcp_servers.playwright.enabled=false \
-  --output-schema .route/critique-schema.json -o .route/critique.json \
-  "$(cat .route/brief-critique.md)" < /dev/null > .route/critique.jsonl 2> .route/critique.stderr.log
+# probe (stage 0 step 5) — also how the native alias is resolved to a full id
+claude -p --model <alias> --effort low --tools "" --permission-mode dontAsk --strict-mcp-config \
+  --setting-sources "" --output-format stream-json --verbose "Reply with exactly: OK"
+#   the full id = init.model (and result.modelUsage); freeze it for the slot
+
+# critic / gate / reviewer — read tools only, no MCP, no settings (no hooks), schema-enforced
+claude -p --model <full id> --effort medium --tools "Read,Grep,Glob" --allowedTools "Read,Grep,Glob" \
+  --permission-mode dontAsk --strict-mcp-config --setting-sources "" --output-format stream-json --verbose \
+  --json-schema "$(cat .route2/critique-schema.json)" "$(cat .route2/brief-critique.md)"
+
+# builder — edits-only (the director runs the tests)
+claude -p --model <full id> --effort medium --tools "Read,Edit,Write,Glob,Grep" --permission-mode acceptEdits \
+  --strict-mcp-config --setting-sources "" --output-format stream-json --verbose "$(cat .route2/stub-build.md)"
+
+# continuation — by session id (from init), EVERY flag of the role repeated, never -c/--continue
+claude -p --resume <SESSION_ID> --model <full id> --effort medium <the role's --tools/--allowedTools/
+  --permission-mode/--strict-mcp-config/--setting-sources/--output-format/--verbose/[--json-schema]> \
+  "$(cat .route2/brief-fix1.md)"
 ```
 
-### Parallel Codex workers
+A parallel `claude -p` writer runs with its cwd in the worktree (route2-run `--cwd`).
 
-Only for a split the plan makes parallel (SKILL.md, "Roster"). The director creates each worktree
-before launch, from `HEAD`; the worker runs in it with `-C`. Artifacts use absolute paths, because
-the resume below runs from the worktree directory. Codex's own `--worktree` is not used: it cannot
-be combined with `--ignore-user-config`.
+**`init` checks — fail closed**, as soon as the first event is in `out` (`route2-wait` returns
+while the job runs; the first line may take a few seconds): `tools` equals the requested set,
+`mcp_servers` is empty, every `plugins[].source` ends in `@builtin`, `permissionMode` is the
+requested one, `model` is the frozen id. Anything else → `route2-kill` the job, discard, the
+transport is ineligible for that role this run. No `init` before another event is a failure too.
 
-```bash
-REPO="$(git rev-parse --show-toplevel)"
-git worktree add --detach "$REPO/.route/worktrees/part-a" HEAD        # one per part; record HEAD as baseline
-
-codex exec -C "$REPO/.route/worktrees/part-a" -m gpt-6.1-sol -s workspace-write --color never --json \
-  --ignore-user-config -c model_reasoning_effort=medium -o "$REPO/.route/part-a.txt" \
-  "$(cat "$REPO/.route/brief-part-a.md")" < /dev/null > "$REPO/.route/part-a.jsonl" 2> "$REPO/.route/part-a.stderr.log"
-
-# resume: codex exec resume has no -C and runs in the shell's cwd, so start it from the worktree
-cd "$REPO/.route/worktrees/part-a" && codex exec resume <THREAD_UUID> --ignore-user-config --json -m gpt-6.1-sol \
-  -c 'sandbox_mode="workspace-write"' -c model_reasoning_effort=medium -o "$REPO/.route/part-a-fix1.txt" \
-  "$(cat "$REPO/.route/brief-part-a-fix1.md")" < /dev/null > "$REPO/.route/part-a-fix1.jsonl" 2> "$REPO/.route/part-a-fix1.stderr.log"
-
-# at the report, after the last integration
-git worktree remove --force "$REPO/.route/worktrees/part-a" && git worktree prune
-```
-
-The brief's edit boundaries are relative to the worktree root. Integration, the `route-integrated`
-commit whose SHA becomes the session's `baseline`, and the `HEAD == baseline` check before the next
-delta are in SKILL.md, "Roster". Verified on 0.159.2 with two concurrent writers: each wrote only
-in its own worktree, the checkout stayed clean, a resume started from the checkout ran in the
-checkout (so never do that), one started from the worktree ran in the worktree.
-
-## agy
+## Claude and Gemini — `agy`
 
 ```bash
 # --add-dir "$REPO" on every call or the worker sees no project skills/rules.
-# Stubs may start with "/<skill>" to force-load a binding skill.
-REPO="$(git rev-parse --show-toplevel)"
-
-# critique — plan mode, read-only, no shell. The WHOLE brief goes into -p (no pointer stub: the
-# brief forbids reading files), opening with the "no tools" paragraph; the verdict is JSON inside
-# payload.response. Same shape for a gate (gate-schema) or a review (review-schema). A brief over
-# ~100 KB is split into parts, each a full brief for its slice, one call per part; the parts combine
-# as SKILL.md "Briefs" says (all approve, findings are the union; gates and reviews also merge
-# plan coverage: done is the union, missing = plan items no part reports done).
-agy --model gemini-3.8-flash-medium --mode plan --effort medium --add-dir "$REPO" --output-format json \
-  --json-schema .route/critique-schema.json --print-timeout 30m \
-  -p "$(cat .route/brief-critique.md)" < /dev/null > .route/agy-critique.json 2> .route/agy-critique.stderr.log
+# critique — plan mode; the WHOLE brief in -p (it reads nothing), opening with the "no tools"
+# paragraph; the verdict is JSON inside .response. Same shape for a gate or a review.
+agy --model gemini-<v>-flash-medium --mode plan --effort medium --add-dir "$REPO" --output-format json \
+  --json-schema .route2/critique-schema.json --print-timeout 30m -p "$(cat .route2/brief-critique.md)"
+#   Claude on agy: --model claude-opus-<v>-medium (or claude-sonnet-…), everything else identical
 
 # build — accept-edits, EDITS ONLY: one denied command cancels the whole run
-agy --model gemini-3.8-flash-medium --mode accept-edits --effort medium --add-dir "$REPO" --output-format json \
-  --print-timeout 60m -p "$(cat .route/stub-build.md)" < /dev/null > .route/agy-build.json 2> .route/agy-build.stderr.log
-
-# cascade drafter
-agy --model gemini-3.8-flash-medium --mode accept-edits --effort medium --add-dir "$REPO" --output-format json \
-  --print-timeout 30m -p "$(cat .route/stub-draft.md)" < /dev/null > .route/agy-draft.json 2> .route/agy-draft.stderr.log
+agy --model <slug> --mode accept-edits --effort medium --add-dir "$REPO" --output-format json \
+  --print-timeout 60m -p "$(cat .route2/stub-build.md)"
 
 # builder resume — by id, never -c/--continue; only after a SUCCESS turn
-agy --conversation <CONVERSATION_ID> --model gemini-3.8-flash-medium --mode accept-edits --effort medium \
-  --add-dir "$REPO" --output-format json --print-timeout 60m \
-  -p "$(cat .route/stub-fix1.md)" < /dev/null > .route/agy-fix1.json 2> .route/agy-fix1.stderr.log
+agy --conversation <CONVERSATION_ID> --model <slug> --mode accept-edits --effort medium \
+  --add-dir "$REPO" --output-format json --print-timeout 60m -p "$(cat .route2/stub-fix1.md)"
 
-# critic, gate or reviewer continuation — keeps plan mode, its schema and the whole brief in -p
-agy --conversation <CONVERSATION_ID> --model gemini-3.8-flash-medium --mode plan --effort medium \
-  --add-dir "$REPO" --output-format json --json-schema .route/critique-schema.json --print-timeout 30m \
-  -p "$(cat .route/brief-critique-r2.md)" < /dev/null > .route/agy-critique-r2.json 2> .route/agy-critique-r2.stderr.log
+# critic / gate / reviewer continuation — keeps plan mode, its schema and the whole brief in -p
+agy --conversation <CONVERSATION_ID> --model <slug> --mode plan --effort medium --add-dir "$REPO" \
+  --output-format json --json-schema .route2/critique-schema.json --print-timeout 30m \
+  -p "$(cat .route2/brief-critique-r2.md)"
+
+# probe
+agy --model <slug at its lowest effort> --mode plan --effort low --add-dir "$REPO" --output-format json \
+  --print-timeout 2m -p "Reply with exactly: OK"
 ```
 
-**Stubs — builders and drafters only.** Their `-p` prompt is a pointer — *"Read `.route/brief-build.md` in the workspace and
-execute it exactly. Your final answer is only what it asks for."* — small and free of shell quoting;
-the OS argv limit (~128 KB) is the hard bound. Critics, gates and reviewers get their whole brief
-in `-p`: above ~100 KB, split the review into parts or give the role to another family. `--input-format stream-json` is a different mode
-(events out; the envelope arrives inside the final `result` event) and is not used here.
+The slug suffix and `--effort` always agree. Progress for an agy job: pass `--also <newest
+~/.gemini/antigravity-cli/log/cli-*.log>` to `route2-wait` (note the newest log before launching,
+poll until a newer one exists); the envelope is written whole at exit. agy usage is reported per
+conversation and looks cumulative across `--conversation` turns: keep it raw in the ledger's
+`raw_cumulative`.
 
-## Claude subagents
+**Stubs — builders and drafters only.** Their `-p` prompt is a pointer — *"Read
+`.route2/stub-build.md`'s brief at `.route2/brief-build.md` in the workspace and execute it exactly.
+Your final answer is only what it asks for."* — small and free of shell quoting. Critics, gates and
+reviewers get their whole brief in `-p`; above ~100 KB, split it or give the role to another
+family.
 
-`Agent` with the `model` override and the default `subagent_type`, the brief's path in the prompt.
-`subagent_type: "fork"` inherits context but **ignores** `model`. A fix round continues the same
-subagent with `SendMessage` to its id (recorded in the checkpoint's `sessions.claude`; `SendMessage`
-is a deferred tool — load it with `ToolSearch` first); after a
-session restart that id is gone, and a new subagent starts from the checkpoint's to-do list and the
-current `git diff`.
+## Grok and Claude — Cursor `agent`
+
+```bash
+# critic / gate / reviewer / probe — plan mode INSIDE the sandbox, never --force
+agent -p --mode plan --sandbox enabled --trust --model grok-<v>-medium --output-format stream-json \
+  --workspace "$REPO" "$(cat .route2/brief-critique.md)"
+#   the brief quotes the schema and ends: "Your final message must be the JSON object only.
+#   Answer in English."
+
+# builder — rung 1: Cursor's sandbox (workspace and /tmp writable, no network, no $HOME)
+agent -p --sandbox enabled --trust --model <slug> --output-format stream-json \
+  --workspace "$REPO_OR_WORKTREE" "$(cat .route2/stub-build.md)"
+
+# continuation — by session id, every flag of the role repeated, never --continue
+agent -p --resume <SESSION_ID> --mode plan --sandbox enabled --trust --model <slug> \
+  --output-format stream-json --workspace "$REPO" "$(cat .route2/brief-critique-r2.md)"
+
+# reach probe for a Cursor builder (stage 0 step 8) — one cheap model turn
+agent -p --sandbox enabled --trust --model grok-<v>-low --output-format stream-json --workspace "$REPO" \
+  "Run exactly this shell command once and reply with its exit code and the last 5 lines of its output: <cheap check>"
+#   judge by effect (docs/sandbox-and-preflight.md); fail → Cursor builders are edits-only
+
+# probe
+agent -p --mode plan --sandbox enabled --trust --model <slug at its lowest effort> --output-format stream-json \
+  --workspace "$REPO" "Reply with exactly: OK"
+```
+
+**`init` check**: the first event must be `system/init`; `init.model` must match the requested
+slug on family, version and effort, ignoring decoration ("Grok 4.7 256K Low" ↔ `grok-4.7-low`);
+mismatch or no `init` → `route2-kill`, discard, dirty-exit for a writer.
 
 ## Reading results
 
-Never load a whole `.jsonl` into context — a long build log is tens of thousands of tokens. Take
-only what you need:
+Never load a whole event stream into context — a long build log is tens of thousands of tokens:
 
 ```bash
-grep -m1 '"thread.started"' .route/build.jsonl                  # thread_id for resume
-grep '"turn.completed"' .route/build.jsonl | tail -1             # usage
-grep -E '"turn.failed"' .route/build.jsonl | tail -3             # failure, if any
+J=.route2/jobs/<job>
+grep -m1 '"thread.started"' "$J/out"                     # codex: thread_id for resume
+grep '"turn.completed"' "$J/out" | tail -1                # codex: usage
+grep -E '"turn.failed"' "$J/out" | tail -3                # codex: failure, if any
+jq -c 'select(.type == "system" and .subtype == "init")' "$J/out" | head -1      # claude -p / cursor: init
+jq -c 'select(.type == "result") | del(.result)' "$J/out" | tail -1              # claude -p / cursor: result
+jq -c '{status, conversation_id, denied_actions, usage}' "$J/out"                # agy envelope
 ```
 
-- **Codex:** the `-o` file is the answer. `thread_id` and `usage` come from the `.jsonl`. A
-  `"type":"error"` event about a reconnect or a 503 is Codex retrying its stream, not a failure; a
-  failure is `turn.failed`, or an exit without `turn.completed`.
-- **agy:** one JSON envelope written whole at exit. Check every call: `status == "SUCCESS"`,
-  `response != ""`, `(denied_actions ?? []) == []` (the key is absent when nothing was denied).
-  `CANCELED` = a denied tool action; `ERROR` + `"timeout waiting for response"` = `--print-timeout`
-  expired. Any non-`SUCCESS` status invalidates the `conversation_id` — follow up in a **new**
-  conversation carrying the current `git diff`.
-- **Schema calls:** strip Markdown fences, drop agy's injected `toolAction`/`toolSummary`, parse,
-  validate against the schema in `.route/`, then act. Never act on a verdict you did not validate.
+- **Codex:** the `-o` file (`$J/answer`) is the answer; a reconnect `error` event is Codex
+  retrying, a failure is `turn.failed` or an exit without `turn.completed`.
+- **agy:** check `status == "SUCCESS"`, `response != ""`, `(denied_actions ?? []) == []`. Any
+  other status invalidates the `conversation_id` — follow up in a new conversation with the
+  current diff.
+- **`claude -p`, Cursor:** the `result` event; `subtype == "success"` and `is_error == false`, and
+  for `claude -p` `permission_denials` (empty for read-only roles; a denied Edit or Write fails a
+  builder's turn).
+- **Completion = all of:** the job `exited` with code `0`, the envelope above succeeded, and for a
+  read-only role a valid verdict.
+
+### Validating a verdict
+
+```bash
+"$R2/bin/route2-validate" .route2/critique-schema.json .route2/jobs/<job>/answer --envelope codex
+"$R2/bin/route2-validate" .route2/critique-schema.json .route2/jobs/<job>/out --envelope agy
+"$R2/bin/route2-validate" .route2/critique-schema.json .route2/jobs/<job>/out --envelope claude --role read-only
+"$R2/bin/route2-validate" .route2/critique-schema.json .route2/jobs/<job>/out --envelope cursor
+```
+
+It checks the envelope first (an envelope failure is not an invalid verdict), then extracts
+**exactly one** top-level JSON object (one surrounding fence stripped; leading prose allowed —
+Grok opened two of seven critiques with a sentence; trailing text or a second object rejected),
+then validates it completely against the schema. Invalid → one re-ask on the same session with
+the validator's `errors`; still invalid → the role moves to the next eligible critic (a named
+critic → halt).
+
+### Read-only proof
+
+```bash
+"$R2/bin/route2-fp" snapshot > .route2/tmp/fp-<job>.json     # before the call
+… the call …
+"$R2/bin/route2-fp" compare .route2/tmp/fp-<job>.json         # after: {result: same|changed, diffs}
+```
+
+`changed` → the verdict is discarded, dirty-exit, the transport is ineligible for read-only roles
+this run. Bookkeeping written legitimately during the call (the session id from `init`, the ledger
+row) goes through `route2-state`, so it compares as audited, not as a change.
 
 ### Effective-config check
 
@@ -282,20 +320,13 @@ JSON, no record, two rollouts for one id.
 
 ## Progress sampling
 
-Every 5 minutes, by a background `sleep 300` or a `Monitor` whose command prints one line per
-sample and exits when the PID dies — never by ending the turn. The `timeout_ms` maximum differs
-between Claude Code builds (10 minutes in some, 30 in others): read it from the tool's schema, set
-it, and re-arm the monitor on every expiry. A sample is healthy when the PID is
-alive (`kill -0`) and one of these moved:
-
-- new events in the Codex `.jsonl` (count lines, do not read them);
-- the agy run's CLI log grew — note the newest `~/.gemini/antigravity-cli/log/cli-*.log` *before*
-  launching, poll until a newer one exists, record it and its size as the baseline (never the agy
-  `.json`, which is written whole at exit);
-- `git status` changed.
-
-Silence is a hang only after `max(15 min, 2 × T_slow)` of it, and never for a test run. Before
-killing, read the files: stderr prints `Reading additional input from stdin...` even on healthy
-runs; the hang signal is that line **with no `thread.started` event** — relaunch with stdin closed.
-No new file under `~/.codex/sessions/` → startup failure (competing `app-server`; `codex doctor`).
-Kill by PID (`ps -eo pid,etime,cmd | grep '[c]odex exec'` → `kill <PID>`) or by the harness task.
+Interactive Claude Code: every 5 minutes, by a background `sleep 300` or a `Monitor` whose command
+prints one line per sample and exits when the PID dies — never by ending the turn; re-arm the
+monitor on every expiry. Every other host: `route2-wait <job> --max <n>` in a loop; it persists
+`last_progress_at` in the job directory, so the hang clock survives calls and turns. Progress
+sources: new events in a codex `--json`, `claude -p` or Cursor `stream-json` stream (thinking deltas
+count), the agy CLI log passed with `--also`, `git status` changing. Silence is a hang only after
+`max(15 min, 2 × T_slow)`, and never for a test run. Before killing, read the job's files: stderr
+prints `Reading additional input from stdin...` even on healthy Codex runs; the hang signal is that
+line **with no `thread.started` event**. Kill with `route2-kill` (it spares tests and signals
+members one by one) or, in an interactive Claude Code, by the harness task or PID — never `pkill -f`.

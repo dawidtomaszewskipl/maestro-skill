@@ -1,12 +1,12 @@
 # Cost ledger
 
-`.route/ledger.jsonl`, one line per model call, appended right after reading its output:
+`.route2/ledger.jsonl`, one line per model call, appended right after reading its output:
 
 ```
-{ts, run_id, stage, cli, family, model_requested, effort, service_tier_requested,
- service_tier_observed, effective_config, session_id, duration_s, input_tokens,
- cached_input_tokens, cache_write_input_tokens, output_tokens, reasoning_tokens, total_tokens,
- raw_cumulative, denied_actions, exit_code, status, outcome}
+{ts, run_id, stage, host, cli, transport, family, model_requested, model_served, effort,
+ service_tier_requested, service_tier_observed, effective_config, session_id, job_id, duration_s,
+ input_tokens, cached_input_tokens, cache_write_input_tokens, output_tokens, reasoning_tokens,
+ total_tokens, raw_cumulative, denied_actions, exit_code, status, outcome}
 ```
 
 ## Sources
@@ -16,9 +16,14 @@
 | Codex | the last `turn.completed.usage` in the `.jsonl`: `input_tokens`, `cached_input_tokens`, `cache_write_input_tokens`, `output_tokens`, `reasoning_output_tokens` → `reasoning_tokens` |
 | agy | the envelope's `usage`: `input_tokens`, `output_tokens`, `thinking_tokens` → `reasoning_tokens`, `cache_read_tokens` → `cached_input_tokens`, `total_tokens`; plus `duration_seconds`, `denied_actions[].action` |
 | Claude subagent | the Agent tool's completion line |
+| `claude -p` | the `result` event: `usage.input_tokens`, `usage.cache_read_input_tokens` → `cached_input_tokens`, `usage.cache_creation_input_tokens` → `cache_write_input_tokens`, `usage.output_tokens`, `duration_ms`/1000; `model_served` = the `modelUsage` key(s) |
+| Cursor `agent -p` | the `result` event: `usage.inputTokens`, `usage.cacheReadTokens` → `cached_input_tokens`, `usage.cacheWriteTokens` → `cache_write_input_tokens`, `usage.outputTokens`, `duration_ms`/1000; `model_served` = `init.model` (a label) |
 | Codex, `effective_config` | the call's `turn_context` in the session rollout, as the effective-config check read it (`docs/commands.md`): `{model, effort, sandbox, approval_policy, approvals_reviewer, network, write_roots}`; `null` for non-Codex calls |
 
-Missing → `null`, never estimated. `codex exec review` (a manual extra, not the cross reviewer)
+`cli` is one of `codex`, `agy`, `cursor-agent`, `claude-cli` (`claude -p`), `claude-agent` (the
+Agent tool); `transport` the slot's transport (`native`, `agy`, `cursor`, `codex`); `host` the
+director's host; `job_id` the route2 job (null for an Agent-tool call). Missing → `null`, never
+estimated. `codex exec review` (a manual extra, not the cross reviewer)
 reports zero usage, so its token fields are `null`.
 
 **`codex exec resume` reports usage cumulatively per thread.** Keep the thread's raw counters as
@@ -35,7 +40,15 @@ anywhere — the rollout's `turn_context` has no tier field either — so `servi
 always `null`. Token
 totals are never presented as subscription cost.
 
-A worker swap mid-run gets its own row with `outcome: "swapped: <reason>"` on the abandoned call.
+A worker swap mid-run gets its own row with `outcome: "swapped: <reason>"` on the abandoned call; a
+transport switch (`docs/hosts.md`) gets `outcome: "transport-switch: <from>→<to> (<reason>)"`.
+
+**agy conversations report cumulative usage** too (measured: a continued critic's `thinking_tokens`
+and cache counts repeated the earlier turn's): treat them like a `codex exec resume` thread — raw
+counters in `raw_cumulative`, deltas in the token fields.
+
+Every row is appended through `route2-state --gen N append ledger.jsonl` (the audit makes a ledger
+edited by anything else stop the next write).
 
 ## Report table
 

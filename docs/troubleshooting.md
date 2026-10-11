@@ -134,7 +134,7 @@ into the expired one.
 ## agy: `flag needs an argument: -p` / `Argument list too long`
 
 `-p` does not read stdin, and the OS caps a single argument at ~128 KB. The pointer stub
-(`Read .route/brief-build.md … execute it exactly`) sidesteps both. The old "prompts over 4 KB
+(`Read .route2/brief-build.md … execute it exactly`) sidesteps both. The old "prompts over 4 KB
 return `status:"ERROR"`" belief did not reproduce on 1.1.27 — a 34 KB prompt ran normally.
 
 ## Gemini "did the work" but ran no tests and saw no skills
@@ -221,3 +221,55 @@ it is the kind of thing a browser check surfaces and a test suite does not.
 `until [ -s file ]` loops and dev servers from a run the director itself had interrupted survived
 for hours. The checkpoint's `sessions` and the harness task ids are the inventory to clean up after
 any interruption; `git stash list` shows leftover `route-draft-*` stashes from escalated cascades.
+
+## route2: a Cursor worker wrote outside the workspace and reached the network
+
+`agent -p --force --sandbox enabled` (2026-10-11): the worker wrote into another directory under
+`$HOME`, into `$HOME` itself, and fetched `https://example.com` — **`--force` turns Cursor's sandbox
+off**, whatever `--sandbox` says. Without `--force` the same commands were denied (`Brak dostępu` /
+`Permission denied`) and the network got `CONNECT tunnel failed, response 403`. route2's Cursor lines
+never carry `--force`; rung 4 is a per-run user approval (`docs/sandbox-and-preflight.md`).
+
+## route2: `route2-host` said `claude-code` inside a Cursor run
+
+A director check run by `agent -p --sandbox enabled` launched from a Claude Code session reported
+`claude-code`: Cursor's sandbox hid the Cursor process, and the nearest visible host was the Claude
+Code daemon that had launched Cursor (`CLAUDECODE=1` inherited). Fixed in `route2-host`: when a
+host's marker is present but that host is not in the visible ancestry, the ancestry is not trusted
+and the markers-only rule decides — two hosts' markers → `unknown`. Launch nested hosts through
+`route2-env` (it strips the outer markers), and expect `unknown` from a `codex exec` read-only
+sandbox started inside another host: Codex hides the whole ancestry there.
+
+## route2: a "read-only" `claude -p` critic loaded a plugin with hooks
+
+`claude -p --setting-sources ""` still loaded a non-builtin plugin (with `hooks.json`): the
+director's environment carried `CLAUDE_CODE_PLUGIN_DIRS`, inherited by the child. `route2-env`
+removes every `CLAUDE_*` variable except `CLAUDE_CONFIG_DIR` (it also removes `CLAUDE_EFFORT`, which
+would override `--effort`), and the `init` check kills a session whose `plugins` hold anything not
+`@builtin`.
+
+## route2: `claude -p` refused to write in a scratch repository
+
+`"Claude requested permissions to edit … which is a sensitive file"` for a file under
+`~/.claude/jobs/…`: Claude Code treats everything under `~/.claude/` as sensitive, in any permission
+mode. Scratch repositories for tests and canaries live outside `~/.claude`.
+
+## route2: a Grok verdict "would not parse"
+
+Grok opened two of seven critiques with a sentence before the JSON (`Porównam plan … {"verdict":…`),
+in the user's language although the brief was English. `route2-validate` allows leading prose and
+still requires exactly one top-level object with nothing after it; briefs to Cursor say *"Answer in
+English"* and *"Your final message must be the JSON object only."*
+
+## route2: agy cannot be the director in print mode
+
+`agy -p` auto-denies every shell command (`docs/workers.md`), so a print-mode agy cannot run
+`route2-host`, the lock, git or the tests. agy directs only interactively, approving the commands
+or with `permissions.allow` rules. `route2-host` reports `interactive: false` for `agy -p` and stage 0
+stops there.
+
+## route2: my own `pkill -f` killed my shell (exit 144)
+
+During route2's own build a cleanup `pkill -f "route2-tests"` matched the very shell running it —
+its command line contained the pattern. route's rule stands: never `pkill -f`; find the PIDs (`ps -eo
+pid,args`, then `kill <pid>`) or let `route2-kill` signal recorded members one by one.

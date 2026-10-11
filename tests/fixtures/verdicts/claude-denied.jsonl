@@ -1,0 +1,1 @@
+{"type":"result","subtype":"success","is_error":false,"result":"","structured_output":{"verdict":"approve","blocking_findings":[],"major_findings":[],"non_blocking_notes":["n"],"assumptions":[]},"permission_denials":[{"tool_name":"Edit"}],"session_id":"s"}
