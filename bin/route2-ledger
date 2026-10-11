@@ -88,12 +88,15 @@ esac
 
 # Cumulative counters (codex resume, agy conversation): delta against this session's last raw row.
 raw=null counter_reset=false
-if [[ "$cli" == codex || "$cli" == agy ]] && [[ -n "$sid" ]]; then
+if [[ "$cli" == codex || "$cli" == agy ]] && [[ -n "$sid" ]] \
+   && jq -e '.input_tokens | type == "number"' <<<"$usage" >/dev/null; then
+  # Only a call that reported counters is a baseline; a failed call without usage leaves the last
+  # measured baseline in place (its own row has null tokens and no raw_cumulative).
   raw="$usage"
   # The immediately preceding raw row of this session. Equal counters give a zero delta; a counter
   # that went DOWN means the counters were reset (a new process for the same id): the raw values
   # are then this call's own usage, and the row says so.
-  prev="$( { jq -c --arg s "$sid" 'select(.session_id == $s and .raw_cumulative != null) | .raw_cumulative' "$SD/ledger.jsonl" 2>/dev/null || true; } | tail -1)"
+  prev="$( { jq -c --arg s "$sid" 'select(.session_id == $s and .raw_cumulative != null and (.raw_cumulative.input_tokens | type) == "number") | .raw_cumulative' "$SD/ledger.jsonl" 2>/dev/null || true; } | tail -1)"
   if [[ -n "$prev" ]]; then
     if jq -e --argjson p "$prev" 'to_entries | any((.value | type) == "number" and ($p[.key] | type) == "number" and .value < $p[.key])' <<<"$raw" >/dev/null; then
       counter_reset=true
@@ -119,7 +122,7 @@ row="$(jq -cn --arg ts "$(r2_now)" --argjson meta "$meta" --arg stage "$stage" -
   + $usage
   + {total_tokens: ($usage.total_tokens // (if $usage.input_tokens and $usage.output_tokens then $usage.input_tokens + $usage.output_tokens else null end)),
      raw_cumulative: $raw, status: ($status | nn), denied_actions: $denied,
-     effective_config: ($effcfg | nn | if . == null then null else (try fromjson catch .) end),
+     effective_config: ($effcfg | nn | if . == null then null else (. as $t | try ($t | fromjson) catch $t) end),
      service_tier_requested: ($tier | nn), service_tier_observed: null,
      counter_reset: (if $reset then true else null end),
      exit_code: $code, outcome: ($outcome | nn), verdict: ($verdict | nn)}')"

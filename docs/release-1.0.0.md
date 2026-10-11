@@ -6,7 +6,14 @@ transcripts are in the build run's evidence directory (`route-skill/.route/r2/v/
 repository); the outcomes and the commands that produced them are summarised here and in
 `docs/hosts.md`, `docs/workers.md` and `tests/canary/README.md`.
 
-`tests/run.sh` on the release revision: **218 passed, 0 failed** (T1–T10; T1 with shellcheck 0.10.0).
+**Retained evidence in this repository:** `docs/evidence/1.0.0/` — `v2-v3-host.txt`,
+`v2b-v14.txt`, `v4-install.txt` (scratch-`HOME` install, symlinks, helper resolution, refusal of a
+foreign target, and each host's own skill listing), `v5-claude-p.txt` (incl. the native pin older
+than the alias: `claude-opus-5` accepted, the `opus` alias serving `claude-opus-5-5` rejected),
+`v6-v7-cursor.txt`, `v9-survival.txt` (the late snapshots, 672–711 s, tied to the moment each
+director session ended), `v11-canaries.txt` (the final report lines and commits of every canary).
+
+`tests/run.sh` on the release revision: **226 passed, 0 failed** (T1–T10; T1 with shellcheck 0.10.0).
 
 ## Matrix
 
@@ -15,7 +22,7 @@ repository); the outcomes and the commands that produced them are summarised her
 | V2 host detection | ✓ interactive (this session) and `claude -p` (headless) | ✓ `host: codex`, director model from its rollout (`gpt-6-luna`, `gpt-6.1-sol`); a sandboxed nested run → `unknown` (fail closed) | ✓ `host: cursor` without a sandbox; inside its sandbox a hidden Cursor process + an outer `CLAUDECODE` → fixed to `unknown` | ✓ `host: agy`, interactive, session key `ANTIGRAVITY_CONVERSATION_ID` (V3 via tmux) |
 | V2b git capability (objects, index file, refs, worktree, commit) | ✓ 5/5 (`claude -p`) | ✓ 5/5 (`danger-full-access`) | ✓ 5/5 (allowlist) | ✓ 5/5 (interactive, approved) |
 | V4 install, listed by the host | ✓ via the `Skill` tool | ✓ | ✓ | ✓ (`agy /skills`) |
-| V5 `claude -p` isolation | ✓ read-only critic (no Edit/Write/Bash, no plugin, no project hook), edits-only builder, resume keeps the role | — | — | — |
+| V5 `claude -p` isolation | ✓ read-only critic (no Edit/Write/Bash, no plugin, no project hook), edits-only builder, resume keeps the role; native pin older than the alias verified | — | — | — |
 | V6 Cursor critic read-only | — | — | ✓ write/shell/network/`$HOME` attempts refused, fingerprint `same` | — |
 | V7 `init.model` mapping | ✓ `claude-<line>-<v>` | n/a (rollout) | ✓ Grok low…xhigh; Cursor Claude → quota | n/a (no served-model field) |
 | V9 job survival across commands | ✓ | ✓ | ✓ | ✓ |

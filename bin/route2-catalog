@@ -17,6 +17,9 @@
 #       scope: → {action: "use"|"probe", version, slug} or {action: "none", reason, previous}.
 #   route2-catalog record-probe --gen N <transport> <slug> ok|denied --scope JSON [--detail TEXT]
 #   route2-catalog record-resolved --gen N <slot> <transport> <version>
+#   route2-catalog native-verify <expected-full-id> <stream-json file>
+#       a native pin holds only if the probe's init.model (or result.modelUsage) is exactly the
+#       expected id: → {accepted, served}; an alias that served a newer model is rejected
 #   route2-catalog native-id <slot> <version>
 #       the full Claude Code model id a canonical pin reaches native through (opus 5 → claude-opus-5,
 #       opus 5.5 → claude-opus-5-5); the pin holds only if a probe of that id returns exactly it
@@ -91,6 +94,12 @@ SD="$(r2_state_dir 2>/dev/null || echo .route2)"
 sub="${1:-}"; shift || true
 
 case "$sub" in
+  native-verify)
+    exp="${1:?expected id}" f="${2:?stream-json file}"
+    served="$( { jq -r 'select(.type == "system" and .subtype == "init") | .model' "$f" 2>/dev/null || true; } | head -1)"
+    [[ -n "$served" ]] || served="$( { jq -r 'select(.type == "result") | (.modelUsage // {}) | keys[0] // empty' "$f" 2>/dev/null || true; } | tail -1)"
+    jq -cn --arg e "$exp" --arg s "$served" '{accepted: ($s == $e), expected: $e, served: (if $s == "" then null else $s end)}' ;;
+
   native-id)
     case "${1:-}" in opus|fable|sonnet|haiku) ;; *) r2_die "native-id: a Claude slot (opus, fable, sonnet, haiku)" ;; esac
     [[ "${2:-}" =~ ^[0-9]+(\.[0-9]+)*$ ]] || r2_die "native-id: a version such as 5 or 5.5"

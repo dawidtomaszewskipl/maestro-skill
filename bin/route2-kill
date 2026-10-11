@@ -33,6 +33,8 @@ classify() {
   local J="$1" snap pid pst wpid live p chain q n job
   job="$(basename "$J")"
   snap="$("$R2_BIN/route2-wait" "$job" --peek)"
+  # The live set could not be established: say so instead of classifying a partial set.
+  if [[ "$(jq -r .state <<<"$snap")" == uncertain ]]; then echo '"UNCERTAIN"'; return 0; fi
   pid="$(jq -r '.pid // empty' "$J/meta.json")"; pst="$(jq -r '.pid_starttime // empty' "$J/meta.json")"
   wpid="$(jq -r '.wrapper_pid // empty' "$J/meta.json")"
   live="$(jq -c '.live_members // []' <<<"$snap" | jq -c '.[]' | while IFS= read -r m; do
@@ -69,7 +71,7 @@ classify() {
     | map(. as $m
         | (if (($m.chain_now // []) | length) > 0
            then ($m.chain_now | map(.pid | tostring)) as $now
-                | ([ $now | to_entries[] | select((.value == $w) or (($recorded | index(.value)) != null)) | .key ] | first) as $hit
+                | ([ $now | to_entries[] | .value as $v | select(($v == $w) or (($recorded | index($v)) != null)) | .key ] | first) as $hit
                 | {reached: ($hit != null),
                    chain: ([$m.pid | tostring] + (if $hit != null then $now[0:$hit + 1] + ($now[$hit] | if . == $w then [] else (tonumber | chain) end) else $now end)),
                    test_on_way: ([ $m.chain_now[0:(if $hit != null then $hit + 1 else 0 end)][] | select(is_test_argv(.argv_now)) ] | length > 0)}
@@ -94,6 +96,10 @@ classify() {
 # decide <jobdir> <classified> → prints a JSON verdict and returns 0 when nothing may be signalled.
 decide() {
   local J="$1" c="$2"
+  if [[ "$c" == '"UNCERTAIN"' ]]; then
+    jq -cn --arg j "$(basename "$J")" '{job_id: $j, result: "blocked", reason: "proc uncertain: the live set of the job cannot be established"}'
+    return 0
+  fi
   if jq -e 'any(.[]; .classifiable | not)' <<<"$c" >/dev/null; then
     jq -cn --arg j "$(basename "$J")" --argjson c "$c" '{job_id: $j, result: "blocked", reason: "a member whose relation to the job or its tests cannot be established", members: $c}'
     return 0

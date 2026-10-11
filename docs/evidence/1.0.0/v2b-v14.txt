@@ -1,0 +1,41 @@
+# V2b + V14 — run by each host's own director shell
+## cc
+objects        ok da0c4eb8d9a48d171a33574b380752e183286751
+index-file     ok
+refs           ok
+worktree       ok
+commit         ok
+Capturing screenshot into /home/dawid/dev/packages/.route2-gate-cc/shot.png
+-rw-rw-r-- 1 dawid dawid 4449 10-11 04:40 /home/dawid/dev/packages/.route2-gate-cc/shot.png
+**Image:** The coloured box contains the text **"OTTER cc"** (white, bold; "OTTER" in capitals, "cc" in lowercase). The box is **green**. The screenshot is 600×300, and the box sits in the upper left.
+## codex
+objects        ok da0c4eb8d9a48d171a33574b380752e183286751
+index-file     ok
+refs           ok
+worktree       ok
+commit         ok
+2. `npx -y playwright@1.64.0 screenshot --viewport-size=600,300 file:///home/dawid/dev/packages/.route2-gate-codex/page.html /home/dawid/dev/packages/.route2-gate-codex/shot.png`
+Capturing screenshot into /home/dawid/dev/packages/.route2-gate-codex/shot.png
+3. `ls -la /home/dawid/dev/packages/.route2-gate-codex/shot.png`
+-rw-rw-r-- 1 dawid dawid 6182 Oct 11 04:40 /home/dawid/dev/packages/.route2-gate-codex/shot.png
+The coloured box says **“OTTER codex”** and is **green**.
+## cursor
+objects        ok da0c4eb8d9a48d171a33574b380752e183286751
+index-file     ok
+refs           ok
+worktree       ok
+commit         ok
+Capturing screenshot into /home/dawid/dev/packages/.route2-gate-cursor/shot.png
+-rw-rw-r-- 1 dawid dawid 5803 10-11 04:40 /home/dawid/dev/packages/.route2-gate-cursor/shot.png
+The coloured box contains the exact text **OTTER cursor** and the box is green.
+## agy
+  /home/dawid/dev/packages/.route2-gate-agy/shot.png  3) ls -la /home/dawid/dev/packages/.route2-gate-agy/shot.png . Then open
+  the image /home/dawid/dev/packages/.route2-gate-agy/shot.png and state, in English, the exact text in the coloured box and its
+● Ran 3 commands (+2 · ls -la /home/dawid/dev/packages/.route2-gate-agy/shot.png)
+● Explored 1 file (shot.png) (ctrl+o to expand)
+    objects        ok da0c4eb8d9a48d171a33574b380752e183286751
+    index-file     ok
+    refs           ok
+    worktree       ok
+    commit         ok
+  /home/dawid/dev/packages/.route2-gate-agy/shot.png

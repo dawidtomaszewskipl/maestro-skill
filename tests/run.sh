@@ -294,6 +294,27 @@ if group T4 "jobs"; then
     ok "detach + exec out of the process group: still a member"
   else bad "detach + exec out of the process group: still a member" "$o15"; fi
   "$B/route2-kill" j15 --gen "$gen" --grace 1 >/dev/null; sleep 1.5; "$B/route2-kill" j15 --gen "$gen" >/dev/null
+  # Recovered members (in the job's process group but missing from members.jsonl).
+  printf '#!/bin/bash\nsleep 60 &\nwait\n' > "$REPO/rec.sh"; chmod +x "$REPO/rec.sh"
+  run --job j16 -- ./rec.sh >/dev/null; sleep 3
+  grep -v '"argv":"sleep 60"' .route2/jobs/j16/members.jsonl > "$WORK/m16" || true; cp "$WORK/m16" .route2/jobs/j16/members.jsonl
+  jqt "a recovered member whose current ancestry reaches a recorded member is classifiable" \
+    "$("$B/route2-kill" j16 --gen "$gen" --grace 1)" '.result == "signalled"'
+  sleep 1.5; "$B/route2-kill" j16 --gen "$gen" >/dev/null
+  printf '#!/bin/bash\n(sleep 60 &)\nsleep 60\n' > "$REPO/rec2.sh"; chmod +x "$REPO/rec2.sh"
+  run --job j17 -- ./rec2.sh >/dev/null; sleep 3
+  grep -v '"argv":"sleep 60","cwd' .route2/jobs/j17/members.jsonl > "$WORK/m17" || true
+  # keep the leader, drop the re-parented sleep's record
+  jq -c --argjson l "$(jq .pid .route2/jobs/j17/meta.json)" 'select(.pid == $l or (.argv | test("sleep 60") | not))' .route2/jobs/j17/members.jsonl > "$WORK/m17"
+  cp "$WORK/m17" .route2/jobs/j17/members.jsonl
+  jqt "a recovered member whose ancestry is unknown (re-parented to init) blocks" \
+    "$("$B/route2-kill" j17 --gen "$gen" --grace 1)" '.result == "blocked"'
+  for m in $(jq -r '.live_members[].pid' <<<"$(st j17)"); do kill "$m" 2>/dev/null; done
+  pkill -P "$(jq -r .wrapper_pid .route2/jobs/j17/meta.json)" 2>/dev/null; kill "$(jq -r .pid .route2/jobs/j17/meta.json)" 2>/dev/null
+  for p in $(pgrep -x sleep); do [[ "$(readlink "/proc/$p/cwd")" == "$REPO" ]] && kill "$p" 2>/dev/null; done
+  # Uncertainty propagates: a job whose live set cannot be read is never "done".
+  jqt "route2-kill on an uncertain job → blocked, nothing signalled" \
+    "$(ROUTE2_PROC="$WORK/noproc" "$B/route2-kill" j10 --gen "$gen")" '.result == "blocked"'
   # Unreadable /proc → uncertain.
   jqt "unreadable /proc → uncertain" "$(ROUTE2_PROC="$WORK/noproc" "$B/route2-wait" j10 --peek)" '.state == "uncertain"'
   cd "$ROOT" || exit 2
@@ -381,6 +402,10 @@ if group T7 "role resolution"; then
   jqt "row 6: nothing eligible → halt" "$(r6 '{"eligible":["haiku"]}')" '.implementer == null and .stop.row == 2'
   eq "native canonical pin older than the alias: opus 5 → claude-opus-5" claude-opus-5 "$("$B/route2-catalog" native-id opus 5)"
   eq "native canonical pin opus 5.5 → claude-opus-5-5" claude-opus-5-5 "$("$B/route2-catalog" native-id opus 5.5)"
+  printf '{"type":"system","subtype":"init","model":"claude-opus-5"}\n' > "$WORK/pin-exact.jsonl"
+  printf '{"type":"system","subtype":"init","model":"claude-opus-5-5"}\n' > "$WORK/pin-alias.jsonl"
+  jqt "older native pin: a probe serving exactly claude-opus-5 is accepted" "$("$B/route2-catalog" native-verify claude-opus-5 "$WORK/pin-exact.jsonl")" '.accepted == true'
+  jqt "older native pin: an alias serving claude-opus-5-5 is rejected (no alias fallback)" "$("$B/route2-catalog" native-verify claude-opus-5 "$WORK/pin-alias.jsonl")" '.accepted == false and .served == "claude-opus-5-5"'
   tr_() { "$B/route2-roles" --transports <<<"$1"; }
   O='"order":["native","agy","cursor"]'
   jqt "transports: first eligible" "$(tr_ '{"slot":"opus",'"$O"',"available":{"native":true,"agy":true,"cursor":true}}')" '.action == "use" and .transport == "native"'
@@ -578,6 +603,17 @@ if group T10 "ledger rows from job output"; then
   jqt "effective_config kept as an object; service tier recorded" \
     "$("$B/route2-ledger" --dry-run --job j2 --stage build --cli codex --transport codex --family openai --model gpt-6.1-sol --effective-config '{"model":"gpt-6.1-sol","sandbox":"read-only"}' --service-tier priority)" \
     '.effective_config.sandbox == "read-only" and .service_tier_requested == "priority"'
+  # success 100/20 → failed call without usage → success 150/30 on one thread: 100, null, 50.
+  for k in a b c; do mkdir -p ".route2/jobs/t$k"; done
+  printf '{"type":"thread.started","thread_id":"tz"}\n{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}\n' > .route2/jobs/ta/out
+  printf '{"type":"thread.started","thread_id":"tz"}\n{"type":"turn.failed","error":{"message":"stream error"}}\n' > .route2/jobs/tb/out
+  printf '{"type":"thread.started","thread_id":"tz"}\n{"type":"turn.completed","usage":{"input_tokens":150,"output_tokens":30}}\n' > .route2/jobs/tc/out
+  for k in a b c; do "$B/route2-ledger" --gen "$g" --job "t$k" --stage fix --cli codex --transport codex --family openai --model gpt-6.1-sol >/dev/null; done
+  jqt "success → usage-less failure → success: 100, null, 50 (no double count)" \
+    "$(jq -sc '[.[] | select(.session_id == "tz") | .input_tokens]' .route2/ledger.jsonl)" '. == [100, null, 50]'
+  jqt "the failed call keeps no baseline" "$(jq -sc '[.[] | select(.session_id == "tz") | (.raw_cumulative != null)]' .route2/ledger.jsonl)" '. == [true, false, true]'
+  jqt "effective_config text fallback keeps the text" \
+    "$("$B/route2-ledger" --dry-run --job j2 --stage build --cli codex --transport codex --family openai --model m --effective-config 'OK read-only')" '.effective_config == "OK read-only"'
   mkdir -p .route2/jobs/j4; cp "$FX/verdicts/agy-denied.json" .route2/jobs/j4/out
   row="$("$B/route2-ledger" --dry-run --job j4 --stage critique --cli agy --transport agy --family google --model gemini-3.8-flash-medium)"
   jqt "agy row: status and denied actions recorded" "$row" '.status == "SUCCESS" and .denied_actions == ["mcp"]'
