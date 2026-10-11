@@ -95,7 +95,7 @@ works (measured: `Shell(/…/bin/route2-run)` allowed exactly that script). A di
 
 - every helper by absolute path — `Shell(<R2>/bin/route2-host)`, `…/route2-lock`, `…/route2-run`,
   `…/route2-wait`, `…/route2-kill`, `…/route2-env`, `…/route2-catalog`, `…/route2-state`,
-  `…/route2-fp`, `…/route2-validate`, `…/route2-roles`;
+  `…/route2-fp`, `…/route2-validate`, `…/route2-roles`, `…/route2-ledger`;
 - the CLIs it checks directly in stage 0 — `Shell(codex)`, `Shell(agy)`, `Shell(agent)`,
   `Shell(claude)` (worker launches go through `route2-run`, which needs no further rule);
 - `Shell(git)`, `Shell(jq)`, the project's test command, and the plain utilities a director reads

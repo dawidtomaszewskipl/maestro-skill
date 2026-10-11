@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# route2-ledger — build a complete ledger row from a job's output and append it (docs/ledger.md).
+#
+#   route2-ledger --gen N --job <id> --stage <stage> --cli codex|agy|claude-cli|cursor-agent
+#                 --transport native|agy|cursor|codex --family <family> --model <requested>
+#                 [--effort E] [--round R] [--outcome TEXT] [--verdict V] [--dry-run]
+#
+# Reads .route2/jobs/<id>/: `out` (the event stream or envelope), `answer` (codex -o), `exit`,
+# `meta.json`. Usage is taken from the CLI's own fields — codex: the last turn.completed.usage;
+# agy: the envelope's usage (cumulative per conversation: kept raw in raw_cumulative); claude-cli:
+# the result event's usage and modelUsage; cursor-agent: the result event's usage and init.model.
+# Missing numbers are null, never estimated. Appends through route2-state (audited); --dry-run
+# prints the row instead.
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+
+SD="$(r2_state_dir)"
+gen="" job="" stage="" cli="" transport="" family="" model="" effort="" round="" outcome="" verdict="" dry=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --gen) gen="$2"; shift 2 ;;
+    --job) job="$2"; shift 2 ;;
+    --stage) stage="$2"; shift 2 ;;
+    --cli) cli="$2"; shift 2 ;;
+    --transport) transport="$2"; shift 2 ;;
+    --family) family="$2"; shift 2 ;;
+    --model) model="$2"; shift 2 ;;
+    --effort) effort="$2"; shift 2 ;;
+    --round) round="$2"; shift 2 ;;
+    --outcome) outcome="$2"; shift 2 ;;
+    --verdict) verdict="$2"; shift 2 ;;
+    --dry-run) dry=1; shift ;;
+    *) r2_die "route2-ledger: unknown option $1" ;;
+  esac
+done
+[[ -n "$job" && -n "$stage" && -n "$cli" && -n "$model" ]] || r2_die "route2-ledger needs --job, --stage, --cli and --model"
+J="$SD/jobs/$job"
+[[ -d "$J" ]] || r2_die "route2-ledger: no job $job"
+out="$J/out"; [[ -f "$out" ]] || out=/dev/null
+
+case "$cli" in
+  codex)
+    u="$(grep '"turn.completed"' "$out" | tail -1 | jq -c '.usage // {}' 2>/dev/null || echo '{}')"
+    sid="$(grep -m1 '"thread.started"' "$out" | jq -r '.thread_id // empty' 2>/dev/null || true)"
+    usage="$(jq -c '{input_tokens, cached_input_tokens, cache_write_input_tokens, output_tokens,
+                     reasoning_tokens: .reasoning_output_tokens}' <<<"$u")"
+    served=null; dur=null ;;
+  agy)
+    env_="$(jq -c . "$out" 2>/dev/null || echo '{}')"
+    sid="$(jq -r '.conversation_id // empty' <<<"$env_")"
+    usage="$(jq -c '(.usage // {}) | {input_tokens, cached_input_tokens: .cache_read_tokens, cache_write_input_tokens: null,
+                     output_tokens, reasoning_tokens: .thinking_tokens, total_tokens}' <<<"$env_")"
+    served=null; dur="$(jq -c '.duration_seconds // null' <<<"$env_")" ;;
+  claude-cli)
+    res="$(jq -c 'select(.type == "result")' "$out" 2>/dev/null | tail -1)"; [[ -n "$res" ]] || res='{}'
+    sid="$(jq -r '.session_id // empty' <<<"$res")"
+    usage="$(jq -c '(.usage // {}) | {input_tokens, cached_input_tokens: .cache_read_input_tokens,
+                     cache_write_input_tokens: .cache_creation_input_tokens, output_tokens, reasoning_tokens: null}' <<<"$res")"
+    served="$(jq -c '(.modelUsage // {}) | keys | if length == 0 then null else join(",") end' <<<"$res")"
+    dur="$(jq -c 'if .duration_ms then .duration_ms / 1000 else null end' <<<"$res")" ;;
+  cursor-agent)
+    res="$(jq -c 'select(.type == "result")' "$out" 2>/dev/null | tail -1)"; [[ -n "$res" ]] || res='{}'
+    sid="$(jq -r '.session_id // empty' <<<"$res")"
+    usage="$(jq -c '(.usage // {}) | {input_tokens: .inputTokens, cached_input_tokens: .cacheReadTokens,
+                     cache_write_input_tokens: .cacheWriteTokens, output_tokens: .outputTokens, reasoning_tokens: null}' <<<"$res")"
+    served="$(jq -c 'select(.type == "system" and .subtype == "init") | .model' "$out" 2>/dev/null | head -1)"
+    [[ -n "$served" ]] || served=null
+    dur="$(jq -c 'if .duration_ms then .duration_ms / 1000 else null end' <<<"$res")" ;;
+  *) r2_die "route2-ledger: --cli is codex, agy, claude-cli or cursor-agent" ;;
+esac
+
+meta='{}'; [[ -f "$J/meta.json" ]] && meta="$(cat "$J/meta.json")"
+code=null; [[ -f "$J/exit" ]] && code="$(jq -Rc . < "$J/exit")"
+row="$(jq -cn --arg ts "$(r2_now)" --argjson meta "$meta" --arg stage "$stage" --arg cli "$cli" \
+  --arg transport "$transport" --arg family "$family" --arg model "$model" --argjson served "${served:-null}" \
+  --arg effort "$effort" --arg round "$round" --arg sid "$sid" --arg job "$job" --argjson usage "$usage" \
+  --argjson dur "${dur:-null}" --argjson code "$code" --arg outcome "$outcome" --arg verdict "$verdict" '
+  def nn: if . == "" then null else . end;
+  {ts: $ts, run_id: ($meta.run_id // null), host: ($meta.host | nn), stage: $stage,
+   round: ($round | nn | if . then tonumber? // . else null end), cli: $cli, transport: ($transport | nn),
+   family: ($family | nn), model_requested: $model, model_served: $served, effort: ($effort | nn),
+   session_id: ($sid | nn), job_id: $job, duration_s: $dur}
+  + $usage
+  + {total_tokens: ($usage.total_tokens // (if $usage.input_tokens and $usage.output_tokens then $usage.input_tokens + $usage.output_tokens else null end)),
+     raw_cumulative: (if $cli == "agy" then $usage else null end),
+     exit_code: $code, outcome: ($outcome | nn), verdict: ($verdict | nn)}')"
+if [[ $dry -eq 1 ]]; then printf '%s\n' "$row"; exit 0; fi
+[[ -n "$gen" ]] || r2_die "route2-ledger needs --gen N (or --dry-run)"
+printf '%s\n' "$row" | "$R2_BIN/route2-state" --gen "$gen" append ledger.jsonl

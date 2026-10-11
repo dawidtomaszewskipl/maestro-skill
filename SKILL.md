@@ -617,10 +617,14 @@ the build roster requires (A20 under `--unattended`).
 
 ## Ledger
 
-One line per model call in `.route2/ledger.jsonl`, appended through
-`route2-state --gen N append ledger.jsonl` right after reading its output
-(fields and sources: `docs/ledger.md`, including `transport`, `host` and the
-`transport-switch` outcome). Missing numbers are `null`, never estimated.
+One line per model call in `.route2/ledger.jsonl`, appended right after reading
+its output with `"$R2/bin/route2-ledger" --gen N --job <job> --stage <stage>
+--cli <cli> --transport <t> --family <f> --model <requested> [--effort …]
+[--outcome …] [--verdict …]` — it reads the tokens, duration, session id and
+served model from the job's own output, so no field is left to memory; only an
+Agent-tool call (no job) is written by hand through `route2-state --gen N append
+ledger.jsonl` (fields and sources: `docs/ledger.md`, including `transport`,
+`host` and the `transport-switch` outcome). Missing numbers are `null`, never estimated.
 Cumulative counters (`codex exec resume`, agy conversations) keep the raw values
 in `raw_cumulative` and record the delta. Token totals are never presented as
 subscription cost.

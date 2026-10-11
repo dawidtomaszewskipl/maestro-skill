@@ -409,5 +409,23 @@ if group T9 "audit and .route2 fingerprint"; then
   cd "$ROOT" || exit 2
 fi
 
+# =============================================================================================
+if group T10 "ledger rows from job output"; then
+  REPO="$(new_repo)"; cd "$REPO" || exit 2
+  g="$("$B/route2-lock" acquire --run r --token t --host test | jq -r .generation)"
+  mkdir -p .route2/jobs/j1 .route2/jobs/j2
+  cp "$FX/verdicts/cursor-stream.jsonl" .route2/jobs/j1/out; printf 0 > .route2/jobs/j1/exit
+  printf '{"run_id":"r","host":"codex"}' > .route2/jobs/j1/meta.json
+  row="$("$B/route2-ledger" --dry-run --job j1 --stage critique --cli cursor-agent --transport cursor --family xai --model grok-4.7-medium)"
+  jqt "cursor row: usage, served model, run and host from meta" "$row" \
+    '.input_tokens == 1 and .output_tokens == 1 and .model_served == "Grok 4.7 256K Medium" and .run_id == "r" and .host == "codex" and .exit_code == "0"'
+  printf '{"type":"thread.started","thread_id":"t1"}\n{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":4,"output_tokens":3,"reasoning_output_tokens":1}}\n' > .route2/jobs/j2/out
+  row="$("$B/route2-ledger" --dry-run --job j2 --stage build --cli codex --transport codex --family openai --model gpt-6.1-sol)"
+  jqt "codex row: usage, session, total" "$row" '.session_id == "t1" and .input_tokens == 10 and .reasoning_tokens == 1 and .total_tokens == 13'
+  jqt "append goes through route2-state" "$("$B/route2-ledger" --gen "$g" --job j2 --stage build --cli codex --transport codex --family openai --model gpt-6.1-sol)" '.result == "written"'
+  jqt "ledger verifies" "$("$B/route2-state" verify ledger.jsonl)" '.result == "ok"'
+  cd "$ROOT" || exit 2
+fi
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 if (( fail > 0 )); then printf '  %s\n' "${failed[@]}"; exit 1; fi

@@ -47,7 +47,9 @@ transport switch (`docs/hosts.md`) gets `outcome: "transport-switch: <from>→<t
 and cache counts repeated the earlier turn's): treat them like a `codex exec resume` thread — raw
 counters in `raw_cumulative`, deltas in the token fields.
 
-Every row is appended through `route2-state --gen N append ledger.jsonl` (the audit makes a ledger
+`bin/route2-ledger` builds the row from a job's files (the sources in the table above) and appends
+it — the canaries showed that a director composing rows by hand drops fields (`stage`, `cli`,
+tokens). Every row is appended through `route2-state --gen N append ledger.jsonl` (the audit makes a ledger
 edited by anything else stop the next write).
 
 ## Report table
