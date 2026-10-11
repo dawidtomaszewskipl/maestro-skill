@@ -86,24 +86,27 @@ case "$cli" in
   *) r2_die "route2-ledger: --cli is codex, agy, claude-cli or cursor-agent" ;;
 esac
 
-# Cumulative counters (codex resume, agy conversation): delta against this session's last raw row.
+# Cumulative counters (codex resume, agy conversation). Per COUNTER: the baseline is the last
+# earlier row of this session where that counter was a number; the delta is current − baseline. A
+# counter that is missing now stays null (unknown usage is never filled with a cumulative total)
+# and leaves its baseline in place for the next row. A counter that went DOWN marks a reset: from
+# there its raw value is this call's own usage.
 raw=null counter_reset=false
 if [[ "$cli" == codex || "$cli" == agy ]] && [[ -n "$sid" ]] \
-   && jq -e '.input_tokens | type == "number"' <<<"$usage" >/dev/null; then
-  # Only a call that reported counters is a baseline; a failed call without usage leaves the last
-  # measured baseline in place (its own row has null tokens and no raw_cumulative).
+   && jq -e 'to_entries | any((.value | type) == "number")' <<<"$usage" >/dev/null; then
   raw="$usage"
-  # The immediately preceding raw row of this session. Equal counters give a zero delta; a counter
-  # that went DOWN means the counters were reset (a new process for the same id): the raw values
-  # are then this call's own usage, and the row says so.
-  prev="$( { jq -c --arg s "$sid" 'select(.session_id == $s and .raw_cumulative != null and (.raw_cumulative.input_tokens | type) == "number") | .raw_cumulative' "$SD/ledger.jsonl" 2>/dev/null || true; } | tail -1)"
-  if [[ -n "$prev" ]]; then
-    if jq -e --argjson p "$prev" 'to_entries | any((.value | type) == "number" and ($p[.key] | type) == "number" and .value < $p[.key])' <<<"$raw" >/dev/null; then
-      counter_reset=true
-    else
-      usage="$(jq -c --argjson p "$prev" 'with_entries(.value = (if (.value | type) == "number" and ($p[.key] | type) == "number" then .value - $p[.key] else .value end))' <<<"$raw")"
-    fi
-  fi
+  rows="$( { jq -c --arg s "$sid" 'select(.session_id == $s and .raw_cumulative != null) | .raw_cumulative' "$SD/ledger.jsonl" 2>/dev/null || true; } | jq -sc .)"
+  res="$(jq -c --argjson rows "$rows" '
+    . as $cur
+    | reduce (keys_unsorted[]) as $k ({u: {}, reset: false};
+        ($cur[$k]) as $v
+        | ([ $rows[] | .[$k] | select(type == "number") ] | last) as $b
+        | if ($v | type) != "number" then .u[$k] = $v
+          elif $b == null then .u[$k] = $v
+          elif $v < $b then .u[$k] = $v | .reset = true
+          else .u[$k] = ($v - $b) end)' <<<"$raw")"
+  usage="$(jq -c .u <<<"$res")"
+  [[ "$(jq -r .reset <<<"$res")" == true ]] && counter_reset=true
 fi
 
 meta='{}'; [[ -f "$J/meta.json" ]] && meta="$(cat "$J/meta.json")"

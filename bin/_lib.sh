@@ -137,3 +137,13 @@ r2_proc_table() {
     | awk '{ pid = $1; line = $0; sub(/^.*\) /, "", line); split(line, f, " ");
              if (pid ~ /^[0-9]+$/ && f[2] ~ /^[0-9]+$/ && f[3] ~ /^[0-9]+$/) print pid, f[2], f[3] }'
 }
+
+# The identity of a pid right now: its start time, "gone" (no /proc entry), or "unreadable" (the
+# entry exists but its stat cannot be read). Callers must never treat "unreadable" as "gone".
+r2_pid_identity() {
+  local st
+  st="$(r2_pid_starttime "$1")"
+  if [[ -n "$st" ]]; then printf '%s\n' "$st"
+  elif [[ -e "$(r2_proc)/$1" ]]; then echo unreadable
+  else echo gone; fi
+}

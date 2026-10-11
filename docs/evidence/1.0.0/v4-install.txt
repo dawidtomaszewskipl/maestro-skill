@@ -13,7 +13,7 @@ Invoke it with:
 
 $ find <scratch>/home -maxdepth 4 (links and SKILL.md)
 <scratch>/home/.claude/skills/route2 -> <scratch>/home/.agents/skills/route2
-<scratch>/home/.agents/skills/route2/SKILL.md -> 
+<scratch>/home/.agents/skills/route2/SKILL.md ->
 <scratch>/home/.gemini/config/skills/route2 -> <scratch>/home/.agents/skills/route2
 
 $ HOME=<scratch> ./install.sh --check

@@ -84,9 +84,14 @@ snapshot() {
       [[ -n "${wpid:-}" && "$(r2_pid_ppid "$p")" == "$wpid" ]] && continue
       [[ "$(r2_pid_cmdline "$p")" == *"__wrapper $J"* ]] && continue
       jq -e --arg p "$p" 'any(.[]; (.pid|tostring) == $p)' <<<"$live" >/dev/null && continue
-      # A process that vanished while being read (no start time any more) is not a member.
-      [[ -n "$(r2_pid_starttime "$p")" ]] || continue
-      live="$(jq -c --arg p "$p" --arg st "$(r2_pid_starttime "$p")" --arg a "$(r2_pid_cmdline "$p")" \
+      # Read the identity once: a process that is gone is not a member; one whose entry still
+      # exists but cannot be read makes the whole state uncertain (never "gone").
+      id="$(r2_pid_identity "$p")"
+      case "$id" in
+        gone) continue ;;
+        unreadable) unreadable=1; continue ;;
+      esac
+      live="$(jq -c --arg p "$p" --arg st "$id" --arg a "$(r2_pid_cmdline "$p")" \
         --arg pg "$pg" '. + [{pid: ($p|tonumber), starttime: $st, argv: $a, pgid: ($pg|tonumber), unrecorded: true}]' <<<"$live")"
     done
   fi

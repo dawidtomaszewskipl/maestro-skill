@@ -174,6 +174,13 @@ if group T3 "host detection"; then
     "$(host "$R" 100 CURSOR_AGENT=1 CURSOR_CONVERSATION_ID=c1)" '.host == "cursor"'
   R="$WORK/proc5"; mkproc "$R" 500 1 /home/u/.local/bin/agy agy; mkproc "$R" 510 500 /usr/bin/bash bash
   jqt "agy ancestor without its marker → unknown" "$(host "$R" 510)" '.host == "unknown"'
+  # Identity of a pid: start time, gone, or unreadable — never unreadable read as gone.
+  ID="$WORK/procid"; mkdir -p "$ID/900"; printf '900 (x) S 1 900 900 0 -1 0 0 0 0 0 0 0 0 20 0 1 0 0 4242 0 0\n' > "$ID/900/stat"
+  mkdir -p "$ID/901"; printf 'x\n' > "$ID/901/stat"; chmod 000 "$ID/901/stat"
+  eq "pid identity: readable → start time" 4242 "$(ROUTE2_PROC="$ID" bash -c '. "$1/_lib.sh"; r2_pid_identity 900' _ "$B")"
+  eq "pid identity: entry present, stat unreadable → unreadable" unreadable "$(ROUTE2_PROC="$ID" bash -c '. "$1/_lib.sh"; r2_pid_identity 901' _ "$B")"
+  eq "pid identity: no entry → gone" gone "$(ROUTE2_PROC="$ID" bash -c '. "$1/_lib.sh"; r2_pid_identity 902' _ "$B")"
+  chmod 600 "$ID/901/stat"
   jqt "agy ancestor with its marker (measured: ANTIGRAVITY_AGENT, ANTIGRAVITY_CONVERSATION_ID)" \
     "$(host "$R" 510 ANTIGRAVITY_AGENT=1 ANTIGRAVITY_CONVERSATION_ID=sess)" '.host == "agy" and .session_key == "sess" and .interactive == true'
   R="$WORK/proc8"; mkproc "$R" 500 1 /home/u/.local/bin/agy agy -p hi; mkproc "$R" 510 500 /usr/bin/bash bash
@@ -612,6 +619,17 @@ if group T10 "ledger rows from job output"; then
   jqt "success → usage-less failure → success: 100, null, 50 (no double count)" \
     "$(jq -sc '[.[] | select(.session_id == "tz") | .input_tokens]' .route2/ledger.jsonl)" '. == [100, null, 50]'
   jqt "the failed call keeps no baseline" "$(jq -sc '[.[] | select(.session_id == "tz") | (.raw_cumulative != null)]' .route2/ledger.jsonl)" '. == [true, false, true]'
+  # Partially missing counters: each counter keeps its own baseline.
+  for k in d e f; do mkdir -p ".route2/jobs/p$k"; done
+  printf '{"type":"thread.started","thread_id":"tp"}\n{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20,"cached_input_tokens":50,"reasoning_output_tokens":5}}\n' > .route2/jobs/pd/out
+  printf '{"type":"thread.started","thread_id":"tp"}\n{"type":"turn.completed","usage":{"input_tokens":120,"cached_input_tokens":60}}\n' > .route2/jobs/pe/out
+  printf '{"type":"thread.started","thread_id":"tp"}\n{"type":"turn.completed","usage":{"input_tokens":150,"output_tokens":30,"cached_input_tokens":70,"reasoning_output_tokens":9}}\n' > .route2/jobs/pf/out
+  for k in d e f; do "$B/route2-ledger" --gen "$g" --job "p$k" --stage fix --cli codex --transport codex --family openai --model gpt-6.1-sol >/dev/null; done
+  rows="$(jq -sc '[.[] | select(.session_id == "tp") | {i: .input_tokens, o: .output_tokens, c: .cached_input_tokens, r: .reasoning_tokens}]' .route2/ledger.jsonl)"
+  jqt "partially missing counters: input 100,20,30" "$rows" '[.[].i] == [100,20,30]'
+  jqt "partially missing counters: output 20,null,10 (no overcount)" "$rows" '[.[].o] == [20,null,10]'
+  jqt "partially missing counters: cache 50,10,10" "$rows" '[.[].c] == [50,10,10]'
+  jqt "partially missing counters: reasoning 5,null,4" "$rows" '[.[].r] == [5,null,4]'
   jqt "effective_config text fallback keeps the text" \
     "$("$B/route2-ledger" --dry-run --job j2 --stage build --cli codex --transport codex --family openai --model m --effective-config 'OK read-only')" '.effective_config == "OK read-only"'
   mkdir -p .route2/jobs/j4; cp "$FX/verdicts/agy-denied.json" .route2/jobs/j4/out
