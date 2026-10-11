@@ -65,7 +65,7 @@ if [[ -n "$check" ]]; then
       if grep -q route2 "$tmp/cursor.json"; then echo "cursor: lists route2"; else echo "cursor: route2 NOT listed"; fi
     fi
     if command -v claude >/dev/null 2>&1; then
-      (cd "$cwd" && claude -p --model haiku --tools "" --permission-mode dontAsk "$q" < /dev/null > "$tmp/claude.txt" 2>/dev/null) || true
+      (cd "$cwd" && claude -p --model haiku --tools "Skill" --permission-mode dontAsk "$q" < /dev/null > "$tmp/claude.txt" 2>/dev/null) || true
       if grep -q route2 "$tmp/claude.txt"; then echo "claude-code: lists route2"; else echo "claude-code: route2 NOT listed"; fi
     fi
   fi

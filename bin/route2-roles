@@ -12,6 +12,9 @@
 # Output: {critics: [slot…], reviewer: slot|null, degraded: family|null, notes: [...],
 #          stop: null | {reason, remedy}}
 set -euo pipefail
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  sed -n '2,/^[^#]/{/^#/s/^# \{0,1\}//p}' "$0"; exit 0
+fi
 
 # shellcheck disable=SC2016  # jq program
 exec jq -c '

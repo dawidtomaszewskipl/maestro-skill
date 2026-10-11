@@ -24,7 +24,7 @@ what and what it cost: the user is directing a team, not watching a black box.
 **Where the helpers are.** This skill ships scripts next to this file. Before
 anything else set `R2` to the directory of this SKILL.md, resolved through
 symlinks — `R2="$(dirname "$(readlink -f "<path you read this file from>")")"` —
-and call every helper as `"$R2/bin/<name>"`. The working state of a run lives in
+and call every helper as `"$R2/bin/<name>"` (`--help` prints a helper's usage). The working state of a run lives in
 `.route2/` at the repository top (never `.route/`, which belongs to the older
 `/route` skill; never `/tmp`).
 

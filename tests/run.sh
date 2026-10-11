@@ -29,7 +29,7 @@ new_repo() {  # a scratch git repo with one commit; prints its path
   local d; d="$(mktemp -d "$WORK/repo.XXXXXX")"
   git -C "$d" init -q -b main
   git -C "$d" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
-  printf '.route2/\n' >> "$(git -C "$d" rev-parse --git-path info/exclude)"   # as stage 0 step 2 does
+  printf '.route2/\n' >> "$(git -C "$d" rev-parse --absolute-git-dir)/info/exclude"   # as stage 0 step 2 does
   printf '%s\n' "$d"
 }
 

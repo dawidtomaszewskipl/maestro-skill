@@ -4,6 +4,12 @@
 # Conventions: every script is bash >= 5 with `set -euo pipefail`, prints machine-readable JSON on
 # stdout when it reports, human text on stderr, and exits non-zero only on a real error.
 
+# --help / -h on any helper prints its header comment (the usage) and exits.
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  sed -n '2,/^[^#]/{/^#/s/^# \{0,1\}//p}' "$0"
+  exit 0
+fi
+
 R2_BIN="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 R2_ROOT="$(dirname "$R2_BIN")"
 export R2_BIN R2_ROOT

@@ -55,7 +55,7 @@ route2's lock).
 | --- | --- | --- |
 | Claude Code | `/route2 <task>` | none |
 | Codex | `$route2 <task>` | start Codex with `--sandbox danger-full-access` (the director's own commands must reach the model APIs and run your tests) |
-| Cursor (`agent`) | `/route2 <task>` | a project `.cursor/cli.json` allowing route2's scripts, `git`, `jq` and your test command — never `--force` (see `docs/hosts.md`) |
+| Cursor (`agent`) | `/route2 <task>` | a project `.cursor/cli.json` allowing route2's scripts, `git`, `jq`, your test command and the utilities listed in `docs/hosts.md` — never `--force` |
 | agy | `/route2 <task>` | an interactive session (print mode cannot run commands); approve the commands or add `permissions.allow` rules |
 
 Headless (`claude -p`, `codex exec`, `agent -p`) works only with `--unattended`.

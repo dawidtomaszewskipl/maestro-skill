@@ -90,11 +90,22 @@ If your identity changes between dispatches (a model switch, even within a famil
 | Supported configuration | default | default | `codex --sandbox danger-full-access` — the director's own commands must reach the model APIs and run the tests; Codex's default sandbox blocks the network | a project `.cursor/cli.json` allowing exactly the commands below, **without `--force`** | approve command prompts, or `permissions.allow` `command(…)` rules in `~/.gemini/antigravity-cli/settings.json` |
 
 **Cursor's allowlist** (`<project>/.cursor/cli.json`; documented: "Only permissions can be
-configured at the project level"): `Shell(<R2>/bin/route2-host)`, `…/route2-lock`, `…/route2-run`,
-`…/route2-wait`, `…/route2-kill`, `…/route2-env`, `…/route2-catalog`, `…/route2-state`,
-`…/route2-fp`, `…/route2-validate`, `…/route2-roles`, `Shell(git)`, `Shell(jq)`, and the project's
-test command. Every worker launch goes through `route2-run … -- route2-env -- <cli>`, so the worker
-CLIs themselves need no rule. Never `--force`: it turns Cursor's sandbox off entirely (measured).
+configured at the project level"). Rules match the command's executable, and an absolute path
+works (measured: `Shell(/…/bin/route2-run)` allowed exactly that script). A director needs:
+
+- every helper by absolute path — `Shell(<R2>/bin/route2-host)`, `…/route2-lock`, `…/route2-run`,
+  `…/route2-wait`, `…/route2-kill`, `…/route2-env`, `…/route2-catalog`, `…/route2-state`,
+  `…/route2-fp`, `…/route2-validate`, `…/route2-roles`;
+- the CLIs it checks directly in stage 0 — `Shell(codex)`, `Shell(agy)`, `Shell(agent)`,
+  `Shell(claude)` (worker launches go through `route2-run`, which needs no further rule);
+- `Shell(git)`, `Shell(jq)`, the project's test command, and the plain utilities a director reads
+  and writes state with: `cat`, `ls`, `mkdir`, `printf`, `echo`, `grep`, `sed`, `head`, `tail`,
+  `wc`, `date`, `sha256sum`, `readlink`, `dirname`, `command`, `test`;
+- for UI runs the screenshot tool (`Shell(npx)` for Playwright).
+
+`Shell(bash)` in that list makes it effectively broad — said plainly: a headless Cursor director
+can run what `bash -c` can. Without it, directing works only interactively, approving each
+command. Never `--force`: it turns Cursor's sandbox off entirely (measured).
 
 ## Capability checks (stage 0 step 3a)
 
@@ -102,7 +113,8 @@ Run from your own shell, for what the selected run needs; a failure is a stop wi
 the "Supported configuration" row:
 
 1. **State:** create and remove `.route2/probe-<id>`; take the lock.
-2. **Git metadata** (what a commit needs, without touching the user's index or branch):
+2. **Git metadata** (what a commit needs, without touching the user's index or branch; measured
+   to pass inside Codex `danger-full-access` and Cursor's allowlist, V2b):
    `git hash-object -w` of a throwaway blob; `GIT_INDEX_FILE=<git-dir>/route2-probe-<run>-<rand>
    git read-tree HEAD`, then remove that file; `git update-ref refs/route2/probe-<run>-<rand> HEAD`
    and `git update-ref -d` of it — unique names, removed by a trap on failure too. When a split is
@@ -113,8 +125,12 @@ the "Supported configuration" row:
    session, with the remedy printed.
 4. **Tests** (not under `--skip-tests`): the reach probe's cheap check, run by you.
 5. **Visual** (only for a user-facing layout change): the screenshot tool starts and writes one
-   file under `.route2/evidence/`, and you can read an image on this host. Until gate V14 is
-   recorded below for a host, **UI runs on that host stop here**.
+   file under `.route2/evidence/`, and you can read an image on this host. Measured (V14,
+   2026-10-11): a Playwright screenshot of a test page was read back correctly ("ZEBRA 42",
+   purple) by Claude Code, `claude -p`, Codex (`gpt-6-luna`), Cursor (`grok-4.7-low`, plan mode)
+   and agy (`gemini-3.8-flash-low`, print mode) — so every host can inspect screenshots, and a
+   Cursor builder can be sent screenshot paths in a fix round (V12). The screenshot tool itself
+   must be runnable from the director's shell (Cursor: `Shell(npx)`).
 6. A host permission prompt that is denied → stop (unattended: row 2), never a hang.
 
 ## Jobs (every host except an interactive Claude Code)

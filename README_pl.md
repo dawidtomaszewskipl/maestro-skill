@@ -56,7 +56,7 @@ route2).
 | --- | --- | --- |
 | Claude Code | `/route2 <zadanie>` | nic |
 | Codex | `$route2 <zadanie>` | Codex uruchomiony z `--sandbox danger-full-access` (komendy dyrektora muszą dosięgnąć API modeli i uruchomić testy) |
-| Cursor (`agent`) | `/route2 <zadanie>` | projektowy `.cursor/cli.json` pozwalający na skrypty route2, `git`, `jq` i komendę testów — nigdy `--force` (zob. `docs/hosts.md`) |
+| Cursor (`agent`) | `/route2 <zadanie>` | projektowy `.cursor/cli.json` pozwalający na skrypty route2, `git`, `jq`, komendę testów i narzędzia wymienione w `docs/hosts.md` — nigdy `--force` (zob. `docs/hosts.md`) |
 | agy | `/route2 <zadanie>` | sesja interaktywna (tryb print nie uruchamia komend); zatwierdzaj komendy albo dodaj reguły `permissions.allow` |
 
 Bez interakcji (`claude -p`, `codex exec`, `agent -p`) — tylko z `--unattended`.

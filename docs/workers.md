@@ -404,6 +404,8 @@ Measured on agent 2026.10.01 (2026-10-11, `grok-4.7-low`/`-medium`):
 | `--sandbox disabled` (no `--force`) | Shell calls follow the allowlist (`~/.cursor/cli-config.json`, `<project>/.cursor/cli.json`); everything else `Rejected:`. |
 | **`--force` / `--yolo`** | **Turns the sandbox off entirely**: with `--force --sandbox enabled` a worker wrote outside the workspace, into `$HOME`, and reached the network. Never used by route2 except a per-run, user-approved rung 4. |
 | `--resume <session_id>` | Continues the session (same id returned). |
+| `init.model` labels | `grok-4.7-low/-medium/-high/-xhigh` → "Grok 4.7 256K Low/Medium/High/Extra High"; `claude-opus-5-5-medium` → "Claude Opus 5.5 300K Medium", `claude-sonnet-5-5-low` → "Claude Sonnet 5.5 300K Low" (V7, 2026-10-11). Normalise: family + version + effort, with "Extra High" = `xhigh`; ignore the context size. |
+| quota | Cursor's Claude slugs emit `init` and then `Error: You've hit your usage limit for Opus …` / `… for Sonnet …` — classified as **quota** (a transport problem: no walk-down, a transport switch or a stop), never as an account denial. |
 | `--trust` | Trusts the workspace without a prompt — needed headless. |
 | `--workspace <dir>` | The workspace (a worktree for a parallel writer). |
 | language | The result follows the user's language unless told otherwise; it opened with a prose sentence before the JSON in 2 of 7 critique rounds → `route2-validate` allows leading prose. |
