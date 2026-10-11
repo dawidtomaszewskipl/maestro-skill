@@ -203,7 +203,10 @@ session ends — measured per host in its supported configuration:
 
 Measured 2026-10-11 (V9): in each host a director ran `route2-lock acquire`, `route2-run … --
 sleep 900` and `route2-wait --peek` as separate commands; the job was `running` in the third
-command and still `running` after the host process was gone; `route2-kill` then ended it.
+command and still `running` after the host process was gone. A second run (Codex, Cursor and
+`claude -p` directors) checked the same jobs **11 minutes after their director sessions ended**:
+all three still `running` (elapsed 711 s, 686 s, 672 s). An agy director's job survived its
+session being killed (checked at 36 s).
 
 agy also has its own mechanism: a command still running after 10 s becomes a background task
 (`/tasks`), and when it finishes **agy wakes the model with its output** (measured: a `sleep 130`
@@ -224,6 +227,14 @@ in its supported configuration, all `--unattended`:
 | Codex (`gpt-6.1-sol`) | full build, `--model=sonnet --critic=grok` | `result: done`, commit; tests run by the director |
 | Codex (`gpt-6.1-sol`) | full build split into two parallel Sonnet workers in worktrees | both parts integrated, worktrees removed, tests (51 checks) green, one commit |
 | Claude Code `claude -p` (Sonnet) + a `claude` shim | full build, `--model=sonnet --critic=grok` | the shim killed the native builder after its first edit with a quota error → the director kept the partial edit after reading it, switched `sonnet` to agy (`claude-sonnet-5-5`), the agy session finished, the director ran the tests and committed; ledger row `transport-switch (quota)` |
+
+Added after review round 1 (the full build on every host, and an interruption off Claude Code):
+
+| Host (director model) | Run | Outcome |
+| --- | --- | --- |
+| Cursor (`grok-4.7-high`, project allowlist, no `--force`) | full build, `--model=sonnet --critic=sol --rounds=3` | Sol `revise` (integer overflow, missing bad-input tests) then `approve`; Sonnet built through `claude -p` (edits-only); the director ran the tests (24/24) and committed |
+| agy (`gemini-3.8-flash-high`, interactive, 78 approvals, 0 refusals) | full build, `--model=sol --critic=grok --rounds=3` | three critique rounds, Grok approved in round 3; Sol built through `codex exec`; tests green; `result: done`, one commit; lock released |
+| Codex (`gpt-6.1-sol`) | full build, the Codex director killed while the build job ran, then `$route2 --resume --unattended` with Codex | the job survived (`running` after the kill); the resume took over the stale lock, reconciled the finished build, ran the tests (95 checks) and committed; bookkeeping rotated, lock released |
 
 Weak spots the canaries showed: a Sonnet director wrote ledger rows without `stage`, `cli`,
 `model_requested` or tokens, and skipped a separate probe when the critique call itself showed the

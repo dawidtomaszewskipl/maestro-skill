@@ -49,7 +49,15 @@ case "$cli" in
     usage="$(jq -c '{input_tokens, cached_input_tokens, cache_write_input_tokens, output_tokens,
                      reasoning_tokens: .reasoning_output_tokens}' <<<"$u")"
     status="$(if grep -q '"turn.failed"' "$out"; then echo failed; elif grep -q '"turn.completed"' "$out"; then echo completed; else echo incomplete; fi)"
-    denied=null; served=null; dur=null ;;
+    denied=null; served=null; dur=null
+    # The served model is the thread's latest turn_context in its rollout (the effective-config source).
+    if [[ -n "$sid" ]]; then
+      ro="$(find "${CODEX_HOME:-$HOME/.codex}/sessions" -name "rollout-*-$sid.jsonl" 2>/dev/null | head -1 || true)"
+      if [[ -n "$ro" ]]; then
+        m="$( { grep '"type":"turn_context"' "$ro" || true; } | tail -1 | jq -r '.payload.model // empty' 2>/dev/null || true)"
+        [[ -n "$m" ]] && served="$(jq -cn --arg m "$m" '$m')"
+      fi
+    fi ;;
   agy)
     env_="$(jq -c . "$out" 2>/dev/null || echo '{}')"
     sid="$(jq -r '.conversation_id // empty' <<<"$env_")"
@@ -81,8 +89,12 @@ esac
 raw=null
 if [[ "$cli" == codex || "$cli" == agy ]] && [[ -n "$sid" ]]; then
   raw="$usage"
-  prev="$( { jq -c --arg s "$sid" 'select(.session_id == $s and .raw_cumulative != null) | .raw_cumulative' "$SD/ledger.jsonl" 2>/dev/null || true; } | tail -1)"
-  if [[ -n "$prev" ]]; then
+  # The latest earlier raw row of this session whose counters do not exceed the current ones
+  # (a later row would give a negative "delta": then there is nothing to subtract).
+  prev="$( { jq -c --arg s "$sid" --argjson cur "$raw" 'select(.session_id == $s and .raw_cumulative != null)
+             | .raw_cumulative | select((.input_tokens // 0) <= ($cur.input_tokens // 0)
+                                        and (.output_tokens // 0) <= ($cur.output_tokens // 0))' "$SD/ledger.jsonl" 2>/dev/null || true; } | tail -1)"
+  if [[ -n "$prev" && "$prev" != "$raw" ]]; then
     usage="$(jq -c --argjson p "$prev" 'with_entries(.value = (if (.value | type) == "number" and ($p[.key] | type) == "number" then .value - $p[.key] else .value end))' <<<"$raw")"
   fi
 fi
