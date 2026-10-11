@@ -47,8 +47,8 @@ snapshot() {
           is_bookkeeping "$f" && continue
           jq -cn --arg p "$f" --arg s "$(r2_sha256_file "$f")" '{path: $p, sha: $s}'
         done | jq -sc .)"
-    book="$(cd "$SD" && find . -type f \( -name CHECKPOINT.md -o -name ledger.jsonl -o -name pending-decision.md \
-        -o -name lock -o -path './tasks/*/entry.json' \) -not -path './jobs/*' -printf '%P\n' | sort \
+    book="$(cd "$SD" && find . -type f \( -path ./CHECKPOINT.md -o -path ./ledger.jsonl -o -path ./pending-decision.md \
+        -o -path ./lock -o -path './tasks/*/entry.json' \) -printf '%P\n' | sort \
         | while IFS= read -r f; do jq -cn --arg p "$f" --arg s "$(r2_sha256_file "$f")" '{path: $p, sha: $s}'; done | jq -sc .)"
   fi
   al=0; ap="$(printf '' | sha256sum | cut -c1-64)"

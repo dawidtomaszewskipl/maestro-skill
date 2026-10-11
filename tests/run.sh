@@ -381,6 +381,8 @@ if group T9 "audit and .route2 fingerprint"; then
   printf 'stage: critique\nsession: abc\n' | "$B/route2-state" --gen "$g" write CHECKPOINT.md >/dev/null
   printf '{"row":1}\n' | "$B/route2-state" --gen "$g" append ledger.jsonl >/dev/null
   jqt "innocent call: audited bookkeeping writes → same" "$("$B/route2-fp" compare "$WORK/a.json")" '.result == "same"'
+  mkdir -p .route2/tmp; printf 'draft\n' > .route2/tmp/CHECKPOINT.md     # a director's draft in tmp/
+  jqt "a draft named CHECKPOINT.md under tmp/ is not bookkeeping" "$("$B/route2-fp" compare "$WORK/a.json")" '.result == "same"'
   printf 'hacked\n' >> .route2/CHECKPOINT.md
   jqt "a critic edits the checkpoint → detected" "$("$B/route2-fp" compare "$WORK/a.json")" '.result == "changed"'
   out="$(printf 'stage: build\n' | "$B/route2-state" --gen "$g" write CHECKPOINT.md 2>&1; echo "rc=$?")"
@@ -394,6 +396,13 @@ if group T9 "audit and .route2 fingerprint"; then
   printf 'x\n' | "$B/route2-state" --gen "$g" write CHECKPOINT.md >/dev/null
   printf 'y\n' > .route2/CHECKPOINT.md     # published without its audit entry
   jqt "publish without audit → verify fails closed" "$("$B/route2-state" verify CHECKPOINT.md)" '.result == "tampered"'
+  # Only an explicit adoption makes an unaudited file legitimate again.
+  printf 'y\n' | "$B/route2-state" --gen "$g" write CHECKPOINT.md >/dev/null 2>&1
+  jqt "after a refused write the file is still unaudited" "$("$B/route2-state" verify CHECKPOINT.md)" '.result == "tampered"'
+  jqt "adopt needs a reason" "$("$B/route2-state" --gen "$g" adopt CHECKPOINT.md 2>&1 | jq -Rc '{msg: .}')" '.msg | test("reason")'
+  jqt "adopt with a reason" "$("$B/route2-state" --gen "$g" adopt CHECKPOINT.md --reason "user inspected it")" '.result == "adopted"'
+  jqt "adopted file verifies" "$("$B/route2-state" verify CHECKPOINT.md)" '.result == "ok"'
+  jqt "the adoption is marked in the audit" "$(tail -1 .route2/audit.jsonl)" '.adopted == true and .reason == "user inspected it"'
   # Audit prefix rewritten → detected.
   "$B/route2-fp" snapshot > "$WORK/c.json"; sed -i '1s/.*/{"file":"x"}/' .route2/audit.jsonl
   jqt "audit prefix rewritten → detected" "$("$B/route2-fp" compare "$WORK/c.json")" '.diffs | index("audit.jsonl prefix") != null'

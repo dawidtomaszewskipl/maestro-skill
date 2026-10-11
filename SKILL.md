@@ -389,7 +389,9 @@ skipped ones.
 - **Read-only roles leave no trace.** Before and after every external critic,
   gate or reviewer call: `"$R2/bin/route2-fp" snapshot` / `compare`; a change
   in the checkout or in `.route2/` → verdict discarded, dirty-exit, that
-  transport ineligible for read-only roles this run.
+  transport ineligible for read-only roles this run. **You never overrule a
+  `changed` result yourself** — if you believe it is a false alarm, say so in the
+  report, but the verdict is still discarded (rerun the role).
 - **Continuing a worker** (fix rounds, after a stop): Codex `codex exec resume
   <thread UUID>` from the worker's own directory; agy `--conversation <id>` only
   after a `SUCCESS` turn; `claude -p --resume <session_id>` and `agent -p
@@ -586,8 +588,12 @@ escalates to the implementer, as `docs/cascade.md` prescribes.
 
 Write `.route2/CHECKPOINT.md` (`docs/checkpoint.md`) after every stage
 transition, at every worker launch (with its session id and job id), and on
-every limit, API or safety event — always through `"$R2/bin/route2-state"
---gen N write CHECKPOINT.md` (it refuses a file changed outside route2). It
+every limit, API or safety event — **only** through `"$R2/bin/route2-state"
+--gen N write CHECKPOINT.md`, never with an edit tool, `cat >` or `echo >`: a checkpoint or
+ledger written any other way has no audit entry, and the next write or `--resume` refuses it
+(measured in route2's own canary: the resume stopped as row 2). Only the user can accept such a
+file, after inspecting it (`route2-state --gen N adopt <file> --reason "…"`; never under
+`--unattended`). It
 holds the resolved configuration (flags, roster with frozen models and
 transports, efforts, `test_scope`, the Codex config mode), the host and your
 identity, the lock token, one record per worker session (transport, job id,

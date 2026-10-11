@@ -87,7 +87,7 @@ If your identity changes between dispatches (a model switch, even within a famil
 | `route2-wait --max` | — (harness) | 25 | 25 | 25 | 8 |
 | Ask the user | `AskUserQuestion` | nobody — `--unattended` only | `request_user_input` when the tool is listed, else a plain question and end the turn | a plain question and end the turn | `ask_question` (documented in agy's bundled skills) |
 | Ask only when | no worker is running | — | no job is `running`, `lingering` or `orphaned` | same | same |
-| Supported configuration | default | default | `codex --sandbox danger-full-access` — the director's own commands must reach the model APIs and run the tests; Codex's default sandbox blocks the network | a project `.cursor/cli.json` allowing exactly the commands below, **without `--force`** | approve command prompts, or `permissions.allow` `command(…)` rules in `~/.gemini/antigravity-cli/settings.json` |
+| Supported configuration | default | default | `codex --sandbox danger-full-access` — the director's own commands must reach the model APIs and run the tests; Codex's default sandbox blocks the network | a project `.cursor/cli.json` allowing exactly the commands below, **without `--force`** | approve command prompts **and file-write prompts** ("Allow creation of this file?" — measured: an interactive agy director asks before writing `.route2/PLAN.md` too), or `permissions.allow` rules in `~/.gemini/antigravity-cli/settings.json` |
 
 **Cursor's allowlist** (`<project>/.cursor/cli.json`; documented: "Only permissions can be
 configured at the project level"). Rules match the command's executable, and an absolute path
@@ -210,6 +210,26 @@ agy also has its own mechanism: a command still running after 10 s becomes a bac
 returned to the model at 01:57:56 without any prompt). route2 does not rely on it: agy uses the
 same jobs as every other non-Claude-Code host, and the never-end-the-turn rule holds there too.
 
+### End-to-end canaries (V11, 2026-10-11)
+
+Real `/route2` runs on a scratch repository (a bash string library and its test script), each host
+in its supported configuration, all `--unattended`:
+
+| Host (director model) | Run | Outcome |
+| --- | --- | --- |
+| Codex (`gpt-6.1-sol`, `danger-full-access`) | `--plan-only --model=sonnet --critic=grok --rounds=1` | `result: plan-only`; Grok approved; checkpoint with `host: codex`, director identity from its rollout, frozen catalog; ledger; fingerprint around the critic; lock released |
+| Claude Code `claude -p` (Sonnet) | same | `needs-decision` row 3 at the cap — Grok found a real locale bug (`[a-z]` keeps Polish letters under `pl_PL.UTF-8`); the resume refused a checkpoint the director had written without `route2-state` (row 2); after the user's `adopt` the resume ran round 2, Grok found a second locale issue, `needs-decision` again |
+| Cursor (`grok-4.7-high`, project allowlist) | `--plan-only --model=sonnet --critic=sol --rounds=1` | `result: plan-only`; Sol approved; `director_family: unknown` → `self` excluded; audit consistent; lock released |
+| agy (`gemini-3.8-flash-high`, interactive via tmux, commands and file writes approved) | `--plan-only --model=sonnet --critic=grok --rounds=1` | `needs-decision` row 3 (the same locale finding); Assign line and cost table complete; lock released |
+| Codex (`gpt-6.1-sol`) | full build, `--model=sonnet --critic=grok` | `result: done`, commit; tests run by the director |
+| Codex (`gpt-6.1-sol`) | full build split into two parallel Sonnet workers in worktrees | both parts integrated, worktrees removed, tests (51 checks) green, one commit |
+| Claude Code `claude -p` (Sonnet) + a `claude` shim | full build, `--model=sonnet --critic=grok` | the shim killed the native builder after its first edit with a quota error → the director kept the partial edit after reading it, switched `sonnet` to agy (`claude-sonnet-5-5`), the agy session finished, the director ran the tests and committed; ledger row `transport-switch (quota)` |
+
+Weak spots the canaries showed: a Sonnet director wrote ledger rows without `stage`, `cli`,
+`model_requested` or tokens, and skipped a separate probe when the critique call itself showed the
+model; one wrote the checkpoint directly (caught by the audit). A director that dismissed a
+fingerprint alarm as a false positive led to the rule that it never overrules `changed`.
+
 ## Lock
 
 One director per checkout. `.route2/lock` holds `{run_id, token, generation, host, session_key,
@@ -263,8 +283,15 @@ switches. With no transport left, or a different version, it is a swap (SKILL.md
 `--unattended` the switch is automatic too (`docs/unattended.md` A16a, A17).
 
 The `claude -p`-native path of this transaction is exercised by a canary with a `claude` shim that
-fails after a real `init` and a first edit; the interactive Agent-tool path follows the same steps
-but is not exercised by a canary.
+fails after a real `init` and a first edit, with a `claude -p` director (whose shell keeps the
+`PATH` it was started with). A Codex director cannot carry such a shim: its shell rebuilds `PATH`
+from the login profile (measured: the shim directory was dropped and `~/.local/bin/claude` won).
+The interactive Agent-tool path follows the same steps but is not exercised by a canary.
+
+**Cursor leaves helper processes behind.** After an `agent -p` call exits, processes of its tree
+can stay alive (measured in two canaries: the critic job ended `lingering`), and the director ended
+them with `route2-kill`. That is the `lingering` state working as intended; a critic's lingering
+members never block its verdict, but they are cleared before the next writer starts.
 
 ## Resume across hosts
 
