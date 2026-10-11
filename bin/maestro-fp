@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# route2-fp — read-only proof for external read-only roles (docs/hosts.md, "Read-only proof").
+# maestro-fp — read-only proof for external read-only roles (docs/hosts.md, "Read-only proof").
 #
-#   route2-fp snapshot [--repo DIR] > before.json
-#   route2-fp compare before.json [--repo DIR]     → {result: same|changed, diffs: [...]}; exit 0|1
+#   maestro-fp snapshot [--repo DIR] > before.json
+#   maestro-fp compare before.json [--repo DIR]     → {result: same|changed, diffs: [...]}; exit 0|1
 #
 # Covers the checkout (branch, HEAD, staged and unstaged content, untracked paths and contents)
-# and the durable .route2/ files that info/exclude hides from git:
-#   protected inputs  everything under .route2/ except the excluded paths below — hashed before
+# and the durable .maestro/ files that info/exclude hides from git:
+#   protected inputs  everything under .maestro/ except the excluded paths below — hashed before
 #                     and after, the director does not write them during a read-only call;
 #   bookkeeping       CHECKPOINT.md, ledger.jsonl, pending-decision.md, lock, tasks/*/entry.json
-#                     — legitimately written during the call through route2-state / route2-lock —
-#                     and every job's immutable meta.json, cmd and cwd (audited by route2-run at
+#                     — legitimately written during the call through maestro-state / maestro-lock —
+#                     and every job's immutable meta.json, cmd and cwd (audited by maestro-run at
 #                     launch, so a job launched during the call verifies too); each must equal its
 #                     last audit entry, and the audit's prefix must be intact.
 # Excluded: the rest of jobs/ (job-owned outputs written while the call runs), tmp/, evidence/,
 # worktrees/, lock.flock, lock.heartbeat, lock.gen, audit.jsonl (checked by prefix).
-# Change detection in the checkout and .route2/, not proof against writes elsewhere.
+# Change detection in the checkout and .maestro/, not proof against writes elsewhere.
 set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/_lib.sh"
 
@@ -25,7 +25,7 @@ before=""
 repo="."
 [[ "${1:-}" == "--repo" ]] && repo="$2"
 cd "$repo"
-SD="$(r2_state_dir)"
+SD="$(mae_state_dir)"
 
 is_bookkeeping() {
   case "$1" in
@@ -42,7 +42,7 @@ snapshot() {
   dh="$(git diff --binary HEAD 2>/dev/null | sha256sum | cut -c1-64)"
   dc="$(git diff --cached --binary 2>/dev/null | sha256sum | cut -c1-64)"
   untracked="$(git ls-files --others --exclude-standard -z \
-      | while IFS= read -r -d '' f; do jq -cn --arg p "$f" --arg s "$(r2_sha256_file "$f")" '{path: $p, sha: $s}'; done \
+      | while IFS= read -r -d '' f; do jq -cn --arg p "$f" --arg s "$(mae_sha256_file "$f")" '{path: $p, sha: $s}'; done \
       | jq -sc 'sort_by(.path)')"
   prot='[]' book='[]'
   if [[ -d "$SD" ]]; then
@@ -51,12 +51,12 @@ snapshot() {
         -not -name lock.flock -not -name lock.heartbeat -not -name lock.gen -not -name audit.jsonl \
         -printf '%P\n' | sort | while IFS= read -r f; do
           is_bookkeeping "$f" && continue
-          jq -cn --arg p "$f" --arg s "$(r2_sha256_file "$f")" '{path: $p, sha: $s}'
+          jq -cn --arg p "$f" --arg s "$(mae_sha256_file "$f")" '{path: $p, sha: $s}'
         done | jq -sc .)"
     book="$(cd "$SD" && find . -type f \( -path ./CHECKPOINT.md -o -path ./ledger.jsonl -o -path ./pending-decision.md \
         -o -path ./lock -o -path './tasks/*/entry.json' -o -path './jobs/*/meta.json' -o -path './jobs/*/cmd' \
         -o -path './jobs/*/cwd' \) -printf '%P\n' | sort \
-        | while IFS= read -r f; do jq -cn --arg p "$f" --arg s "$(r2_sha256_file "$f")" '{path: $p, sha: $s}'; done | jq -sc .)"
+        | while IFS= read -r f; do jq -cn --arg p "$f" --arg s "$(mae_sha256_file "$f")" '{path: $p, sha: $s}'; done | jq -sc .)"
   fi
   al=0; ap="$(printf '' | sha256sum | cut -c1-64)"
   if [[ -f "$SD/audit.jsonl" ]]; then
@@ -71,7 +71,7 @@ snapshot() {
 case "$sub" in
   snapshot) snapshot ;;
   compare)
-    [[ -f "$before" ]] || r2_die "usage: route2-fp compare before.json [--repo DIR]"
+    [[ -f "$before" ]] || mae_die "usage: maestro-fp compare before.json [--repo DIR]"
     now="$(snapshot)"
     diffs="$(jq -c --slurpfile b "$before" '
       $b[0] as $b | . as $n
@@ -80,7 +80,7 @@ case "$sub" in
           (if $b.diff_head != $n.diff_head then "tracked changes (git diff HEAD)" else empty end),
           (if $b.diff_cached != $n.diff_cached then "staged changes" else empty end),
           (if $b.untracked != $n.untracked then "untracked files" else empty end),
-          (if $b.protected != $n.protected then "protected .route2 inputs" else empty end) ]' <<<"$now")"
+          (if $b.protected != $n.protected then "protected .maestro inputs" else empty end) ]' <<<"$now")"
     # Bookkeeping: each file must equal its last audit entry; the audit's old prefix must be intact.
     al="$(jq -r .audit_lines "$before")"
     if [[ "$al" -gt 0 ]]; then
@@ -90,10 +90,10 @@ case "$sub" in
     fi
     while IFS= read -r f; do
       [[ -n "$f" ]] || continue
-      r2_audit_verify "$SD" "$f" 2>/dev/null || diffs="$(jq -c --arg f "$f" '. + ["bookkeeping " + $f + " not as audited"]' <<<"$diffs")"
+      mae_audit_verify "$SD" "$f" 2>/dev/null || diffs="$(jq -c --arg f "$f" '. + ["bookkeeping " + $f + " not as audited"]' <<<"$diffs")"
     done < <(jq -r '.bookkeeping[].path' <<<"$now"; jq -r '.bookkeeping[].path' "$before")
     diffs="$(jq -c 'unique' <<<"$diffs")"
     if [[ "$diffs" == "[]" ]]; then jq -cn '{result: "same", diffs: []}'
     else jq -cn --argjson d "$diffs" '{result: "changed", diffs: $d}'; exit 1; fi ;;
-  *) r2_die "usage: route2-fp snapshot|compare …" ;;
+  *) mae_die "usage: maestro-fp snapshot|compare …" ;;
 esac

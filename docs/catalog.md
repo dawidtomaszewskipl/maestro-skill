@@ -1,17 +1,17 @@
 # Live catalog
 
 route used fixed slugs (`gpt-6.1-sol`, `gemini-3.8-flash`): a new Sol or Opus meant editing the
-skill. route2 treats a slot as a **model line** and resolves it at stage 0 from the catalogs the
+skill. maestro treats a slot as a **model line** and resolves it at stage 0 from the catalogs the
 CLIs publish, then freezes what it found for the run.
 
 ## Sources
 
-`"$R2/bin/route2-catalog" refresh` reads every source **without a model turn** and writes
-`.route2/catalog.json`:
+`"$MAESTRO/bin/maestro-catalog" refresh` reads every source **without a model turn** and writes
+`.maestro/catalog.json`:
 
 | Transport | Source | Notes (measured 2026-10-11) |
 | --- | --- | --- |
-| codex | `codex debug models` (run through `route2-env`) | Refreshes the catalog from the server and prints `{models: [{slug, visibility, supported_reasoning_levels[].effort, default_reasoning_level, …}]}`; only `visibility: "list"` entries count. It also rewrites `$CODEX_HOME/models_cache.json`, whose `identity`, `client_version` and `fetched_at` the catalog copies (the live output has no account identity). |
+| codex | `codex debug models` (run through `maestro-env`) | Refreshes the catalog from the server and prints `{models: [{slug, visibility, supported_reasoning_levels[].effort, default_reasoning_level, …}]}`; only `visibility: "list"` entries count. It also rewrites `$CODEX_HOME/models_cache.json`, whose `identity`, `client_version` and `fetched_at` the catalog copies (the live output has no account identity). |
 | codex, fallback | `$CODEX_HOME/models_cache.json` | Used when `debug models` fails. Older than 7 days, or `client_version` ≠ `codex --version` → `stale: true`. |
 | codex, last resort | `codex debug models --bundled` | The binary's own catalog, no refresh — `mode: bundled`. |
 | agy | `agy models` | `<slug>\t<label>` lines after a `Fetching available models...` banner. Lists Gemini (3.8/3.7/3.6 Flash, 3.1 Pro) **and Claude** (Opus 5.5, Sonnet 5.5 at low/medium/high) and GPT-OSS. |
@@ -36,22 +36,22 @@ different from a line that simply has no candidates.
 A version is parsed into a list of integers: `gpt-6.1` → [6, 1], `gpt-7` → [7],
 `claude-opus-5-5` → [5, 5], `claude-opus-5-10` → [5, 10], `grok-5` → [5]. Comparison pads the
 shorter list with zeros: [5] = [5, 0]; [6, 1] > [6]; [7] > [6, 10]; [6, 10] > [6, 9]
-(`route2-catalog compare` and fixture T2). Integer generations (`gpt-7-sol`, `gemini-4-flash`,
+(`maestro-catalog compare` and fixture T2). Integer generations (`gpt-7-sol`, `gemini-4-flash`,
 `grok-5`) are covered by the same patterns.
 
 **Excluded from automatic resolution**, listed under `transports.<t>.unmatched`: any other suffix
 (`-preview`, dates, `-mini`, `-nano`), Cursor's `-thinking-` naming of older Claude generations,
-Cursor's own `cursor-grok-*` builds, and every model of a line route2 has no slot for. An unmatched
+Cursor's own `cursor-grok-*` builds, and every model of a line maestro has no slot for. An unmatched
 slug can still be pinned exactly (below) — a preview never becomes a worker unannounced.
 
 ## Resolution
 
-`"$R2/bin/route2-catalog" pick <slot> <transport> [--effort E] [--pin V | --pin-slug S] --scope
+`"$MAESTRO/bin/maestro-catalog" pick <slot> <transport> [--effort E] [--pin V | --pin-slug S] --scope
 <json>` walks the slot's candidates on that transport, newest first:
 
 - `{action: "use", version, slug}` — a fresh successful probe exists for this scope;
 - `{action: "probe", version, slug}` — run the transport's probe line (`docs/commands.md`), then
-  `route2-catalog record-probe --gen N <transport> <slug> ok|denied --scope <json>`;
+  `maestro-catalog record-probe --gen N <transport> <slug> ok|denied --scope <json>`;
 - `{action: "none", reason, previous}` — nothing usable: no candidate, every candidate denied, a
   pin not in the catalog, or no slug for that effort (clamp the effort first).
 
@@ -102,7 +102,7 @@ Policy `pin` (`docs/policy.md`):
 
 ## Probes
 
-`.route2/model-probes.json` **of this checkout** (never another repository's: an agy director in a
+`.maestro/model-probes.json` **of this checkout** (never another repository's: an agy director in a
 canary tried to read a neighbouring repository's records to skip its own probes, and was refused
 access outside its workspace), one record per `<transport>:<slug>`: `{result: ok|denied, scope,
 at, at_epoch, detail}`. A record counts only when its **scope** equals the caller's and it is
@@ -116,14 +116,14 @@ fresh — successful probes for 7 days, denials for 24 hours. The scope:
 | context | host and its sandbox profile | same | same | same |
 | session | — | the host session key (no account identity → never reused across sessions) | — | — |
 
-The probe lines (lowest effort of the transport, *"Reply with exactly: OK"*, through `route2-env`)
+The probe lines (lowest effort of the transport, *"Reply with exactly: OK"*, through `maestro-env`)
 are in `docs/commands.md`.
 
 ## Freezing
 
 The resolved ids, slugs, transports and efforts go into the checkpoint (`catalog`) and are sticky
 for the run: a fix round never silently moves to a model that appeared mid-run. `--resume`
-re-probes those exact slugs (availability, quota), it does not re-resolve. `route2-catalog
+re-probes those exact slugs (availability, quota), it does not re-resolve. `maestro-catalog
 record-resolved --gen N <slot> <transport> <version>` keeps the resolution in `catalog.json` as
 next run's `previous`.
 

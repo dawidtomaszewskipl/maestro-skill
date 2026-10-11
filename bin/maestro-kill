@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# route2-kill — stop a job without ever signalling a test (docs/hosts.md, "Jobs").
+# maestro-kill — stop a job without ever signalling a test (docs/hosts.md, "Jobs").
 #
-#   route2-kill <job-id> --gen F [--grace S]
+#   maestro-kill <job-id> --gen F [--grace S]
 #
 # One step per call (a host may cap a foreground command, so the director calls it again until
 # the result is final). Prints {job_id, result, …}:
@@ -21,7 +21,7 @@
 set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/_lib.sh"
 
-SD="$(r2_state_dir)"
+SD="$(mae_state_dir)"
 
 # classify <jobdir> → JSON array of live members:
 #   {pid, starttime, argv, argv_now, leader, test, wrapper_of_test, classifiable}
@@ -32,7 +32,7 @@ SD="$(r2_state_dir)"
 classify() {
   local J="$1" snap pid pst wpid live p chain q n job
   job="$(basename "$J")"
-  snap="$("$R2_BIN/route2-wait" "$job" --peek)"
+  snap="$("$MAESTRO_BIN/maestro-wait" "$job" --peek)"
   # The live set could not be established: say so instead of classifying a partial set.
   if [[ "$(jq -r .state <<<"$snap")" == uncertain ]]; then echo '"UNCERTAIN"'; return 0; fi
   pid="$(jq -r '.pid // empty' "$J/meta.json")"; pst="$(jq -r '.pid_starttime // empty' "$J/meta.json")"
@@ -43,16 +43,16 @@ classify() {
       if [[ "$(jq -r '.unrecorded // false' <<<"$m")" == true ]]; then
         q="$p"; n=0
         while [[ -n "$q" && "$q" -gt 1 && $n -lt 64 ]]; do
-          q="$(r2_pid_ppid "$q")"; [[ -n "$q" ]] || break
-          chain="$(jq -c --arg q "$q" --arg a "$(r2_pid_cmdline "$q")" --arg s "$(r2_pid_starttime "$q")" \
+          q="$(mae_pid_ppid "$q")"; [[ -n "$q" ]] || break
+          chain="$(jq -c --arg q "$q" --arg a "$(mae_pid_cmdline "$q")" --arg s "$(mae_pid_starttime "$q")" \
                     '. + [{pid: ($q|tonumber), starttime: $s, argv_now: $a}]' <<<"$chain")"
           n=$((n + 1))
         done
       fi
-      jq -c --arg cur "$(r2_pid_cmdline "$p")" --argjson ch "$chain" '. + {argv_now: $cur, chain_now: $ch}' <<<"$m"
+      jq -c --arg cur "$(mae_pid_cmdline "$p")" --argjson ch "$chain" '. + {argv_now: $cur, chain_now: $ch}' <<<"$m"
     done | jq -sc .)"
-  if [[ -n "$pid" ]] && r2_pid_same "$pid" "$pst"; then
-    live="$(jq -c --arg p "$pid" --arg s "$pst" --arg a "$(r2_pid_cmdline "$pid")" \
+  if [[ -n "$pid" ]] && mae_pid_same "$pid" "$pst"; then
+    live="$(jq -c --arg p "$pid" --arg s "$pst" --arg a "$(mae_pid_cmdline "$pid")" \
       '. + [{pid: ($p|tonumber), starttime: $s, ppid: null, argv: $a, argv_now: $a, leader: true, chain_now: []}]' <<<"$live")"
   fi
   # shellcheck disable=SC2016  # jq program
@@ -122,35 +122,35 @@ if [[ "${1:-}" == "__step" ]]; then   # inside the fence: __step <jobdir> <TERM|
   mapfile -t targets < <(jq -r '.[] | "\(.pid):\(.starttime)"' <<<"$c")
   for ps in "${targets[@]}"; do
     p="${ps%%:*}"; s="${ps#*:}"
-    if r2_pid_same "$p" "$s"; then kill "-$sig" "$p" 2>/dev/null || true; fi
+    if mae_pid_same "$p" "$s"; then kill "-$sig" "$p" 2>/dev/null || true; fi
   done
   now="$(date +%s)"; ks="$(cat "$J/kill.state" 2>/dev/null || echo '{}')"
   if [[ "$sig" == TERM ]]; then
-    jq -c --argjson t "$now" '. + {term_at: $t}' <<<"$ks" | r2_atomic_write "$J/kill.state"; r=signalled
+    jq -c --argjson t "$now" '. + {term_at: $t}' <<<"$ks" | mae_atomic_write "$J/kill.state"; r=signalled
   else
-    jq -c --argjson t "$now" '. + {kill_at: $t}' <<<"$ks" | r2_atomic_write "$J/kill.state"; r=killed
+    jq -c --argjson t "$now" '. + {kill_at: $t}' <<<"$ks" | mae_atomic_write "$J/kill.state"; r=killed
   fi
   jq -cn --arg j "$(basename "$J")" --arg r "$r" --argjson n "${#targets[@]}" '{job_id: $j, result: $r, count: $n}'
   exit 0
 fi
 
 job="${1:-}"; shift || true
-gen="" grace="${ROUTE2_KILL_GRACE:-10}"
+gen="" grace="${MAESTRO_KILL_GRACE:-10}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --gen) gen="$2"; shift 2 ;;
     --grace) grace="$2"; shift 2 ;;
-    *) r2_die "route2-kill: unknown option $1" ;;
+    *) mae_die "maestro-kill: unknown option $1" ;;
   esac
 done
-[[ -n "$job" && -n "$gen" ]] || r2_die "usage: route2-kill <job-id> --gen F [--grace S]"
+[[ -n "$job" && -n "$gen" ]] || mae_die "usage: maestro-kill <job-id> --gen F [--grace S]"
 J="$SD/jobs/$job"
-[[ -f "$J/meta.json" ]] || r2_die "route2-kill: no job $job"
+[[ -f "$J/meta.json" ]] || mae_die "maestro-kill: no job $job"
 if [[ "$(jq -r .kind "$J/meta.json")" == test ]]; then
   jq -cn --arg j "$job" '{job_id: $j, result: "refused", reason: "test jobs are never killed"}'; exit 0
 fi
 
-state="$("$R2_BIN/route2-wait" "$job" --peek | jq -r .state)"
+state="$("$MAESTRO_BIN/maestro-wait" "$job" --peek | jq -r .state)"
 case "$state" in
   exited|lost) jq -cn --arg j "$job" --arg s "$state" '{job_id: $j, result: "done", state: $s}'; exit 0 ;;
   uncertain)   jq -cn --arg j "$job" '{job_id: $j, result: "blocked", reason: "proc uncertain"}'; exit 0 ;;
@@ -164,11 +164,11 @@ ks="$(cat "$J/kill.state" 2>/dev/null || echo '{}')"
 term_at="$(jq -r '.term_at // empty' <<<"$ks")"
 now="$(date +%s)"
 if [[ -z "$term_at" ]]; then
-  "$R2_BIN/route2-lock" exec --gen "$gen" -- "$0" __step "$J" TERM || exit 4
+  "$MAESTRO_BIN/maestro-lock" exec --gen "$gen" -- "$0" __step "$J" TERM || exit 4
 elif (( now - term_at < grace )); then
   jq -cn --arg j "$job" --argjson left "$(( grace - (now - term_at) ))" '{job_id: $j, result: "signalled", grace_left_s: $left}'
 elif [[ -z "$(jq -r '.kill_at // empty' <<<"$ks")" ]]; then
-  "$R2_BIN/route2-lock" exec --gen "$gen" -- "$0" __step "$J" KILL || exit 4
+  "$MAESTRO_BIN/maestro-lock" exec --gen "$gen" -- "$0" __step "$J" KILL || exit 4
 else
   jq -cn --arg j "$job" --argjson c "$c" '{job_id: $j, result: "blocked", reason: "members survived SIGKILL", members: $c}'
 fi

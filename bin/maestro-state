@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# maestro-state — the only writer of director bookkeeping (docs/checkpoint.md, "Audit").
+#
+#   maestro-state --gen N write  <file>     replace <file> with stdin
+#   maestro-state --gen N append <file>     append stdin (one or more lines) to <file>
+#   maestro-state verify <file>             exit 0 iff <file> matches its last audit entry
+#   maestro-state --gen N delete <file>     remove it (verified first; the audit records it absent)
+#   maestro-state --gen N archive <file> --to <name>
+#       move it to .maestro/archive/<name>/ (verified first; recorded absent)
+#   maestro-state --gen N rotate --to <name>
+#       end of a run / archive-and-start: verify every audited file, move CHECKPOINT.md,
+#       pending-decision.md and audit.jsonl to .maestro/archive/<name>/, and start a fresh audit
+#       whose first entries are the current hashes of the files that stay (ledger, lock, jobs)
+#   maestro-state --gen N adopt <file> --reason "<text>"
+#       accept the file as it is now (an audit entry marked adopted, with the reason). Only on the
+#       user's explicit decision after they inspected the file — never under --unattended, never
+#       by the director's own judgment: it is how an edit made outside maestro becomes legitimate.
+#
+# <file> is relative to .maestro/ and must be bookkeeping: CHECKPOINT.md, ledger.jsonl, or
+# tasks/<id>/CHECKPOINT-entry.json. Inside the fence (maestro-lock exec) it first verifies the
+# file against its last audit entry and stops on a mismatch — so an edit made outside maestro is
+# never read, preserved and re-hashed by the next legitimate write — then writes (tmp + mv) and
+# appends {file, sha256_after, gen, at} to audit.jsonl in the same fenced section.
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+
+SD="$(mae_state_dir)"
+
+allowed() {
+  case "$1" in
+    CHECKPOINT.md|ledger.jsonl|pending-decision.md|tasks/*/entry.json) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if [[ "${1:-}" == "__rotate" ]]; then
+  name="$2" gen="$3"
+  [[ "$name" =~ ^[A-Za-z0-9._:-]+$ ]] || mae_die "rotate: --to may hold only [A-Za-z0-9._:-]"
+  bad=""
+  if [[ -f "$SD/audit.jsonl" ]]; then
+    while IFS= read -r f; do
+      mae_audit_verify "$SD" "$f" 2>/dev/null || bad+="$f "
+    done < <(jq -r '.file' "$SD/audit.jsonl" | sort -u)
+  fi
+  [[ -z "$bad" ]] || { jq -cn --arg b "$bad" '{result: "tampered", files: ($b | split(" ") | map(select(. != "")))}'; exit 5; }
+  A="$SD/archive/$name"; [[ -e "$A" ]] && mae_die "rotate: $A exists"
+  mkdir -p "$A"
+  keep="$(jq -r '.file' "$SD/audit.jsonl" 2>/dev/null | sort -u | grep -vxE 'CHECKPOINT.md|pending-decision.md' || true)"
+  for f in CHECKPOINT.md pending-decision.md audit.jsonl; do [[ -f "$SD/$f" ]] && mv "$SD/$f" "$A/$f"; done
+  while IFS= read -r f; do
+    [[ -n "$f" ]] || continue
+    jq -cn --arg f "$f" --arg s "$(mae_sha256_file "$SD/$f")" --arg g "${gen%%.*}" --arg at "$(mae_now)" --arg n "$name" \
+      '{file: $f, sha256_after: $s, gen: ($g | tonumber? // $g), at: $at, rotated_from: $n}' >> "$SD/audit.jsonl"
+  done <<<"$keep"
+  jq -cn --arg a "$A" '{result: "rotated", archive: $a}'
+  exit 0
+fi
+
+if [[ "${1:-}" == "__locked" ]]; then
+  op="$2" rel="$3" src="$4" gen="$5"
+  if [[ "$op" != adopt ]] && ! mae_audit_verify "$SD" "$rel"; then
+    rm -f "$src"
+    jq -cn --arg f "$rel" '{result: "tampered", file: $f}'
+    exit 5
+  fi
+  mkdir -p "$(dirname "$SD/$rel")"
+  if [[ "$op" == adopt ]]; then
+    reason="$(cat "$src")"; rm -f "$src"
+    [[ -f "$SD/$rel" ]] || mae_die "maestro-state adopt: $rel does not exist"
+    jq -cn --arg f "$rel" --arg s "$(mae_sha256_file "$SD/$rel")" --arg g "${gen%%.*}" --arg at "$(mae_now)" --arg r "$reason" \
+      '{file: $f, sha256_after: $s, gen: ($g | tonumber? // $g), at: $at, adopted: true, reason: $r}' >> "$SD/audit.jsonl"
+    jq -cn --arg f "$rel" '{result: "adopted", file: $f}'
+    exit 0
+  fi
+  case "$op" in
+    delete)  rm -f "$SD/$rel" ;;
+    archive) name="$(cat "$src")"; mkdir -p "$SD/archive/$name/$(dirname "$rel")"; mv "$SD/$rel" "$SD/archive/$name/$rel" ;;
+    write)  mae_atomic_write "$SD/$rel" < "$src" ;;
+    append) { cat "$SD/$rel" 2>/dev/null || true; cat "$src"; } | mae_atomic_write "$SD/$rel" ;;
+  esac
+  rm -f "$src"
+  mae_audit_record "$SD" "$rel" "$gen"
+  jq -cn --arg f "$rel" --arg s "$(mae_sha256_file "$SD/$rel")" '{result: "written", file: $f, sha256: $s}'
+  exit 0
+fi
+
+gen=""
+if [[ "${1:-}" == "--gen" ]]; then gen="$2"; shift 2; fi
+if [[ "${1:-}" == "rotate" ]]; then
+  [[ -n "$gen" && "${2:-}" == "--to" && -n "${3:-}" ]] || mae_die "usage: maestro-state --gen N rotate --to <name>"
+  exec "$MAESTRO_BIN/maestro-lock" exec --gen "$gen" -- "$0" __rotate "$3" "$gen"
+fi
+op="${1:-}" rel="${2:-}"
+[[ -n "$op" && -n "$rel" ]] || mae_die "usage: maestro-state [--gen N] write|append|verify|adopt|delete|archive <file>, or rotate --to <name>"
+allowed "$rel" || mae_die "maestro-state: $rel is not bookkeeping (CHECKPOINT.md, ledger.jsonl, pending-decision.md, tasks/<id>/entry.json)"
+
+case "$op" in
+  verify)
+    if mae_audit_verify "$SD" "$rel"; then jq -cn --arg f "$rel" '{result: "ok", file: $f}'
+    else jq -cn --arg f "$rel" '{result: "tampered", file: $f}'; exit 5; fi ;;
+  write|append|adopt|delete|archive)
+    [[ -n "$gen" ]] || mae_die "maestro-state $op needs --gen N"
+    mkdir -p "$SD/tmp"
+    src="$(mktemp "$SD/tmp/state.XXXXXX")"
+    if [[ "$op" == delete ]]; then
+      : > "$src"
+    elif [[ "$op" == archive ]]; then
+      [[ "${3:-}" == "--to" && "${4:-}" =~ ^[A-Za-z0-9._:-]+$ ]] || mae_die "maestro-state archive needs --to <name>"
+      printf '%s' "$4" > "$src"
+    elif [[ "$op" == adopt ]]; then
+      [[ "${3:-}" == "--reason" && -n "${4:-}" ]] || mae_die "maestro-state adopt needs --reason \"<text>\""
+      printf '%s' "$4" > "$src"
+    else
+      cat > "$src"
+    fi
+    exec "$MAESTRO_BIN/maestro-lock" exec --gen "$gen" -- "$0" __locked "$op" "$rel" "$src" "$gen" ;;
+  *) mae_die "maestro-state: unknown operation $op" ;;
+esac

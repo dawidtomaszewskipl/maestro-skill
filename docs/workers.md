@@ -1,10 +1,10 @@
 # Workers and CLI mechanics
 
 The OpenAI and agy facts below were first checked against **Codex CLI 0.153.4** and **Antigravity
-CLI 1.1.27** on 2026-09-06 and re-checked up to Codex 0.159.2 (2026-09-30) for route 3.x. route2
+CLI 1.1.27** on 2026-09-06 and re-checked up to Codex 0.159.2 (2026-09-30) for route 3.x. maestro
 re-checked the parts it changes on **2026-10-11** with **Codex CLI 0.162.1**, **agy 1.3.3**,
 **Cursor agent 2026.10.01** and **Claude Code 2.1.296**; those statements say so. Catalogs and flag
-sets move: route2 reads the catalogs live (`docs/catalog.md`) and re-checks a flag with `--help`
+sets move: maestro reads the catalogs live (`docs/catalog.md`) and re-checks a flag with `--help`
 rather than trusting a table that has aged.
 
 ## Family is decided by the model, not by the CLI
@@ -22,7 +22,7 @@ gpt-oss-120b-medium     GPT-OSS 120B          kimi-k3-high, glm-5.2-high, compos
 ```
 
 So a slot's family follows the **model** it resolves to, whatever CLI serves it: `opus@agy` and
-`opus@cursor` are Claude, exactly like `opus` through the Agent tool. route2 uses agy's and
+`opus@cursor` are Claude, exactly like `opus` through the Agent tool. maestro uses agy's and
 Cursor's Claude models as further **transports** of the Claude slots (SKILL.md, "Roster"), and
 Cursor's Grok as the xAI family. Cursor's GPT and Gemini models are older than what codex and agy
 serve and are not transports; Kimi, GLM, Composer and Muse have no slot. Every Cursor Fable model
@@ -53,7 +53,7 @@ verified behaviour — omitting `--model` is the real risk).
 
 ### Models
 
-route2 resolves the OpenAI lines live (`docs/catalog.md`); the table below is the catalog as route
+maestro resolves the OpenAI lines live (`docs/catalog.md`); the table below is the catalog as route
 3.3 measured it on 0.159.2, kept for its per-model notes. On 2026-10-11 `codex debug models`
 (0.162.1) listed the same `visibility: list` slugs except that `gpt-5.5` is now hidden; `sol`
 resolved to `gpt-6.1-sol`, `astra` to `gpt-6-astra`, `luna` to `gpt-6-luna`, `terra` to
@@ -89,7 +89,7 @@ keeps its slot; its strengths relative to Astra are not yet measured either. The
 Terra; the `terra` slot stays on 5.6 and leaves the rubric.
 
 **The catalog is a candidate list, not proof.** A listed model can still be refused for the account,
-so the proof is a probe, remembered in `.route2/model-probes.json` with its scope (CLI version,
+so the proof is a probe, remembered in `.maestro/model-probes.json` with its scope (CLI version,
 catalog `identity`, config mode, host) — `docs/catalog.md`, "Probes". A probe costs about 14–19k
 input tokens, mostly cached (14 011 for Astra on 2026-10-11). Only an error saying the client does
 not know the model means "upgrade Codex".
@@ -175,7 +175,7 @@ its `turn.completed.usage` reports zeros, so ledger token fields for review call
 
 ```bash
 codex exec review --uncommitted -m gpt-6.1-sol --ignore-user-config -c model_reasoning_effort=high --json \
-  -o .route2/review.txt < /dev/null > .route2/review.jsonl 2> .route2/review.stderr.log
+  -o .maestro/review.txt < /dev/null > .maestro/review.jsonl 2> .maestro/review.stderr.log
 codex exec review --base main …          # against a branch
 codex exec review --commit <sha> …       # one commit
 ```
@@ -327,7 +327,7 @@ Cursor.
 `Agent` with an explicit `model` and the default `subagent_type`. `subagent_type: "fork"` inherits
 context but **ignores** `model`. No effort dial on the call — the model choice is the dial. The
 `model` parameter takes only the aliases (`opus`, `fable`, `sonnet`, `haiku`), which follow the
-newest model of each line; the completion line names the model served, and route2 compares it with
+newest model of each line; the completion line names the model served, and maestro compares it with
 the slot's frozen id. Parallel write-mode subagents need `isolation: "worktree"`; their briefs give
 paths relative to the worktree root; the director integrates each worktree's result itself and
 keeps the worktrees until the report (SKILL.md, "Roster").
@@ -342,13 +342,13 @@ Notes on the models, as measured or published at the time (they age; the ledger 
 | `haiku` | Bulk edits without judgment; Claude-only cascade drafter. Haiku 5.5 (`claude-haiku-5-5`, measured through `claude -p --model haiku`). |
 
 Claude Code's per-model effort setting (`modelSettings` in `settings.json`) is keyed by model id;
-whether it reaches subagents is unverified — route2 treats Agent-tool effort as unknown.
+whether it reaches subagents is unverified — maestro treats Agent-tool effort as unknown.
 
 ### `claude -p`
 
 Measured on Claude Code 2.1.296 (2026-10-11, haiku):
 
-| Flag | What it does for route2 |
+| Flag | What it does for maestro |
 | --- | --- |
 | `--model <alias or full id>` | An alias resolves to the newest model of the line; the full id (`claude-opus-5-5`) pins it. The served model is in the `init` event and `result.modelUsage`. |
 | `--effort low\|medium\|high\|xhigh\|max` | The session effort. |
@@ -363,9 +363,9 @@ Measured on Claude Code 2.1.296 (2026-10-11, haiku):
 
 **Inherited customisations.** Measured: a `claude -p` started from a Claude Code session inherited
 `CLAUDE_CODE_PLUGIN_DIRS` and loaded a non-builtin plugin that ships `hooks.json` — into a
-"read-only" critic. `bin/route2-env` removes it (and every other `CLAUDE_*` variable except
+"read-only" critic. `bin/maestro-env` removes it (and every other `CLAUDE_*` variable except
 `CLAUDE_CONFIG_DIR`, including `CLAUDE_EFFORT`, which would override `--effort`); with it removed
-`init.plugins` held only Claude Code's builtin plugins. route2 checks `init` on every launch and
+`init.plugins` held only Claude Code's builtin plugins. maestro checks `init` on every launch and
 kills a session whose tools, MCP servers, plugins (anything not `@builtin`) or permission mode are
 not the requested ones.
 
@@ -388,7 +388,7 @@ Fable and no Haiku. The envelope has no served-model field.
 
 `agent -p --model claude-opus-5-5-<effort>` (`low…max`; also `fable-5-1`, `sonnet-5-5`,
 `haiku-5-5`), the same mechanics as Grok below. On 2026-10-11 the Cursor account's Claude quota was
-exhausted, so these slugs probe unavailable there; route2 marks them ineligible until a probe
+exhausted, so these slugs probe unavailable there; maestro marks them ineligible until a probe
 passes, and verifies the `init.model` mapping on that first successful probe.
 
 ## xAI — Cursor `agent`
@@ -402,26 +402,26 @@ Measured on agent 2026.10.01 (2026-10-11, `grok-4.7-low`/`-medium`):
 | `--mode plan` | Refused a write even together with `--force` ("planning mode blocks changes"). Read-only roles use it. A critique run this way left the checkout fingerprint unchanged in six rounds. |
 | `--sandbox enabled` (no `--force`) | Commands run sandboxed: writes to the workspace and `/tmp` allowed, writes elsewhere (another directory under `$HOME`, `$HOME` itself) denied, outbound network refused by Cursor's proxy (`CONNECT tunnel failed, response 403`), `CURSOR_SANDBOX=native` set. |
 | `--sandbox disabled` (no `--force`) | Shell calls follow the allowlist (`~/.cursor/cli-config.json`, `<project>/.cursor/cli.json`); everything else `Rejected:`. |
-| **`--force` / `--yolo`** | **Turns the sandbox off entirely**: with `--force --sandbox enabled` a worker wrote outside the workspace, into `$HOME`, and reached the network. Never used by route2 except a per-run, user-approved rung 4. |
+| **`--force` / `--yolo`** | **Turns the sandbox off entirely**: with `--force --sandbox enabled` a worker wrote outside the workspace, into `$HOME`, and reached the network. Never used by maestro except a per-run, user-approved rung 4. |
 | `--resume <session_id>` | Continues the session (same id returned). |
 | `init.model` labels | `grok-4.7-low/-medium/-high/-xhigh` → "Grok 4.7 256K Low/Medium/High/Extra High"; `claude-opus-5-5-medium` → "Claude Opus 5.5 300K Medium", `claude-sonnet-5-5-low` → "Claude Sonnet 5.5 300K Low" (V7, 2026-10-11). Normalise: family + version + effort, with "Extra High" = `xhigh`; ignore the context size. |
 | quota | Cursor's Claude slugs emit `init` and then `Error: You've hit your usage limit for Opus …` / `… for Sonnet …` — classified as **quota** (a transport problem: no walk-down, a transport switch or a stop), never as an account denial. |
 | `--trust` | Trusts the workspace without a prompt — needed headless. |
 | `--workspace <dir>` | The workspace (a worktree for a parallel writer). |
-| language | The result follows the user's language unless told otherwise; it opened with a prose sentence before the JSON in 2 of 7 critique rounds → `route2-validate` allows leading prose. |
-| schema flag | None. The schema goes into the brief and `route2-validate` checks the verdict. |
+| language | The result follows the user's language unless told otherwise; it opened with a prose sentence before the JSON in 2 of 7 critique rounds → `maestro-validate` allows leading prose. |
+| schema flag | None. The schema goes into the brief and `maestro-validate` checks the verdict. |
 
 Grok as a worker is **provisional** — unmeasured as a builder — and every Assign line says so until
-the ledger shows otherwise. As a critic in route2's own plan review (seven rounds, 2026-10-11) it
+the ledger shows otherwise. As a critic in maestro's own plan review (seven rounds, 2026-10-11) it
 raised findings the other two critics confirmed later.
 
-Not used: `--worktree` (Cursor-managed under `~/.cursor/worktrees` — route2 makes its own),
+Not used: `--worktree` (Cursor-managed under `~/.cursor/worktrees` — maestro makes its own),
 `--auto-review`, `--approve-mcps`, `--continue`, `--force` (above), `-fast` model variants unless
 policy `cursor_fast: true`.
 
 ## Not used, with the reason
 
-| Option | Why route2 leaves it out |
+| Option | Why maestro leaves it out |
 | --- | --- |
 | **Codex SDK** (`@openai/codex-sdk`) | It spawns the `codex` binary with `--experimental-json` (documented, `sdk/typescript/src/exec.ts`) — the same thread, events and resume as `codex exec --json`, plus a Node dependency the skill does not otherwise need. |
 | **Claude Agent SDK** | It starts a Claude Code process (documented: `spawnClaudeCodeProcess`); `claude -p` with `stream-json` gives the same session id, events, tools restriction, permission mode and resume. A Python or Node runtime for the same thing is cost without gain. |
@@ -440,9 +440,9 @@ with the same file (critique and gate; review uses the same constructs). The rul
 
 ## Briefs
 
-Write the brief to a file under `.route2/` and pass `"$(cat file)"` with `< /dev/null`. External
+Write the brief to a file under `.maestro/` and pass `"$(cat file)"` with `< /dev/null`. External
 workers start cold. A brief that works carries: absolute paths (a worktree worker: file references
-and edit boundaries relative to its worktree root, its artifacts at absolute `$REPO/.route2/…`
+and edit boundaries relative to its worktree root, its artifacts at absolute `$REPO/.maestro/…`
 paths); explicit change boundaries; the
 project's convention files; the binding skills by name; what "done" looks like and which command
 proves it; the output contract. Block-structured (task / boundaries / verification / output), not

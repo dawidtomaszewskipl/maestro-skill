@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# route2-roles — resolve critics and reviewer under the cross-family rule (SKILL.md, "The
+# maestro-roles — resolve critics and reviewer under the cross-family rule (SKILL.md, "The
 # cross-family rule"; docs/hosts.md has no part in it). Deterministic, so it can be tested.
 #
-#   route2-roles < input.json
+#   maestro-roles < input.json
 #
 # Input:  {builder: slot, drafter: slot|null, high_stakes: bool, eligible: [slot…],
 #          named_critics: [slot…], policy_critic: slot|null, policy_reviewer: slot|null,
@@ -10,11 +10,11 @@
 #   eligible = slots with at least one eligible (model, transport) pair this run; "self" is the
 #   director's family AND model line — both must be known for self to build.
 #
-#   route2-roles --row6 < {eligible: [slot…], director_family, director_line}
+#   maestro-roles --row6 < {eligible: [slot…], director_family, director_line}
 #       rubric row 6 (a change smaller than the handoff): self when the director's family and line
 #       are known and self is eligible, else the first eligible of sonnet, sol, gemini, grok, else halt.
 #
-#   route2-roles --transports < input.json
+#   maestro-roles --transports < input.json
 # Input:  {slot, order: [transport…], available: {transport: bool}, denied: [transport…],
 #          forced: transport|null, event: "first-use"|"runtime-failure", failed: transport|null,
 #          frozen_version: "5.5"|null, versions: {transport: "5.5"}}

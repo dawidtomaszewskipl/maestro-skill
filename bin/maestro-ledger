@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
-# route2-ledger — build a complete ledger row from a job's output and append it (docs/ledger.md).
+# maestro-ledger — build a complete ledger row from a job's output and append it (docs/ledger.md).
 #
-#   route2-ledger --gen N --job <id> --stage <stage> --cli codex|agy|claude-cli|cursor-agent
+#   maestro-ledger --gen N --job <id> --stage <stage> --cli codex|agy|claude-cli|cursor-agent
 #                 --transport native|agy|cursor|codex --family <family> --model <requested>
 #                 [--effort E] [--round R] [--outcome TEXT] [--verdict V]
 #                 [--effective-config JSON|TEXT] [--service-tier TIER] [--dry-run]
 #
-# Reads .route2/jobs/<id>/: `out` (the event stream or envelope), `answer` (codex -o), `exit`,
+# Reads .maestro/jobs/<id>/: `out` (the event stream or envelope), `answer` (codex -o), `exit`,
 # `meta.json`. Usage is taken from the CLI's own fields — codex: the last turn.completed.usage;
 # agy: the envelope's usage (cumulative per conversation: kept raw in raw_cumulative); claude-cli:
 # the result event's usage and modelUsage; cursor-agent: the result event's usage and init.model.
 # Codex resumes and agy conversations report CUMULATIVE usage: the raw counters go into
 # raw_cumulative and the token fields get the delta against the previous row of the same session.
-# Missing numbers are null, never estimated. Appends through route2-state (audited); --dry-run
+# Missing numbers are null, never estimated. Appends through maestro-state (audited); --dry-run
 # prints the row instead.
 set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/_lib.sh"
 
-SD="$(r2_state_dir)"
+SD="$(mae_state_dir)"
 gen="" job="" stage="" cli="" transport="" family="" model="" effort="" round="" outcome="" verdict="" effcfg="" tier="" dry=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -35,12 +35,12 @@ while [[ $# -gt 0 ]]; do
     --effective-config) effcfg="$2"; shift 2 ;;
     --service-tier) tier="$2"; shift 2 ;;
     --dry-run) dry=1; shift ;;
-    *) r2_die "route2-ledger: unknown option $1" ;;
+    *) mae_die "maestro-ledger: unknown option $1" ;;
   esac
 done
-[[ -n "$job" && -n "$stage" && -n "$cli" && -n "$model" ]] || r2_die "route2-ledger needs --job, --stage, --cli and --model"
+[[ -n "$job" && -n "$stage" && -n "$cli" && -n "$model" ]] || mae_die "maestro-ledger needs --job, --stage, --cli and --model"
 J="$SD/jobs/$job"
-[[ -d "$J" ]] || r2_die "route2-ledger: no job $job"
+[[ -d "$J" ]] || mae_die "maestro-ledger: no job $job"
 out="$J/out"; [[ -f "$out" ]] || out=/dev/null
 
 case "$cli" in
@@ -83,7 +83,7 @@ case "$cli" in
     [[ -n "$served" ]] || served=null
     status="$(jq -r '.subtype // "none"' <<<"$res")"; denied=null
     dur="$(jq -c 'if .duration_ms then .duration_ms / 1000 else null end' <<<"$res")" ;;
-  *) r2_die "route2-ledger: --cli is codex, agy, claude-cli or cursor-agent" ;;
+  *) mae_die "maestro-ledger: --cli is codex, agy, claude-cli or cursor-agent" ;;
 esac
 
 # Cumulative counters (codex resume, agy conversation). Per COUNTER: the baseline is the last
@@ -111,7 +111,7 @@ fi
 
 meta='{}'; [[ -f "$J/meta.json" ]] && meta="$(cat "$J/meta.json")"
 code=null; [[ -f "$J/exit" ]] && code="$(jq -Rc . < "$J/exit")"
-row="$(jq -cn --arg ts "$(r2_now)" --argjson meta "$meta" --arg stage "$stage" --arg cli "$cli" \
+row="$(jq -cn --arg ts "$(mae_now)" --argjson meta "$meta" --arg stage "$stage" --arg cli "$cli" \
   --arg transport "$transport" --arg family "$family" --arg model "$model" --argjson served "${served:-null}" \
   --arg effort "$effort" --arg round "$round" --arg sid "$sid" --arg job "$job" --argjson usage "$usage" \
   --argjson dur "${dur:-null}" --argjson code "$code" --arg outcome "$outcome" --arg verdict "$verdict" \
@@ -130,5 +130,5 @@ row="$(jq -cn --arg ts "$(r2_now)" --argjson meta "$meta" --arg stage "$stage" -
      counter_reset: (if $reset then true else null end),
      exit_code: $code, outcome: ($outcome | nn), verdict: ($verdict | nn)}')"
 if [[ $dry -eq 1 ]]; then printf '%s\n' "$row"; exit 0; fi
-[[ -n "$gen" ]] || r2_die "route2-ledger needs --gen N (or --dry-run)"
-printf '%s\n' "$row" | "$R2_BIN/route2-state" --gen "$gen" append ledger.jsonl
+[[ -n "$gen" ]] || mae_die "maestro-ledger needs --gen N (or --dry-run)"
+printf '%s\n' "$row" | "$MAESTRO_BIN/maestro-state" --gen "$gen" append ledger.jsonl

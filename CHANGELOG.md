@@ -1,6 +1,22 @@
 # Changelog
 
-## 1.0.0 — 2026-10-11
+## 1.1.0 — 2026-10-11
+
+**Renamed from route2 to maestro** — a new skill in its own right, not a version of route. No change
+in behaviour.
+
+- Command `/maestro` (`$maestro` in Codex); helpers `bin/maestro-*`; state in `.maestro/`; policy
+  in `maestro.policy.yml` and `~/.config/maestro/policy.yml`; environment variables `MAESTRO_*`;
+  install target `~/.agents/skills/maestro` (plus the Claude Code and agy links).
+- Nothing is migrated: a `.route2/` directory or a `route2.policy.yml` left by 1.0.0 is not read.
+  Finish or discard an open route2 run before switching.
+- README.md and README_pl.md rewritten for people: how a run goes, what is new compared to route,
+  the hosts compared side by side, models, cost, known limits.
+- `docs/manual-checks_pl.md`: the cases still to be checked by hand, step by step.
+- The 1.0.0 evidence (`docs/evidence/1.0.0/`, `docs/release-1.0.0.md`) was measured under the name
+  route2 and is kept as recorded.
+
+## route2 1.0.0 — 2026-10-11
 
 Forked from route 3.4.0 (`route-skill` at `2912f16`, including `--unattended`) as a separate skill,
 invoked as `/route2` (`$route2` in Codex). route is unchanged.

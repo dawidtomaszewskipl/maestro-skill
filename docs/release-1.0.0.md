@@ -1,5 +1,9 @@
 # Release 1.0.0 — gate evidence
 
+> Measured under the skill's former name, **route2** (renamed to maestro in 1.1.0 with no change in
+> behaviour): `/route2`, `bin/route2-*` and `.route2/` here are today's `/maestro`, `bin/maestro-*`
+> and `.maestro/`.
+
 Every release gate of the approved plan (§11), per host, as measured on this machine on
 2026-10-11 (Claude Code 2.1.296, Codex CLI 0.162.1, agy 1.3.3, Cursor agent 2026.10.01). The raw
 transcripts are in the build run's evidence directory (`route-skill/.route/r2/v/`, outside this

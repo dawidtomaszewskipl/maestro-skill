@@ -1,6 +1,6 @@
 # Roster policy
 
-route2's routing is a written rubric (see "Roster" in `SKILL.md` and "How the
+maestro's routing is a written rubric (see "Roster" in `SKILL.md` and "How the
 director decides" in the README). A policy file lets you bend that rubric once instead of correcting
 the director every run — "never pick Fable here", "critic is always Gemini", "this repo builds with
 Sol by default".
@@ -9,10 +9,10 @@ Sol by default".
 
 | File | Scope | Typical use |
 | --- | --- | --- |
-| `route2.policy.yml` at the repository root | the project, committed | team conventions: default implementer, banned slots or transports, a family the team does not license, pinned models |
-| `~/.config/route2/policy.yml` | you, every project, every host | your own budget: "I never spend Fable on builds", "no Claude through Cursor" |
+| `maestro.policy.yml` at the repository root | the project, committed | team conventions: default implementer, banned slots or transports, a family the team does not license, pinned models |
+| `~/.config/maestro/policy.yml` | you, every project, every host | your own budget: "I never spend Fable on builds", "no Claude through Cursor" |
 
-The user file lives outside `~/.claude` because route2 runs in four hosts. route's own policy
+The user file lives outside `~/.claude` because maestro runs in four hosts. route's own policy
 files (`route.policy.yml`, `~/.claude/route.policy.yml`) are **not** read: their schema has no xAI
 family, no transports and no pins.
 
@@ -35,12 +35,12 @@ All optional. Slot names are the `--model` values; effort values are the CLI voc
 | `cascade_drafter: slot` | Default drafter for `--cascade` (default `luna`). |
 | `critique_rounds: n` | Plan-critique cap, 1–8 (default 2). `--rounds` beats it. |
 | `effort: {critique, high_stakes_critique, build, review, draft}` | Per-stage effort (defaults `medium`, `high`, `medium`, `high`, `medium`), one vocabulary `low\|medium\|high\|xhigh\|max`. Each stage takes one value, or per-family values (`openai:`, `google:`, `xai:`, `claude:`) when the families need different levels. A value above a transport's range is clamped to its maximum (agy: `high`; Grok: `xhigh`) and marked `(clamped)`. The Agent tool has no dial; `claude -p`, agy and Cursor Claude slugs do. |
-| `families: {claude\|openai\|google\|xai: on\|off}` | Switch a family off even if its CLIs are installed and signed in, or `on` to lift a lower-level `off`. Claude can be switched off too — route2's director is whatever host runs it, and `self` follows the director's family. |
+| `families: {claude\|openai\|google\|xai: on\|off}` | Switch a family off even if its CLIs are installed and signed in, or `on` to lift a lower-level `off`. Claude can be switched off too — maestro's director is whatever host runs it, and `self` follows the director's family. |
 | `transports: {deny: [<slot>@<transport>, …]}` | Transports the director never picks on its own, e.g. `fable@cursor` (Cursor's Fable is "NO ZDR"), `opus@agy`. A denied transport is skipped in the slot's order and never switched onto; an explicit `@transport` naming it still wins, with a warning. |
 | `pin: {<slot>: "<version>" \| {<transport>: "<slug>"}}` | Fix a line instead of following the newest model (`docs/catalog.md`, "Pins"): `pin: {sol: "6.1"}` (every transport must serve 6.1), `pin: {sol: {codex: "gpt-6.1-sol"}}` (that slug, other transports off), `pin: {opus: {native: "claude-opus-5"}}`. A pin missing from the catalog halts. |
 | `cursor_fast: true\|false` | Allow Cursor's `-fast` variants (default `false`). |
 
-The example with comments: [`examples/route2.policy.yml`](examples/route2.policy.yml).
+The example with comments: [`examples/maestro.policy.yml`](examples/maestro.policy.yml).
 
 ## How it is applied
 

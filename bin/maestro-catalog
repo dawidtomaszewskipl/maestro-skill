@@ -1,30 +1,30 @@
 #!/usr/bin/env bash
-# route2-catalog — the live model catalog (docs/catalog.md).
+# maestro-catalog — the live model catalog (docs/catalog.md).
 #
-#   route2-catalog refresh [--fixtures DIR] [--out FILE]
-#       Read every source without a model turn and write .route2/catalog.json (or FILE):
+#   maestro-catalog refresh [--fixtures DIR] [--out FILE]
+#       Read every source without a model turn and write .maestro/catalog.json (or FILE):
 #       codex `codex debug models` (fallback: $CODEX_HOME/models_cache.json, then
 #       `codex debug models --bundled`), agy `agy models`, cursor `agent --list-models`.
 #       --fixtures DIR reads DIR/codex-models.json, DIR/agy-models.txt, DIR/cursor-models.txt
 #       instead (a missing file is an acquisition failure), and DIR/codex-cache.json for the
 #       fallback path (tests).
-#   route2-catalog candidates <slot> <transport> [--catalog FILE]
+#   maestro-catalog candidates <slot> <transport> [--catalog FILE]
 #       The slot's candidates on that transport, newest first: [{version, slugs: {effort: slug}}].
-#   route2-catalog compare <v1> <v2>      → -1 | 0 | 1  (integer segments, missing = 0)
-#   route2-catalog pick <slot> <transport> [--effort E] [--pin VERSION | --pin-slug SLUG]
+#   maestro-catalog compare <v1> <v2>      → -1 | 0 | 1  (integer segments, missing = 0)
+#   maestro-catalog pick <slot> <transport> [--effort E] [--pin VERSION | --pin-slug SLUG]
 #                       [--scope JSON] [--catalog FILE] [--probes FILE]
 #       Walk the slot's candidates newest first, skipping versions with a fresh denial for this
 #       scope: → {action: "use"|"probe", version, slug} or {action: "none", reason, previous}.
-#   route2-catalog record-probe --gen N <transport> <slug> ok|denied --scope JSON [--detail TEXT]
-#   route2-catalog record-resolved --gen N <slot> <transport> <version>
-#   route2-catalog native-verify <expected-full-id> <stream-json file>
+#   maestro-catalog record-probe --gen N <transport> <slug> ok|denied --scope JSON [--detail TEXT]
+#   maestro-catalog record-resolved --gen N <slot> <transport> <version>
+#   maestro-catalog native-verify <expected-full-id> <stream-json file>
 #       a native pin holds only if the probe's init.model (or result.modelUsage) is exactly the
 #       expected id: → {accepted, served}; an alias that served a newer model is rejected
-#   route2-catalog native-id <slot> <version>
+#   maestro-catalog native-id <slot> <version>
 #       the full Claude Code model id a canonical pin reaches native through (opus 5 → claude-opus-5,
 #       opus 5.5 → claude-opus-5-5); the pin holds only if a probe of that id returns exactly it
 #
-# Probe records (.route2/model-probes.json) are keyed "<transport>:<slug>" and scoped: a record
+# Probe records (.maestro/model-probes.json) are keyed "<transport>:<slug>" and scoped: a record
 # counts only when its scope object equals the caller's (CLI version, account identity, config
 # mode, host, and the session key when an account is unknown). Positive: fresh < 7 days;
 # negative (denied): fresh < 24 hours.
@@ -90,7 +90,7 @@ def vsort: . as $in | reduce range(0; length) as $i ([];
     | if $pos == null then $acc + [$x] else $acc[0:$pos] + [$x] + $acc[$pos:] end);
 '
 
-SD="$(r2_state_dir 2>/dev/null || echo .route2)"
+SD="$(mae_state_dir 2>/dev/null || echo .maestro)"
 sub="${1:-}"; shift || true
 
 case "$sub" in
@@ -101,8 +101,8 @@ case "$sub" in
     jq -cn --arg e "$exp" --arg s "$served" '{accepted: ($s == $e), expected: $e, served: (if $s == "" then null else $s end)}' ;;
 
   native-id)
-    case "${1:-}" in opus|fable|sonnet|haiku) ;; *) r2_die "native-id: a Claude slot (opus, fable, sonnet, haiku)" ;; esac
-    [[ "${2:-}" =~ ^[0-9]+(\.[0-9]+)*$ ]] || r2_die "native-id: a version such as 5 or 5.5"
+    case "${1:-}" in opus|fable|sonnet|haiku) ;; *) mae_die "native-id: a Claude slot (opus, fable, sonnet, haiku)" ;; esac
+    [[ "${2:-}" =~ ^[0-9]+(\.[0-9]+)*$ ]] || mae_die "native-id: a version such as 5 or 5.5"
     printf 'claude-%s-%s\n' "$1" "${2//./-}" ;;
 
   compare)
@@ -120,7 +120,7 @@ case "$sub" in
       case "$1" in
         --fixtures) fixtures="$2"; shift 2 ;;
         --out) out="$2"; shift 2 ;;
-        *) r2_die "route2-catalog refresh: unknown option $1" ;;
+        *) mae_die "maestro-catalog refresh: unknown option $1" ;;
       esac
     done
     mkdir -p "$(dirname "$out")"
@@ -134,10 +134,10 @@ case "$sub" in
       elif [[ -f "$fixtures/codex-bundled.json" ]]; then cp "$fixtures/codex-bundled.json" "$tmpd/codex.json"; codex_mode=bundled
       else codex_err="fixture missing"; fi
     elif command -v codex >/dev/null 2>&1; then
-      if "$R2_BIN/route2-env" -- codex debug models > "$tmpd/codex.json" 2>"$tmpd/codex.err"; then codex_mode=live
+      if "$MAESTRO_BIN/maestro-env" -- codex debug models > "$tmpd/codex.json" 2>"$tmpd/codex.err"; then codex_mode=live
       elif [[ -f "${CODEX_HOME:-$HOME/.codex}/models_cache.json" ]]; then
         cp "${CODEX_HOME:-$HOME/.codex}/models_cache.json" "$tmpd/codex.json"; codex_mode=cache
-      elif "$R2_BIN/route2-env" -- codex debug models --bundled > "$tmpd/codex.json" 2>>"$tmpd/codex.err"; then codex_mode=bundled
+      elif "$MAESTRO_BIN/maestro-env" -- codex debug models --bundled > "$tmpd/codex.json" 2>>"$tmpd/codex.err"; then codex_mode=bundled
       else codex_err="$(head -c 300 "$tmpd/codex.err")"; fi
     else codex_err="codex not installed"; fi
     codex_list='null' codex_meta='{}'
@@ -176,7 +176,7 @@ case "$sub" in
         cat "$fixtures/$fx"
       else
         command -v "$1" >/dev/null 2>&1 || return 1
-        "$R2_BIN/route2-env" -- "$@" 2>/dev/null || return 1
+        "$MAESTRO_BIN/maestro-env" -- "$@" 2>/dev/null || return 1
       fi > "$tmpd/$name.txt"
       # A model line starts with a lower-case slug token followed by a tab or " - ".
       grep -E '^[a-z0-9][a-z0-9.\-]*(	| - )' "$tmpd/$name.txt" \
@@ -194,7 +194,7 @@ case "$sub" in
     jq -n --argjson cx "$codex_list" --argjson cm "$codex_meta" --arg ce "$codex_err" \
           --argjson ag "$agy_list" --arg ae "$agy_err" \
           --argjson cu "$cursor_list" --arg cue "$cursor_err" \
-          --argjson prev "$prev" --arg at "$(r2_now)" \
+          --argjson prev "$prev" --arg at "$(mae_now)" \
       "$JQ_LIB$JQ_SORT"'
       def build($list; $t):
         if $list == null then null
@@ -209,7 +209,7 @@ case "$sub" in
         transports: { codex: build($cx; "codex"), agy: build($ag; "agy"), cursor: build($cu; "cursor") },
         codex_efforts: (if $cx == null then null else ($cx | map({key: .slug, value: {efforts, default_effort}}) | from_entries) end),
         previous: $prev,
-        resolved: {} }' | r2_atomic_write "$out"
+        resolved: {} }' | mae_atomic_write "$out"
     jq -c '{generated_at, sources, slots: (.transports | map_values(if . == null then null else (.slots | map_values(map(.version | map(tostring) | join(".")))) end))}' "$out" ;;
 
   pick)
@@ -223,7 +223,7 @@ case "$sub" in
         --scope) scope="$2"; shift 2 ;;
         --catalog) cat_file="$2"; shift 2 ;;
         --probes) probes="$2"; shift 2 ;;
-        *) r2_die "route2-catalog pick: unknown option $1" ;;
+        *) mae_die "maestro-catalog pick: unknown option $1" ;;
       esac
     done
     [[ -f "$probes" ]] || probes=/dev/null
@@ -285,33 +285,33 @@ case "$sub" in
 
   record-probe|__record-probe)
     if [[ "$sub" == record-probe ]]; then
-      [[ "${1:-}" == --gen ]] || r2_die "record-probe needs --gen N first"
+      [[ "${1:-}" == --gen ]] || mae_die "record-probe needs --gen N first"
       gen="$2"; shift 2
-      exec "$R2_BIN/route2-lock" exec --gen "$gen" -- "$0" __record-probe "$@"
+      exec "$MAESTRO_BIN/maestro-lock" exec --gen "$gen" -- "$0" __record-probe "$@"
     fi
     transport="$1" slug="$2" result="$3"; shift 3
     scope='{}' detail=""
     while [[ $# -gt 0 ]]; do
-      case "$1" in --scope) scope="$2"; shift 2 ;; --detail) detail="$2"; shift 2 ;; *) r2_die "unknown option $1" ;; esac
+      case "$1" in --scope) scope="$2"; shift 2 ;; --detail) detail="$2"; shift 2 ;; *) mae_die "unknown option $1" ;; esac
     done
-    [[ "$result" == ok || "$result" == denied ]] || r2_die "record-probe: result is ok or denied"
+    [[ "$result" == ok || "$result" == denied ]] || mae_die "record-probe: result is ok or denied"
     pf="$SD/model-probes.json"
     { cat "$pf" 2>/dev/null || echo '{}'; } | jq --arg k "$transport:$slug" --arg r "$result" --argjson s "$scope" \
-        --arg d "$detail" --arg at "$(r2_now)" --argjson ep "$(date +%s)" \
+        --arg d "$detail" --arg at "$(mae_now)" --argjson ep "$(date +%s)" \
         '.[$k] = {result: $r, scope: $s, at: $at, at_epoch: $ep, detail: (if $d == "" then null else $d end)}' \
-      | r2_atomic_write "$pf"
+      | mae_atomic_write "$pf"
     jq -cn --arg k "$transport:$slug" --arg r "$result" '{recorded: $k, result: $r}' ;;
 
   record-resolved|__record-resolved)
     if [[ "$sub" == record-resolved ]]; then
-      [[ "${1:-}" == --gen ]] || r2_die "record-resolved needs --gen N first"
+      [[ "${1:-}" == --gen ]] || mae_die "record-resolved needs --gen N first"
       gen="$2"; shift 2
-      exec "$R2_BIN/route2-lock" exec --gen "$gen" -- "$0" __record-resolved "$@"
+      exec "$MAESTRO_BIN/maestro-lock" exec --gen "$gen" -- "$0" __record-resolved "$@"
     fi
     slot="$1" transport="$2" version="$3"
     jq --arg s "$slot" --arg t "$transport" --arg v "$version" '.resolved[$s][$t] = $v' "$SD/catalog.json" \
-      | r2_atomic_write "$SD/catalog.json"
+      | mae_atomic_write "$SD/catalog.json"
     jq -cn --arg s "$slot" --arg t "$transport" --arg v "$version" '{resolved: $s, transport: $t, version: $v}' ;;
 
-  *) r2_die "usage: route2-catalog refresh|candidates|compare|pick|record-probe|record-resolved …" ;;
+  *) mae_die "usage: maestro-catalog refresh|candidates|compare|pick|record-probe|record-resolved …" ;;
 esac

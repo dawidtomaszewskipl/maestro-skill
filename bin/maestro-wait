@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# route2-wait — report or wait for a job's state (docs/hosts.md, "Jobs").
+# maestro-wait — report or wait for a job's state (docs/hosts.md, "Jobs").
 #
-#   route2-wait <job-id> [--max S] [--peek] [--also FILE]
+#   maestro-wait <job-id> [--max S] [--peek] [--also FILE]
 #
 # Prints one JSON line: {job_id, state, code, leader_alive, elapsed, last_progress_at, progress_source,
 # live_members, unowned}. state:
@@ -12,31 +12,31 @@
 #   lost       leader gone, no exit, no member left — terminated, outcome unknown
 #   uncertain  /proc, the leader or a member unreadable (the leader may still be alive: see
 #              leader_alive) — never counted as terminated; blocks like running while the leader lives
-# Blocks up to --max seconds (default $ROUTE2_WAIT_MAX or 25) while running; --peek never blocks
+# Blocks up to --max seconds (default $MAESTRO_WAIT_MAX or 25) while running; --peek never blocks
 # and never updates the progress record. --also FILE counts FILE's growth as progress too (agy's
 # CLI log). Progress = new bytes on stdout, or on stderr/--also with a last line different from
 # the previous one (a repeated identical error line is not progress).
 set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/_lib.sh"
 
-SD="$(r2_state_dir)"
+SD="$(mae_state_dir)"
 job="${1:-}"; shift || true
-max="${ROUTE2_WAIT_MAX:-25}" peek=0 also=""
+max="${MAESTRO_WAIT_MAX:-25}" peek=0 also=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --max) max="$2"; shift 2 ;;
     --peek) peek=1; shift ;;
     --also) also="$2"; shift 2 ;;
-    *) r2_die "route2-wait: unknown option $1" ;;
+    *) mae_die "maestro-wait: unknown option $1" ;;
   esac
 done
-[[ -n "$job" ]] || r2_die "usage: route2-wait <job-id> [--max S] [--peek] [--also FILE]"
+[[ -n "$job" ]] || mae_die "usage: maestro-wait <job-id> [--max S] [--peek] [--also FILE]"
 J="$SD/jobs/$job"
-[[ -d "$J" ]] || r2_die "route2-wait: no job $job"
+[[ -d "$J" ]] || mae_die "maestro-wait: no job $job"
 
 snapshot() {
   local leader_alive=false wrapper_alive=false code="" state live="[]" unowned="[]"
-  if [[ ! -r "$(r2_proc)/self/stat" && ! -r "$(r2_proc)/1/stat" ]]; then
+  if [[ ! -r "$(mae_proc)/self/stat" && ! -r "$(mae_proc)/1/stat" ]]; then
     jq -cn --arg j "$job" '{job_id: $j, state: "uncertain", reason: "/proc unreadable"}'; return
   fi
   [[ -f "$J/exit" ]] && code="$(cat "$J/exit")"
@@ -53,11 +53,11 @@ snapshot() {
   wpid="$(jq -r '.wrapper_pid // empty' "$J/meta.json")"
   local leader_unreadable=0
   if [[ -n "$pid" ]]; then
-    if r2_pid_same "$pid" "$st"; then leader_alive=true
-    elif [[ -d "$(r2_proc)/$pid" && ! -r "$(r2_proc)/$pid/stat" ]]; then leader_unreadable=1; fi
+    if mae_pid_same "$pid" "$st"; then leader_alive=true
+    elif [[ -d "$(mae_proc)/$pid" && ! -r "$(mae_proc)/$pid/stat" ]]; then leader_unreadable=1; fi
   fi
   if [[ -n "$wpid" ]] && kill -0 "$wpid" 2>/dev/null \
-     && [[ "$(r2_pid_cmdline "$wpid")" == *"__wrapper $J"* ]]; then wrapper_alive=true; fi
+     && [[ "$(mae_pid_cmdline "$wpid")" == *"__wrapper $J"* ]]; then wrapper_alive=true; fi
 
   # Live members: recorded (pid, starttime) pairs still alive, leader excluded — plus any live
   # process still in the job's process group that the recorder never saw (the wrapper may have
@@ -68,8 +68,8 @@ snapshot() {
     live="$(jq -c --arg leader "${pid:-0}" 'select((.pid|tostring) != $leader)' "$J/members.jsonl" \
       | while IFS= read -r m; do
           p="$(jq -r .pid <<<"$m")"; s="$(jq -r .starttime <<<"$m")"
-          if r2_pid_same "$p" "$s"; then printf '%s\n' "$m"
-          elif [[ -d "$(r2_proc)/$p" && ! -r "$(r2_proc)/$p/stat" ]]; then printf '{"unreadable":%s}\n' "$p"; fi
+          if mae_pid_same "$p" "$s"; then printf '%s\n' "$m"
+          elif [[ -d "$(mae_proc)/$p" && ! -r "$(mae_proc)/$p/stat" ]]; then printf '{"unreadable":%s}\n' "$p"; fi
         done | jq -sc 'unique_by(.pid // .unreadable)')"
   fi
   if jq -e 'any(.[]; has("unreadable"))' <<<"$live" >/dev/null 2>&1; then unreadable=1; fi
@@ -78,27 +78,27 @@ snapshot() {
   if [[ -n "$pg" ]]; then
     # One pass over /proc/*/stat: pids whose process group is the job's.
     # shellcheck disable=SC2013  # awk prints one pid per line; word splitting is what we want
-    for p in $(r2_proc_table | awk -v pg="$pg" '$3 == pg { print $1 }'); do
+    for p in $(mae_proc_table | awk -v pg="$pg" '$3 == pg { print $1 }'); do
       [[ "$p" == "${pid:-0}" || "$p" == "${wpid:-0}" || "$p" == "$$" ]] && continue
       # The wrapper's own children other than the leader (its poll `sleep`, its last member scan)
       # are infrastructure, not members.
-      [[ -n "${wpid:-}" && "$(r2_pid_ppid "$p")" == "$wpid" ]] && continue
-      [[ "$(r2_pid_cmdline "$p")" == *"__wrapper $J"* ]] && continue
+      [[ -n "${wpid:-}" && "$(mae_pid_ppid "$p")" == "$wpid" ]] && continue
+      [[ "$(mae_pid_cmdline "$p")" == *"__wrapper $J"* ]] && continue
       jq -e --arg p "$p" 'any(.[]; (.pid|tostring) == $p)' <<<"$live" >/dev/null && continue
       # Read the identity once: a process that is gone is not a member; one whose entry still
       # exists but cannot be read makes the whole state uncertain (never "gone").
-      id="$(r2_pid_identity "$p")"
+      id="$(mae_pid_identity "$p")"
       case "$id" in
         gone) continue ;;
         unreadable) unreadable=1; continue ;;
       esac
-      live="$(jq -c --arg p "$p" --arg st "$id" --arg a "$(r2_pid_cmdline "$p")" \
+      live="$(jq -c --arg p "$p" --arg st "$id" --arg a "$(mae_pid_cmdline "$p")" \
         --arg pg "$pg" '. + [{pid: ($p|tonumber), starttime: $st, argv: $a, pgid: ($pg|tonumber), unrecorded: true}]' <<<"$live")"
     done
   fi
 
   # An unreadable leader or member outranks everything, a live leader included: the live set is
-  # incomplete, and route2-kill must never classify (or signal) an incomplete set.
+  # incomplete, and maestro-kill must never classify (or signal) an incomplete set.
   if (( unreadable || leader_unreadable )); then state=uncertain
   elif [[ "$leader_alive" == true ]]; then state=running
   elif [[ -z "$code" && "$wrapper_alive" == true ]]; then state=running
@@ -113,10 +113,10 @@ snapshot() {
   local cwd want
   cwd="$(jq -r .cwd "$J/meta.json")"
   want="$(jq -c '[(.cmd | join(" ")), (.leader_argv // empty)] + (.test_cmds // [])' "$J/meta.json")"
-  unowned="$(for p in $(r2_own_pids); do
+  unowned="$(for p in $(mae_own_pids); do
       [[ "$p" == "$$" || "$p" == "$PPID" ]] && continue
-      c="$(r2_pid_cwd "$p")"; [[ "$c" == "$cwd" || "$c" == "$cwd"/* ]] || continue
-      cl="$(r2_pid_cmdline "$p")"
+      c="$(mae_pid_cwd "$p")"; [[ "$c" == "$cwd" || "$c" == "$cwd"/* ]] || continue
+      cl="$(mae_pid_cmdline "$p")"
       jq -e --arg cl "$cl" 'index($cl) != null' <<<"$want" >/dev/null || continue
       grep -q "\"pid\":$p," "$J/members.jsonl" 2>/dev/null && continue
       jq -cn --arg p "$p" --arg cl "$cl" '{pid: ($p|tonumber), argv: $cl}'
@@ -140,7 +140,7 @@ snapshot() {
   if [[ $peek -eq 0 ]]; then
     jq -cn --argjson ob "$ob" --argjson eb "$eb" --argjson ab "$ab" --arg ll "$lastline" --argjson lp "$lp" \
       '{out_bytes: $ob, err_bytes: $eb, also_bytes: $ab, last_line: $ll, last_progress_at: $lp}' \
-      | r2_atomic_write "$J/progress"
+      | mae_atomic_write "$J/progress"
   fi
   local started elapsed
   started="$(date -d "$(jq -r .started_at "$J/meta.json")" +%s 2>/dev/null || echo "$now")"

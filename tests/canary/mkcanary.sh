@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2016  # literal regex and file bodies, written verbatim
-# Create a canary repository with route2 installed into it. Refuses an existing directory.
+# Create a canary repository with maestro installed into it. Refuses an existing directory.
 set -eu
 SRC="$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)"
-D="${ROUTE2_CANARY_ROOT:-$HOME/route2-canaries}/$1"
+D="${MAESTRO_CANARY_ROOT:-$HOME/maestro-canaries}/$1"
 [[ -e "$D" ]] && { echo "exists: $D"; exit 1; }
 mkdir -p "$D/lib" "$D/tests"; cd "$D"; git init -q -b main
 printf '%s\n' '# shellcheck shell=bash' '# String helpers.' '' '# upper <text> — print <text> in upper case.' 'upper() { printf '"'"'%s\n'"'"' "${1^^}"; }' > lib/str.sh
@@ -18,7 +18,7 @@ check "upper" "ABC" "$(upper abc)"
 exit $fail
 T
 printf '%s\n' '# strlib' 'Tiny bash string helpers. Tests: `bash tests/test_str.sh`.' > README.md
-git add -A; git -c user.email=canary@route2 -c user.name=canary commit -qm "strlib: upper"
+git add -A; git -c user.email=canary@maestro -c user.name=canary commit -qm "strlib: upper"
 "$SRC/install.sh" "$D" >/dev/null
 printf '.agents/\n.claude/\n.cursor/\n' >> "$(git rev-parse --absolute-git-dir)/info/exclude"
 bash tests/test_str.sh >/dev/null && echo "ready: $D"

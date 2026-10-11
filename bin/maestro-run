@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# route2-run — launch a worker or test as a detached job (docs/hosts.md, "Jobs").
+# maestro-run — launch a worker or test as a detached job (docs/hosts.md, "Jobs").
 #
-#   route2-run --gen N --job ID --run RUN --role ROLE [--kind worker|test] [--cwd DIR]
+#   maestro-run --gen N --job ID --run RUN --role ROLE [--kind worker|test] [--cwd DIR]
 #              [--test-cmd "CMD"]… [--test-runner PATH]… -- <command…>
 #
 # Prints {job_id, pid, pgid, pid_starttime, dir} and returns at once; the job runs outside the
-# fence. Files in .route2/jobs/<ID>/: meta.json (written once, inside the fence), out, err (the
-# command's stdout/stderr — route2-run owns the redirection, so the command line carries none),
+# fence. Files in .maestro/jobs/<ID>/: meta.json (written once, inside the fence), out, err (the
+# command's stdout/stderr — maestro-run owns the redirection, so the command line carries none),
 # members.jsonl (every process ever seen in the job's tree), exit (integer code, signal:<n> or
 # launch-failed), wrapper.pid.
 #
@@ -15,8 +15,8 @@
 set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/_lib.sh"
 
-SD="$(r2_state_dir)"
-POLL="${ROUTE2_MEMBER_POLL:-1}"
+SD="$(mae_state_dir)"
+POLL="${MAESTRO_MEMBER_POLL:-1}"
 
 # ------------------------------------------------------------------------------------------------
 # __wrapper <jobdir>: the session leader. Starts the command, records members, writes exit.
@@ -39,13 +39,13 @@ if [[ "${1:-}" == "__wrapper" || "${1:-}" == "__record_once" ]]; then
     while read -r p pp pg; do
       [[ "$p" =~ ^[0-9]+$ && "$pp" =~ ^[0-9]+$ && "$pg" =~ ^[0-9]+$ ]] || continue
       ppid_of[$p]="$pp"; pgid_of[$p]="$pg"
-    done < <(r2_proc_table)
+    done < <(mae_proc_table)
     local -A inset=([$ROOT_PID]=1)
     # Seed only from identities still alive: a recorded pid whose start time changed is a reused
     # pid, and neither it nor its children belong to this job.
     local k
     for k in "${!seen[@]}"; do
-      if r2_pid_same "${k%%:*}" "${k#*:}"; then inset[${k%%:*}]=1; fi
+      if mae_pid_same "${k%%:*}" "${k#*:}"; then inset[${k%%:*}]=1; fi
     done
     changed=1
     while [[ $changed -eq 1 ]]; do
@@ -60,12 +60,12 @@ if [[ "${1:-}" == "__wrapper" || "${1:-}" == "__record_once" ]]; then
     for p in "${!inset[@]}"; do
       [[ "$p" == "$ROOT_PID" ]] && continue
       local stt key
-      stt="$(r2_pid_starttime "$p")"; [[ -n "$stt" ]] || continue
+      stt="$(mae_pid_starttime "$p")"; [[ -n "$stt" ]] || continue
       key="$p:$stt"
       [[ -n "${seen[$key]:-}" ]] && continue
       seen[$key]=1
       jq -cn --arg pid "$p" --arg st "$stt" --arg pp "${ppid_of[$p]:-}" --arg pg "${pgid_of[$p]:-}" \
-        --arg argv "$(r2_pid_cmdline "$p")" --arg cwd "$(r2_pid_cwd "$p")" --arg exe "$(r2_pid_exe "$p")" \
+        --arg argv "$(mae_pid_cmdline "$p")" --arg cwd "$(mae_pid_cwd "$p")" --arg exe "$(mae_pid_exe "$p")" \
         '{pid: ($pid|tonumber), starttime: $st, ppid: ($pp|tonumber? // null), pgid: ($pg|tonumber? // null),
           argv: $argv, cwd: $cwd, exe: $exe}' >> "$J/members.jsonl"
     done
@@ -114,13 +114,13 @@ parse_args() {
       --test-cmd) tests+=("$2"); shift 2 ;;
       --test-runner) runners+=("$2"); shift 2 ;;
       --) shift; cmd=("$@"); break ;;
-      *) r2_die "route2-run: unknown option $1" ;;
+      *) mae_die "maestro-run: unknown option $1" ;;
     esac
   done
   [[ ${#cmd[@]} -gt 0 && -n "$gen" && -n "$job" && -n "$run" && -n "$role" ]] \
-    || r2_die "usage: route2-run --gen N --job ID --run RUN --role ROLE [...] -- <command…>"
-  [[ "$job" =~ ^[A-Za-z0-9._:-]+$ ]] || r2_die "route2-run: job id may hold only [A-Za-z0-9._:-]"
-  [[ "$kind" == worker || "$kind" == test ]] || r2_die "route2-run: --kind is worker or test"
+    || mae_die "usage: maestro-run --gen N --job ID --run RUN --role ROLE [...] -- <command…>"
+  [[ "$job" =~ ^[A-Za-z0-9._:-]+$ ]] || mae_die "maestro-run: job id may hold only [A-Za-z0-9._:-]"
+  [[ "$kind" == worker || "$kind" == test ]] || mae_die "maestro-run: --kind is worker or test"
 }
 
 json_list() { if [[ $# -gt 0 ]]; then printf '%s\n' "$@" | jq -R . | jq -sc .; else echo '[]'; fi; }
@@ -132,11 +132,11 @@ if [[ "${1:-}" == "__locked" ]]; then
   parse_args "$@"
   J="$SD/jobs/$job"
   mkdir -p "$SD/jobs"
-  mkdir "$J" 2>/dev/null || r2_die "route2-run: job $job already exists ($J) — job ids are never reused"
+  mkdir "$J" 2>/dev/null || mae_die "maestro-run: job $job already exists ($J) — job ids are never reused"
   printf '%s\0' "${cmd[@]}" > "$J/cmd"
   printf '%s' "$cwd" > "$J/cwd"
-  r2_audit_record "$SD" "jobs/$job/cmd" "$gen"
-  r2_audit_record "$SD" "jobs/$job/cwd" "$gen"
+  mae_audit_record "$SD" "jobs/$job/cmd" "$gen"
+  mae_audit_record "$SD" "jobs/$job/cwd" "$gen"
   # Spawn: setsid, stdin /dev/null, stdout/stderr away, every fd above 2 closed.
   (
     fds=()
@@ -151,11 +151,11 @@ if [[ "${1:-}" == "__locked" ]]; then
   done
   pid=""; pgid=""; st=""; largv=""
   if [[ -f "$J/leader.pid" ]]; then
-    pid="$(cat "$J/leader.pid")"; st="$(r2_pid_starttime "$pid")"; pgid="$(r2_pid_pgid "$pid")"
-    largv="$(r2_pid_cmdline "$pid")"
+    pid="$(cat "$J/leader.pid")"; st="$(mae_pid_starttime "$pid")"; pgid="$(mae_pid_pgid "$pid")"
+    largv="$(mae_pid_cmdline "$pid")"
   fi
   jq -n --arg job "$job" --arg run "$run" --arg role "$role" --arg kind "$kind" --arg cwd "$cwd" \
-    --arg at "$(r2_now)" --arg host "${ROUTE2_HOST:-}" --arg skey "${ROUTE2_SESSION_KEY:-}" \
+    --arg at "$(mae_now)" --arg host "${MAESTRO_HOST:-}" --arg skey "${MAESTRO_SESSION_KEY:-}" \
     --arg pid "$pid" --arg pgid "$pgid" --arg st "$st" --arg largv "$largv" \
     --arg wpid "$(cat "$J/wrapper.pid" 2>/dev/null || true)" \
     --argjson t "$(json_list "${tests[@]+"${tests[@]}"}")" \
@@ -165,13 +165,13 @@ if [[ "${1:-}" == "__locked" ]]; then
              pid: ($pid|tonumber? // null), pgid: ($pgid|tonumber? // null),
              pid_starttime: (if $st == "" then null else $st end),
              leader_argv: (if $largv == "" then null else $largv end),
-             wrapper_pid: ($wpid|tonumber? // null)}' "${cmd[@]}" | r2_atomic_write "$J/meta.json"
+             wrapper_pid: ($wpid|tonumber? // null)}' "${cmd[@]}" | mae_atomic_write "$J/meta.json"
   # meta.json is immutable from here on; its hash is audited so a read-only proof can check it.
-  r2_audit_record "$SD" "jobs/$job/meta.json" "$gen"
+  mae_audit_record "$SD" "jobs/$job/meta.json" "$gen"
   jq -c --arg dir "$J" '{job_id, pid, pgid, pid_starttime, dir: $dir}' "$J/meta.json"
   exit 0
 fi
 
 parse_args "$@"
-[[ -e "$SD/jobs/$job" ]] && r2_die "route2-run: job $job already exists — job ids are never reused"
-exec "$R2_BIN/route2-lock" exec --gen "$gen" -- "$0" __locked "$@"
+[[ -e "$SD/jobs/$job" ]] && mae_die "maestro-run: job $job already exists — job ids are never reused"
+exec "$MAESTRO_BIN/maestro-lock" exec --gen "$gen" -- "$0" __locked "$@"

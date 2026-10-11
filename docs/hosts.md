@@ -1,6 +1,6 @@
 # Hosts
 
-route2 runs as the director inside four agent hosts. They differ in four things the loop depends
+maestro runs as the director inside four agent hosts. They differ in four things the loop depends
 on: how the director starts a Claude worker, how it waits for a long command, how it asks the
 user, and what its own shell may do. Stage 0 detects the host and every later step uses the row of
 this file that belongs to it.
@@ -11,7 +11,7 @@ Everything marked **measured** was observed on this machine on 2026-10-11 with C
 
 ## Detection
 
-`bin/route2-host` prints one JSON line: `{host, interactive, session_key, host_pid,
+`bin/maestro-host` prints one JSON line: `{host, interactive, session_key, host_pid,
 host_pid_starttime, director_family, director_model, director_line, evidence[]}`.
 
 **Child processes inherit host markers** (measured: a `codex exec` launched from Claude Code still
@@ -53,7 +53,7 @@ you", not "this host is your parent". The rules:
 
 A director started by the user in a terminal has only its own host's markers, so even the
 markers-only path is unambiguous there. Nesting (a director host launched from another host) is a
-test setup; launch it through `bin/route2-env` and the outer markers are gone.
+test setup; launch it through `bin/maestro-env` and the outer markers are gone.
 
 **Interactive or headless** is read from the host's command line: Claude Code `-p`/`--print`,
 Codex the `exec` subcommand, Cursor `-p`/`--print`, agy `-p`. **A headless director requires
@@ -71,7 +71,7 @@ command (`docs/workers.md`).
 | Cursor | none found: the `init` event carries the model for `agent -p` sessions a director *launches*, but nothing exposes the director's own model to its shell | unverified → `unknown` |
 | agy | none: `ANTIGRAVITY_SOURCE_METADATA` holds the conversation id, step and tool call, not the model | measured → `unknown` |
 
-`family` or `model_line` unknown → `self` is not eligible as a builder (route2-roles stops on it),
+`family` or `model_line` unknown → `self` is not eligible as a builder (maestro-roles stops on it),
 and with `family` unknown `--review=self` is illegal (use `cross`). A stated model is not a source.
 If your identity changes between dispatches (a model switch, even within a family), re-validate
 `self` and degraded-mode roles; an assignment that became illegal → ask (unattended: row 2).
@@ -80,24 +80,24 @@ If your identity changes between dispatches (a model switch, even within a famil
 
 | Concern | Claude Code (interactive) | Claude Code `claude -p` | Codex | Cursor `agent` | agy (interactive only) |
 | --- | --- | --- | --- | --- | --- |
-| Invoke the skill | `/route2` | `/route2` in the prompt | `$route2` | `/route2` | `/route2` |
+| Invoke the skill | `/maestro` | `/maestro` in the prompt | `$maestro` | `/maestro` | `/maestro` |
 | Claude worker | `Agent` tool, default `subagent_type` (`fork` ignores `model`) | `claude -p` | `claude -p` | `claude -p` | `claude -p` |
 | Long command | Bash `run_in_background` + completion notification | jobs (below) | jobs | jobs | jobs |
 | Foreground cap | 600 s (silently cut) | the Bash tool's: 120 s default, 600 s max | ~30 s, then the command continues as a background terminal (documented: `yield_time_ms` max 30 000) | set by the model per call (measured: `timeout: 90000` on a `sleep 75`, which finished normally) | 10 s, then the command continues as a background task (measured: `WaitMsBeforeAsync: 10000`) |
-| `route2-wait --max` | — (harness) | 25 | 25 | 25 | 8 |
+| `maestro-wait --max` | — (harness) | 25 | 25 | 25 | 8 |
 | Ask the user | `AskUserQuestion` | nobody — `--unattended` only | `request_user_input` when the tool is listed, else a plain question and end the turn | a plain question and end the turn | `ask_question` (documented in agy's bundled skills) |
 | Ask only when | no worker is running | — | no job is `running`, `lingering`, `orphaned` or `uncertain` with a live leader | same | same |
-| Supported configuration | default | default | `codex --sandbox danger-full-access` — the director's own commands must reach the model APIs and run the tests; Codex's default sandbox blocks the network | a project `.cursor/cli.json` allowing exactly the commands below, **without `--force`** | approve command prompts **and file-write prompts**; a **refused** prompt (e.g. file access outside the workspace) ends agy's turn and it waits for the user — under `--unattended` that is a stall, so the configuration must allow everything the run needs inside the workspace and nothing outside it ("Allow creation of this file?" — measured: an interactive agy director asks before writing `.route2/PLAN.md` too), or `permissions.allow` rules in `~/.gemini/antigravity-cli/settings.json` |
+| Supported configuration | default | default | `codex --sandbox danger-full-access` — the director's own commands must reach the model APIs and run the tests; Codex's default sandbox blocks the network | a project `.cursor/cli.json` allowing exactly the commands below, **without `--force`** | approve command prompts **and file-write prompts**; a **refused** prompt (e.g. file access outside the workspace) ends agy's turn and it waits for the user — under `--unattended` that is a stall, so the configuration must allow everything the run needs inside the workspace and nothing outside it ("Allow creation of this file?" — measured: an interactive agy director asks before writing `.maestro/PLAN.md` too), or `permissions.allow` rules in `~/.gemini/antigravity-cli/settings.json` |
 
 **Cursor's allowlist** (`<project>/.cursor/cli.json`; documented: "Only permissions can be
 configured at the project level"). Rules match the command's executable, and an absolute path
-works (measured: `Shell(/…/bin/route2-run)` allowed exactly that script). A director needs:
+works (measured: `Shell(/…/bin/maestro-run)` allowed exactly that script). A director needs:
 
-- every helper by absolute path — `Shell(<R2>/bin/route2-host)`, `…/route2-lock`, `…/route2-run`,
-  `…/route2-wait`, `…/route2-kill`, `…/route2-env`, `…/route2-catalog`, `…/route2-state`,
-  `…/route2-fp`, `…/route2-validate`, `…/route2-roles`, `…/route2-ledger`;
+- every helper by absolute path — `Shell(<MAESTRO>/bin/maestro-host)`, `…/maestro-lock`, `…/maestro-run`,
+  `…/maestro-wait`, `…/maestro-kill`, `…/maestro-env`, `…/maestro-catalog`, `…/maestro-state`,
+  `…/maestro-fp`, `…/maestro-validate`, `…/maestro-roles`, `…/maestro-ledger`;
 - the CLIs it checks directly in stage 0 — `Shell(codex)`, `Shell(agy)`, `Shell(agent)`,
-  `Shell(claude)` (worker launches go through `route2-run`, which needs no further rule);
+  `Shell(claude)` (worker launches go through `maestro-run`, which needs no further rule);
 - `Shell(git)`, `Shell(jq)`, the project's test command, and the plain utilities a director reads
   and writes state with: `cat`, `ls`, `mkdir`, `printf`, `echo`, `grep`, `sed`, `head`, `tail`,
   `wc`, `date`, `sha256sum`, `readlink`, `dirname`, `command`, `test`;
@@ -112,20 +112,20 @@ command. Never `--force`: it turns Cursor's sandbox off entirely (measured).
 Run from your own shell, for what the selected run needs; a failure is a stop with the remedy from
 the "Supported configuration" row:
 
-1. **State:** create and remove `.route2/probe-<id>`; take the lock.
+1. **State:** create and remove `.maestro/probe-<id>`; take the lock.
 2. **Git metadata** (what a commit needs, without touching the user's index or branch; measured
    to pass inside Codex `danger-full-access` and Cursor's allowlist, V2b):
-   `git hash-object -w` of a throwaway blob; `GIT_INDEX_FILE=<git-dir>/route2-probe-<run>-<rand>
-   git read-tree HEAD`, then remove that file; `git update-ref refs/route2/probe-<run>-<rand> HEAD`
+   `git hash-object -w` of a throwaway blob; `GIT_INDEX_FILE=<git-dir>/maestro-probe-<run>-<rand>
+   git read-tree HEAD`, then remove that file; `git update-ref refs/maestro/probe-<run>-<rand> HEAD`
    and `git update-ref -d` of it — unique names, removed by a trap on failure too. When a split is
-   decided, also `git worktree add --detach .route2/worktrees/probe-<rand>` and `remove`.
+   decided, also `git worktree add --detach .maestro/worktrees/probe-<rand>` and `remove`.
 3. **Model reach:** the free health check per family from this shell (`codex doctor --summary`,
    `agent status`, `agy models`, `claude auth status`); the stage 0 probes are the proof of API
    access. A DNS, connect, TLS or proxy error marks that transport ineligible for this host
    session, with the remedy printed.
 4. **Tests** (not under `--skip-tests`): the reach probe's cheap check, run by you.
 5. **Visual** (only for a user-facing layout change): the screenshot tool starts and writes one
-   file under `.route2/evidence/`, and you can read an image on this host. Measured (V14,
+   file under `.maestro/evidence/`, and you can read an image on this host. Measured (V14,
    2026-10-11): a Playwright screenshot of a test page was read back correctly ("ZEBRA 42",
    purple) by Claude Code, `claude -p`, Codex (`gpt-6-luna`), Cursor (`grok-4.7-low`, plan mode)
    and agy (`gemini-3.8-flash-low`, print mode) — so every host can inspect screenshots, and a
@@ -137,19 +137,19 @@ the "Supported configuration" row:
 
 An interactive Claude Code keeps route 3.4's mechanism: the Bash tool's background mode and its
 completion notification. No other host has a notification that wakes the director when a command
-finishes, so route2 brings its own:
+finishes, so maestro brings its own:
 
-- `bin/route2-run --gen N --job <id> --run <run_id> --role <role> [--kind test]
+- `bin/maestro-run --gen N --job <id> --run <run_id> --role <role> [--kind test]
   [--test-cmd "<cmd>"]… [--test-runner <path>]… -- <command…>` launches the command in its own
   session and process group (`setsid`), stdin `/dev/null`, every descriptor above 2 closed — so it
-  never holds the lock — with stdout and stderr in `.route2/jobs/<id>/out` and `err`. It writes
+  never holds the lock — with stdout and stderr in `.maestro/jobs/<id>/out` and `err`. It writes
   `meta.json` inside the fence and returns at once. Job ids are `<run_id>.<role>.r<round>.a<attempt>`
   and never reused.
 - A wrapper records every process of the job's tree in `members.jsonl` (one poll right after the
   spawn, then every second): pid, start time, **original** parent, process group, argv, cwd. A
   process that `setsid`s or is re-parented later stays a member. A process that was never a
   descendant is never a member, whatever its command line.
-- `bin/route2-wait <id> [--max S] [--peek] [--also <file>]` prints `{state, code, elapsed,
+- `bin/maestro-wait <id> [--max S] [--peek] [--also <file>]` prints `{state, code, elapsed,
   last_progress_at, idle_s, progress_source, live_members, unowned}`:
 
   | state | meaning |
@@ -159,7 +159,7 @@ finishes, so route2 brings its own:
   | `lingering` | `exit` written but members remain (a writer left a background process) — **not** terminated |
   | `orphaned` | leader gone, no `exit`, members remain |
   | `lost` | leader gone, no `exit`, no member left — terminated, outcome unknown |
-  | `uncertain` | `/proc`, the leader or a member unreadable — it outranks a live leader (`leader_alive` says whether the leader still runs); never counted as terminated, and `route2-wait` blocks on it like `running` while the leader lives |
+  | `uncertain` | `/proc`, the leader or a member unreadable — it outranks a live leader (`leader_alive` says whether the leader still runs); never counted as terminated, and `maestro-wait` blocks on it like `running` while the leader lives |
 
   Progress = new bytes on stdout (the `--json`/`stream-json` event streams of codex, `claude -p`
   and Cursor, thinking deltas included), or new stderr/`--also` bytes whose last line differs from
@@ -168,7 +168,7 @@ finishes, so route2 brings its own:
   `unowned` lists processes in the job's directory whose **full command line** equals the job's
   recorded command or a recorded test command but that were never members — reported, never
   signalled; for a writer you do not integrate or relaunch until they are settled.
-- `bin/route2-kill <id> --gen N [--grace S]` stops a job **without ever signalling a test**, one
+- `bin/maestro-kill <id> --gen N [--grace S]` stops a job **without ever signalling a test**, one
   step per call (call it again until `done` or `blocked`):
   - **Protected:** a test root — a member whose recorded *or current* command line equals a
     recorded test command, or holds a recorded runner path such as `vendor/bin/pest` (never a bare
@@ -188,13 +188,13 @@ finishes, so route2 brings its own:
 - The wrapper's own children (its poll `sleep`, its last member scan) are infrastructure and never
   members. `/proc` is read with `cat` over all `stat` files (it continues past processes that vanish
   mid-read); an unreadable leader or member makes the state `uncertain` even while the leader is
-  alive, so `route2-kill` never classifies an incomplete live set.
+  alive, so `maestro-kill` never classifies an incomplete live set.
 
 **You never end your turn while a job is `running`, `lingering` or `orphaned`, or `uncertain`
 with `leader_alive: true`.** Loop
-`route2-wait --max <n>` (the adapter row above: 25, agy 8), sample progress, and ask the user
+`maestro-wait --max <n>` (the adapter row above: 25, agy 8), sample progress, and ask the user
 nothing meanwhile. Hang = no progress for max(15 min,
-2 × T_slow) → read the job's files → `route2-kill`; never for tests.
+2 × T_slow) → read the job's files → `maestro-kill`; never for tests.
 
 **`blocked`** is the one outcome on which you may end your turn with a job unresolved: report the
 members (pid, argv, cwd), keep the job evidence and **keep the lock** (the checkout stays
@@ -204,7 +204,7 @@ the same under `--unattended`.
 
 ### Survival (V9)
 
-Whether a `route2-run` job survives across separate director commands and after the director's
+Whether a `maestro-run` job survives across separate director commands and after the director's
 session ends — measured per host in its supported configuration:
 
 | Host | Across commands | After the session ends | Mode |
@@ -215,8 +215,8 @@ session ends — measured per host in its supported configuration:
 | Cursor (`agent -p`, project allowlist, no `--force`) | yes | yes | detached |
 | agy (interactive, commands approved) | yes | yes (session killed, job still `running`) | detached |
 
-Measured 2026-10-11 (V9): in each host a director ran `route2-lock acquire`, `route2-run … --
-sleep 900` and `route2-wait --peek` as separate commands; the job was `running` in the third
+Measured 2026-10-11 (V9): in each host a director ran `maestro-lock acquire`, `maestro-run … --
+sleep 900` and `maestro-wait --peek` as separate commands; the job was `running` in the third
 command and still `running` after the host process was gone. A second run (Codex, Cursor and
 `claude -p` directors) checked the same jobs **11 minutes after their director sessions ended**:
 all three still `running` (elapsed 711 s, 686 s, 672 s). An agy director's job survived its
@@ -224,18 +224,18 @@ session being killed (checked at 36 s).
 
 agy also has its own mechanism: a command still running after 10 s becomes a background task
 (`/tasks`), and when it finishes **agy wakes the model with its output** (measured: a `sleep 130`
-returned to the model at 01:57:56 without any prompt). route2 does not rely on it: agy uses the
+returned to the model at 01:57:56 without any prompt). maestro does not rely on it: agy uses the
 same jobs as every other non-Claude-Code host, and the never-end-the-turn rule holds there too.
 
 ### End-to-end canaries (V11, 2026-10-11)
 
-Real `/route2` runs on a scratch repository (a bash string library and its test script), each host
+Real `/maestro` runs on a scratch repository (a bash string library and its test script), each host
 in its supported configuration, all `--unattended`:
 
 | Host (director model) | Run | Outcome |
 | --- | --- | --- |
 | Codex (`gpt-6.1-sol`, `danger-full-access`) | `--plan-only --model=sonnet --critic=grok --rounds=1` | `result: plan-only`; Grok approved; checkpoint with `host: codex`, director identity from its rollout, frozen catalog; ledger; fingerprint around the critic; lock released |
-| Claude Code `claude -p` (Sonnet) | same | `needs-decision` row 3 at the cap — Grok found a real locale bug (`[a-z]` keeps Polish letters under `pl_PL.UTF-8`); the resume refused a checkpoint the director had written without `route2-state` (row 2); after the user's `adopt` the resume ran round 2, Grok found a second locale issue, `needs-decision` again |
+| Claude Code `claude -p` (Sonnet) | same | `needs-decision` row 3 at the cap — Grok found a real locale bug (`[a-z]` keeps Polish letters under `pl_PL.UTF-8`); the resume refused a checkpoint the director had written without `maestro-state` (row 2); after the user's `adopt` the resume ran round 2, Grok found a second locale issue, `needs-decision` again |
 | Cursor (`grok-4.7-high`, project allowlist) | `--plan-only --model=sonnet --critic=sol --rounds=1` | `result: plan-only`; Sol approved; `director_family: unknown` → `self` excluded; audit consistent; lock released |
 | agy (`gemini-3.8-flash-high`, interactive via tmux, commands and file writes approved) | `--plan-only --model=sonnet --critic=grok --rounds=1` | `needs-decision` row 3 (the same locale finding); Assign line and cost table complete; lock released |
 | Codex (`gpt-6.1-sol`) | full build, `--model=sonnet --critic=grok` | `result: done`, commit; tests run by the director |
@@ -248,9 +248,9 @@ Added after review round 1 (the full build on every host, and an interruption of
 | --- | --- | --- |
 | Cursor (`grok-4.7-high`, project allowlist, no `--force`) | full build, `--model=sonnet --critic=sol --rounds=3` | Sol `revise` (integer overflow, missing bad-input tests) then `approve`; Sonnet built through `claude -p` (edits-only); the director ran the tests (24/24) and committed |
 | agy (`gemini-3.8-flash-high`, interactive, 78 approvals, 0 refusals) | full build, `--model=sol --critic=grok --rounds=3` | three critique rounds, Grok approved in round 3; Sol built through `codex exec`; tests green; `result: done`, one commit; lock released |
-| Cursor (`grok-4.7-high`) | full build, the Cursor director killed while the build job ran, then `/route2 --resume --unattended` with Cursor | the job survived; the resume finished the run: tests (55/55) by the director, one commit |
-| agy (`gemini-3.8-flash-high`) | full build, the agy session killed while the Sol build job ran, then a new session with `/route2 --resume --unattended` | the job survived; the resume finished the run, ran the tests and committed; bookkeeping rotated, lock released |
-| Codex (`gpt-6.1-sol`) | full build, the Codex director killed while the build job ran, then `$route2 --resume --unattended` with Codex | the job survived (`running` after the kill); the resume took over the stale lock, reconciled the finished build, ran the tests (95 checks) and committed; bookkeeping rotated, lock released |
+| Cursor (`grok-4.7-high`) | full build, the Cursor director killed while the build job ran, then `/maestro --resume --unattended` with Cursor | the job survived; the resume finished the run: tests (55/55) by the director, one commit |
+| agy (`gemini-3.8-flash-high`) | full build, the agy session killed while the Sol build job ran, then a new session with `/maestro --resume --unattended` | the job survived; the resume finished the run, ran the tests and committed; bookkeeping rotated, lock released |
+| Codex (`gpt-6.1-sol`) | full build, the Codex director killed while the build job ran, then `$maestro --resume --unattended` with Codex | the job survived (`running` after the kill); the resume took over the stale lock, reconciled the finished build, ran the tests (95 checks) and committed; bookkeeping rotated, lock released |
 
 Weak spots the canaries showed: a Sonnet director wrote ledger rows without `stage`, `cli`,
 `model_requested` or tokens, and skipped a separate probe when the critique call itself showed the
@@ -259,24 +259,24 @@ fingerprint alarm as a false positive led to the rule that it never overrules `c
 
 ## Lock
 
-One director per checkout. `.route2/lock` holds `{run_id, token, generation, host, session_key,
-liveness}` and is changed only under `flock -w 30` on `.route2/lock.flock`.
+One director per checkout. `.maestro/lock` holds `{run_id, token, generation, host, session_key,
+liveness}` and is changed only under `flock -w 30` on `.maestro/lock.flock`.
 
-- **Liveness**: `{kind: pid, pid, starttime}` when `route2-host` found the host process, else
-  `{kind: heartbeat}` — every fenced call touches `.route2/lock.heartbeat`, and the owner is live
-  while it is younger than `ROUTE2_HEARTBEAT_WINDOW` (default 1800 s; set it to at least 2 ×
+- **Liveness**: `{kind: pid, pid, starttime}` when `maestro-host` found the host process, else
+  `{kind: heartbeat}` — every fenced call touches `.maestro/lock.heartbeat`, and the owner is live
+  while it is younger than `MAESTRO_HEARTBEAT_WINDOW` (default 1800 s; set it to at least 2 ×
   T_slow).
 - **Fencing.** Every acquire or takeover increments the generation (it never goes back, even after
   a release), publishes the new owner's liveness in the same flock section, and returns a **fence**
   `<generation>.<secret>` to that owner alone — the lock stores only `sha256(fence)`, so neither
   the readable generation nor the run's token lets a contender mutate (review round 1 reproduced
   two heartbeat resumes both passing a generation-only check). Re-entry needs the fence
-  (`acquire … --fence F`). Every mutation runs as `route2-lock exec --gen F -- <command>`, which
+  (`acquire … --fence F`). Every mutation runs as `maestro-lock exec --gen F -- <command>`, which
   checks the fence and runs the command **while still holding the flock** (`flock -o`: the command and its children hold no lock
-  descriptor) — no takeover can fall between the check and the mutation. A nested `route2-lock
+  descriptor) — no takeover can fall between the check and the mutation. A nested `maestro-lock
   exec` is refused instead of deadlocking. A stale generation → you were superseded; stop without
   touching anything.
-- **Re-entrant** only for the holder of the current fence. A second `/route2` in the same host
+- **Re-entrant** only for the holder of the current fence. A second `/maestro` in the same host
   session — or a second resume of the same run — is a different owner.
 - A **live** owner keeps the lock against everyone, a `--resume` of its own run included. `--resume`
   takes over only a **stale** owner (pid dead or restarted, heartbeat expired) and then adopts the
@@ -293,7 +293,7 @@ When a Claude slot's transport fails with quota or unavailability (never a safet
 authority question, a decline or a bad verdict) and the slot has another eligible transport serving
 **the same model id**, the switch is one transaction:
 
-1. **Confirm the old session ended.** A job: `route2-wait` → `exited`/`lost`, or `route2-kill` →
+1. **Confirm the old session ended.** A job: `maestro-wait` → `exited`/`lost`, or `maestro-kill` →
    `done`; `lingering`/`orphaned` that stays so → `blocked`. An Agent-tool subagent: its completion
    notification arrived, or `TaskStop` stopped it and the task list no longer shows it. A recorded
    test still running → wait for it. Never a second writer next to a live one.
@@ -320,7 +320,7 @@ The interactive Agent-tool path follows the same steps but is not exercised by a
 
 **Cursor leaves helper processes behind.** After an `agent -p` call exits, processes of its tree
 can stay alive (measured in two canaries: the critic job ended `lingering`), and the director ended
-them with `route2-kill`. That is the `lingering` state working as intended; a critic's lingering
+them with `maestro-kill`. That is the `lingering` state working as intended; a critic's lingering
 members never block its verdict, but they are cleared before the next writer starts.
 
 ## Resume across hosts

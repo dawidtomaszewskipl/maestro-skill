@@ -22,8 +22,8 @@ modes") give it an empty `CODEX_HOME` — it needs no sign-in — so that it app
 an isolated worker:
 
 ```bash
-mkdir -p .route2/codex-home-empty
-CODEX_HOME="$PWD/.route2/codex-home-empty" codex sandbox -c 'sandbox_mode="workspace-write"' -- <project verification command>
+mkdir -p .maestro/codex-home-empty
+CODEX_HOME="$PWD/.maestro/codex-home-empty" codex sandbox -c 'sandbox_mode="workspace-write"' -- <project verification command>
 ```
 
 Equivalence was checked on 2026-09-30 (0.159.2) with one probe script — write in the repository,
@@ -60,7 +60,7 @@ file) — never the full suite: this probe runs in the foreground, and a suite c
 - **`/tmp` is unreliable.** Three contradictory observations: standalone `codex sandbox` (read-only)
   showed no `/tmp` at all; a `codex exec -s read-only` session saw the directory; critics in August
   could not read briefs placed there ("PLAN.md does not exist"). Never rely on it — briefs, plans and
-  outputs live in `.route2/` inside the workspace, excluded through the repo's exclude file (`git rev-parse --git-path info/exclude`).
+  outputs live in `.maestro/` inside the workspace, excluded through the repo's exclude file (`git rev-parse --git-path info/exclude`).
 
 ## A sandbox probe can lie by exit code
 
@@ -150,17 +150,17 @@ for edits-only builders, `--add-dir "$REPO"` so the worker sees the project at a
 
 A clean working tree — commit or stash first. A write-mode worker that times out, crashes, hits a
 quota or is cancelled leaves valid-looking half-implementations behind, and without a baseline you
-cannot tell its work from yours. `.route2/` is excluded via the repo's exclude file (`git rev-parse --git-path info/exclude`), so it never dirties
+cannot tell its work from yours. `.maestro/` is excluded via the repo's exclude file (`git rev-parse --git-path info/exclude`), so it never dirties
 the tree and `git stash -u` leaves it alone; never `git clean -x` in a route checkout.
 
-## Cursor — rungs and the reach probe (route2)
+## Cursor — rungs and the reach probe (maestro)
 
 Measured on agent 2026.10.01 (2026-10-11; `docs/workers.md`, "xAI — Cursor `agent`"):
 
 | Rung | Line | What the worker can do |
 | --- | --- | --- |
 | 1 | `--sandbox enabled`, no `--force` | write the workspace and `/tmp`; no other path, no `$HOME`; no network (Cursor's proxy answers `CONNECT … 403`) |
-| — | `--sandbox disabled`, no `--force` | run only what the user's allowlist names; everything else `Rejected:` — route2 never relies on it for workers, because the outcome depends on the user's `cli-config.json` |
+| — | `--sandbox disabled`, no `--force` | run only what the user's allowlist names; everything else `Rejected:` — maestro never relies on it for workers, because the outcome depends on the user's `cli-config.json` |
 | 4 | `--force` | everything, unsandboxed — **only** on the user's explicit approval for this run, never under `--unattended`, never in a test or canary |
 
 A Cursor builder runs the tests only when the **reach probe** passed: one cheap model turn,
@@ -170,7 +170,7 @@ networked check (Sail, a database) fails inside rung 1. Failed → the builder i
 director runs the tests. `/tmp` is writable at rung 1 but outside every brief's boundaries; the
 brief says so.
 
-## `claude -p` — no sandbox rung (route2)
+## `claude -p` — no sandbox rung (maestro)
 
 A `claude -p` builder is **edits-only** (`--tools "Read,Edit,Write,Glob,Grep"`): there is no Bash in
 its tool set, so there is nothing to sandbox, and the director runs the tests. Claude Code's own
@@ -179,7 +179,7 @@ it would add Bash to a headless worker whose settings sources are deliberately e
 not been measured to keep writes and network inside the workspace from outside. The rung can be
 added once a gate shows it.
 
-## The director's own shell (route2)
+## The director's own shell (maestro)
 
 On every host but Claude Code the **director's** commands run under that host's own rules
 (`docs/hosts.md`, "Supported configuration"): Codex's default sandbox has no network, so a Codex

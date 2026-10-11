@@ -1,6 +1,6 @@
 # Cost ledger
 
-`.route2/ledger.jsonl`, one line per model call, appended right after reading its output:
+`.maestro/ledger.jsonl`, one line per model call, appended right after reading its output:
 
 ```
 {ts, run_id, stage, host, cli, transport, family, model_requested, model_served, effort,
@@ -22,7 +22,7 @@
 
 `cli` is one of `codex`, `agy`, `cursor-agent`, `claude-cli` (`claude -p`), `claude-agent` (the
 Agent tool); `transport` the slot's transport (`native`, `agy`, `cursor`, `codex`); `host` the
-director's host; `job_id` the route2 job (null for an Agent-tool call). Missing → `null`, never
+director's host; `job_id` the maestro job (null for an Agent-tool call). Missing → `null`, never
 estimated. `codex exec review` (a manual extra, not the cross reviewer)
 reports zero usage, so its token fields are `null`.
 
@@ -47,9 +47,9 @@ transport switch (`docs/hosts.md`) gets `outcome: "transport-switch: <from>→<t
 and cache counts repeated the earlier turn's): treat them like a `codex exec resume` thread — raw
 counters in `raw_cumulative`, deltas in the token fields.
 
-`bin/route2-ledger` builds the row from a job's files (the sources in the table above) and appends
+`bin/maestro-ledger` builds the row from a job's files (the sources in the table above) and appends
 it — the canaries showed that a director composing rows by hand drops fields (`stage`, `cli`,
-tokens). Every row is appended through `route2-state --gen N append ledger.jsonl` (the audit makes a ledger
+tokens). Every row is appended through `maestro-state --gen N append ledger.jsonl` (the audit makes a ledger
 edited by anything else stop the next write).
 
 ## Report table

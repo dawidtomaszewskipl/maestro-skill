@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# route2-host — detect which agent host runs the director (docs/hosts.md, "Detection").
+# maestro-host — detect which agent host runs the director (docs/hosts.md, "Detection").
 #
 # Prints one JSON line:
 #   {host, interactive, session_key, host_pid, host_pid_starttime, director_family,
@@ -10,7 +10,7 @@
 # inherited by children and are not a conflict); that host's own marker must be present. With no
 # visible ancestry, markers decide only when exactly one host's markers are present.
 #
-# Env for tests: ROUTE2_PROC (fake /proc), ROUTE2_HOST_START_PID (first pid to inspect),
+# Env for tests: MAESTRO_PROC (fake /proc), MAESTRO_HOST_START_PID (first pid to inspect),
 # CODEX_HOME (rollout lookup).
 set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/_lib.sh"
@@ -21,10 +21,10 @@ ev() { evidence+=("$1"); }
 # --- classification of one process ---------------------------------------------------------------
 host_of_pid() {
   local pid="$1" exe argv0 argv1 b0 be
-  exe="$(r2_pid_exe "$pid")"
+  exe="$(mae_pid_exe "$pid")"
   local -a argv=()
-  if [[ -r "$(r2_proc)/$pid/cmdline" ]]; then
-    mapfile -d '' -t argv < "$(r2_proc)/$pid/cmdline" || true
+  if [[ -r "$(mae_proc)/$pid/cmdline" ]]; then
+    mapfile -d '' -t argv < "$(mae_proc)/$pid/cmdline" || true
   fi
   argv0="${argv[0]:-}"; argv1="${argv[1]:-}"
   b0="${argv0##*/}"; be="${exe##*/}"
@@ -42,7 +42,7 @@ host_of_pid() {
 interactive_of_pid() {
   local pid="$1" host="$2" a
   local -a argv=()
-  mapfile -d '' -t argv < "$(r2_proc)/$pid/cmdline" 2>/dev/null || true
+  mapfile -d '' -t argv < "$(mae_proc)/$pid/cmdline" 2>/dev/null || true
   case "$host" in
     codex)
       for a in "${argv[@]:1}"; do
@@ -103,11 +103,11 @@ model_line() {
 }
 
 # --- walk the ancestry --------------------------------------------------------------------------
-start="${ROUTE2_HOST_START_PID:-$PPID}"
+start="${MAESTRO_HOST_START_PID:-$PPID}"
 host="" host_pid="" visible=false pid="$start" hops=0
 declare -A seen_hosts=()
 while [[ -n "$pid" && "$pid" -gt 1 && $hops -lt 64 ]]; do
-  if [[ -r "$(r2_proc)/$pid/stat" ]]; then
+  if [[ -r "$(mae_proc)/$pid/stat" ]]; then
     visible=true
     h="$(host_of_pid "$pid")"
     if [[ -n "$h" ]]; then
@@ -115,7 +115,7 @@ while [[ -n "$pid" && "$pid" -gt 1 && $hops -lt 64 ]]; do
       if [[ -z "$host" ]]; then host="$h"; host_pid="$pid"; ev "ancestor $pid is $h"; fi
     fi
   fi
-  pid="$(r2_pid_ppid "$pid")"
+  pid="$(mae_pid_ppid "$pid")"
   hops=$((hops + 1))
 done
 
@@ -157,7 +157,7 @@ if [[ "$host" != "unknown" ]]; then
   skey="$(session_key_of "$host")"
   if [[ -n "$host_pid" ]]; then
     interactive="$(interactive_of_pid "$host_pid" "$host")"
-    starttime="$(r2_pid_starttime "$host_pid")"
+    starttime="$(mae_pid_starttime "$host_pid")"
   fi
   case "$host" in
     claude-code)

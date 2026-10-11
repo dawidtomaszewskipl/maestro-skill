@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Canary shim for route2's transport-switch test. Every call goes to the real claude, except the
+# Canary shim for maestro's transport-switch test. Every call goes to the real claude, except the
 # FIRST builder call (a tool set with Edit): it runs for real until the worker's init and its
 # first Edit/Write, then the real process is killed and Claude Code's quota error is printed.
-REAL="${ROUTE2_REAL_CLAUDE:-$HOME/.local/bin/claude}"
-ST="${ROUTE2_SHIM_STATE:?set ROUTE2_SHIM_STATE to a scratch directory}"
+REAL="${MAESTRO_REAL_CLAUDE:-$HOME/.local/bin/claude}"
+ST="${MAESTRO_SHIM_STATE:?set MAESTRO_SHIM_STATE to a scratch directory}"
 mkdir -p "$ST"
 echo "$(date +%T) $*" | cut -c1-300 >> "$ST/calls.log"
 if [[ " $* " == *"Edit"* && ! -e "$ST/faulted" ]]; then

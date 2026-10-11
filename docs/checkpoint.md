@@ -1,18 +1,18 @@
 # Checkpoint
 
-`.route2/CHECKPOINT.md` is what makes a route2 run resumable after a quota wall, an API failure, a
+`.maestro/CHECKPOINT.md` is what makes a maestro run resumable after a quota wall, an API failure, a
 safety stop, a closed laptop or a host that ended its session. It is rewritten in place — never
 appended — after every stage transition, at every worker launch (with the session id and the job
 id, the one write that saves resumability), at every worker finish, after each gate or fix round,
-and on any blocker. **It is written only through `"$R2/bin/route2-state" --gen N write
+and on any blocker. **It is written only through `"$MAESTRO/bin/maestro-state" --gen N write
 CHECKPOINT.md`**: that checks the file against its last audit entry first and refuses one changed
 by anything else (`docs/hosts.md`, "Read-only proof" in `docs/commands.md`).
 
 ## Front matter
 
 ```yaml
-skill: route2              # a checkpoint without it is not route2's (route's lives in .route/)
-run_id: 2026-09-06T10-31-route2-a1b2
+skill: maestro              # a checkpoint without it is not maestro's (route's lives in .route/)
+run_id: 2026-09-06T10-31-maestro-a1b2
 host: {name: codex, interactive: true, session_key: 01a1283f-…, host_pid: 102147, host_pid_starttime: "14828171"}
 director: {family: openai, model_line: sol, model_id: gpt-6.1-sol, source: "rollout turn_context"}
 lock: {token: 9c0e…, generation: 3}   # the token is what --resume presents; the generation fences
@@ -29,9 +29,9 @@ plan_only: false        # true after a --plan-only run; plan_sha256 is then the 
 plan_sha256: ""
 tasks:                  # only after --setup with separate runs
   - {id: 1, text: "CRUD screens for the tags dictionary", flags: "--model=sol --review=cross --cascade --rounds=2 --tests=covering",
-     status: in_progress, plan: .route2/tasks/1/PLAN.md, plan_sha256: "", critics: []}
+     status: in_progress, plan: .maestro/tasks/1/PLAN.md, plan_sha256: "", critics: []}
   - {id: 2, text: "tag filter in the posts list", flags: "--model=opus --plan-only --tests=browser",
-     status: queued, plan: .route2/tasks/2/PLAN.md, plan_sha256: "", critics: []}
+     status: queued, plan: .maestro/tasks/2/PLAN.md, plan_sha256: "", critics: []}
                         # status: queued | in_progress | planned (a --plan-only run finished) | done
 current_task: 1
 branch: feature/tags-crud
@@ -50,11 +50,11 @@ codex: {config_mode: isolated, mode_reason: ""}   # the run default, decided at 
                          # pinned + the config.toml key that forced it. Never touched by a runtime refresh.
 sessions:
   codex:                 # one record per Codex thread; a continuation is built from it, not from the default
-    - {id: 01a075d7-9c4e-7580-b41d-0ce7c87bf4b9, role: build, job: 2026-09-06T10-31-route2-a1b2.build.r1.a1,
+    - {id: 01a075d7-9c4e-7580-b41d-0ce7c87bf4b9, role: build, job: 2026-09-06T10-31-maestro-a1b2.build.r1.a1,
        config_mode: isolated, mode_reason: "", rung: 1, approvals_form: "", rollout_offset: 0,
        worktree: "", baseline: "", fingerprint: ""}
                          # rollout_offset = the rollout's line count before the latest resume;
-                         # a parallel worker: worktree: .route2/worktrees/<part>, baseline: <SHA of its start
+                         # a parallel worker: worktree: .maestro/worktrees/<part>, baseline: <SHA of its start
                          # commit or latest route-integrated commit>, fingerprint as for `tree`, run inside it
   agy:   [{id: b538f8bb-9a0e-4978-bc3d-988ccef298eb, role: critic, slug: gemini-3.8-flash-medium, job: …}]
   cursor: [{id: 65d9d73d-c2af-4e49-8102-08ee4bccb856, role: critic, slug: grok-4.7-medium, job: …,
@@ -64,9 +64,9 @@ sessions:
                          # a worktree subagent as {id: …, worktree: <path>, baseline: <SHA>, fingerprint: …}
                          # any session that ended by a transport switch: outcome: "transport-switch: native→agy (quota)"
 artifacts:
-  plan: .route2/tasks/1/PLAN.md    # the run's PLAN.md (.route2/PLAN.md without a queue)
-  briefs: [.route2/brief-critique.md, .route2/brief-build.md]
-  jobs: [.route2/jobs/2026-09-06T10-31-route2-a1b2.critique.r1.a1, …]   # every call's out/err/answer
+  plan: .maestro/tasks/1/PLAN.md    # the run's PLAN.md (.maestro/PLAN.md without a queue)
+  briefs: [.maestro/brief-critique.md, .maestro/brief-build.md]
+  jobs: [.maestro/jobs/2026-09-06T10-31-maestro-a1b2.critique.r1.a1, …]   # every call's out/err/answer
 tree_state: dirty-worker   # clean | dirty-worker | dirty-draft | stashed:route-draft-<run_id>
 tree: {branch: feature/tags-crud, head: 3704e20…, fingerprint: 9f2c41…}
                            # rewritten with every checkpoint; fingerprint = sha256 of `git diff HEAD --binary`
@@ -88,8 +88,8 @@ modes:                     # one entry per director session on this run;
 flag_sources: []           # [{flag: "--rounds=3", decision: d-<run_id>-3}]: flags and `fix_cap`
                            # values an answer changed
 open_findings: []
-next_action: "route2-wait the build job; on exited 0 run tests, then review stage"
-ledger: .route2/ledger.jsonl
+next_action: "maestro-wait the build job; on exited 0 run tests, then review stage"
+ledger: .maestro/ledger.jsonl
 ```
 
 ## Body
@@ -127,7 +127,7 @@ recommendation: d-2026-09-06T10-31-route-a1b2-3.a
 answer: null
 ```
 
-**`.route2/pending-decision.md`** holds a decision that has no run checkpoint to live in: a
+**`.maestro/pending-decision.md`** holds a decision that has no run checkpoint to live in: a
 validation stop (nothing has started), a stop in stage 0 before the first checkpoint, a new
 non-resume task over an unfinished run, several candidates on an unattended resume with no
 answer, and a failed candidate check. It never touches an existing checkpoint; a decision about one
@@ -142,10 +142,10 @@ history: []
 ```
 
 Its actions: `start: <corrected flag line>`, `continue` (the existing run), `start: <queued task
-id>`, `build: <task id> <plan_sha256>`, and `archive-and-start` — `route2-state --gen N rotate --to
-<run_id>` (the checkpoint, the pending decision and the audit move to `.route2/archive/<run_id>/`,
+id>`, `build: <task id> <plan_sha256>`, and `archive-and-start` — `maestro-state --gen N rotate --to
+<run_id>` (the checkpoint, the pending decision and the audit move to `.maestro/archive/<run_id>/`,
 verified first), then start the attempted task; never a delete. The file is
-deleted (`route2-state --gen N delete pending-decision.md`) once its `current` is answered and acted
+deleted (`maestro-state --gen N delete pending-decision.md`) once its `current` is answered and acted
 on; a new non-resume invocation moves its
 `current` to `history` and re-runs every check.
 
@@ -169,15 +169,15 @@ on; a new non-resume invocation moves its
 
 ## Resume procedure
 
-0. **Lock, host, jobs** (route2). Read `run_id` and the lock token from the checkpoint and take the
-   lock with `route2-lock acquire --resume` — it takes over only a **stale** owner (a live director
+0. **Lock, host, jobs** (maestro). Read `run_id` and the lock token from the checkpoint and take the
+   lock with `maestro-lock acquire --resume` — it takes over only a **stale** owner (a live director
    keeps it: stop, attended ask / unattended row 2). Re-detect the host and your identity
-   (`route2-host`); a different host, family or model line than `host` / `director` → attended:
+   (`maestro-host`); a different host, family or model line than `host` / `director` → attended:
    say what changes and ask; unattended: row 2 (`docs/unattended.md` A24). Then reconcile every
-   recorded job (`route2-wait <job> --peek`): `running` → back into the wait loop; `exited` /
+   recorded job (`maestro-wait <job> --peek`): `running` → back into the wait loop; `exited` /
    `lost` → its output is read or the dirty-exit protocol runs; `lingering` / `orphaned` →
-   `route2-kill`; still alive → `result: blocked`, lock kept. Nothing is dispatched before this.
-1. Read the checkpoint, and `.route2/pending-decision.md` when it exists. At `stage: report`: a
+   `maestro-kill`; still alive → `result: blocked`, lock kept. Nothing is dispatched before this.
+1. Read the checkpoint, and `.maestro/pending-decision.md` when it exists. At `stage: report`: a
    `queued` task starts as a new run with its recorded flags; a `planned` task, or `plan_only:
    true`, is built (SKILL.md, "Building a `--plan-only` plan"); with several candidates, ask which
    (above). With none of these and no open decision there is nothing to resume.
@@ -223,19 +223,19 @@ on; a new non-resume invocation moves its
 6. A checkpoint with `plan_only: true` at `stage: report` is not resumed but built: SKILL.md,
    "Building a `--plan-only` plan".
 
-## Audit and the bookkeeping lifecycle (route2)
+## Audit and the bookkeeping lifecycle (maestro)
 
 `CHECKPOINT.md`, `ledger.jsonl`, `pending-decision.md`, `lock` and every job's `meta.json`, `cmd`
 and `cwd` are **audited**: each write appends `{file, sha256_after, gen, at}` to
-`.route2/audit.jsonl`, and every later write first checks the file against its last entry. Every
+`.maestro/audit.jsonl`, and every later write first checks the file against its last entry. Every
 change goes through a helper, inside the fence:
 
 | Operation | Helper |
 | --- | --- |
-| write or append | `route2-state --gen N write|append <file>` (`route2-ledger` for ledger rows) |
-| remove (a resolved `pending-decision.md`) | `route2-state --gen N delete <file>` — recorded as absent, so the file can be created again later |
-| move one file away | `route2-state --gen N archive <file> --to <name>` |
-| end of a run, or `archive-and-start` | `route2-state --gen N rotate --to <run_id>` — verifies every audited file, moves `CHECKPOINT.md`, `pending-decision.md` and `audit.jsonl` to `.route2/archive/<run_id>/`, and starts a fresh audit whose first entries are the current hashes of what stays (the ledger, the lock, the jobs) |
-| accept a file changed outside route2 | `route2-state --gen N adopt <file> --reason "…"` — **only on the user's decision** after they inspected it; never under `--unattended` |
+| write or append | `maestro-state --gen N write|append <file>` (`maestro-ledger` for ledger rows) |
+| remove (a resolved `pending-decision.md`) | `maestro-state --gen N delete <file>` — recorded as absent, so the file can be created again later |
+| move one file away | `maestro-state --gen N archive <file> --to <name>` |
+| end of a run, or `archive-and-start` | `maestro-state --gen N rotate --to <run_id>` — verifies every audited file, moves `CHECKPOINT.md`, `pending-decision.md` and `audit.jsonl` to `.maestro/archive/<run_id>/`, and starts a fresh audit whose first entries are the current hashes of what stays (the ledger, the lock, the jobs) |
+| accept a file changed outside maestro | `maestro-state --gen N adopt <file> --reason "…"` — **only on the user's decision** after they inspected it; never under `--unattended` |
 
 A file changed any other way stops the next write or `--resume` (row 2 under `--unattended`).

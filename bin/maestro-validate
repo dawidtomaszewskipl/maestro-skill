@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# route2-validate — envelope, verdict extraction and schema check for every CLI
+# maestro-validate — envelope, verdict extraction and schema check for every CLI
 # (docs/commands.md, "Validating a verdict").
 #
-#   route2-validate <schema.json> <file> --envelope codex|agy|claude|cursor|raw [--role read-only|writer]
+#   maestro-validate <schema.json> <file> --envelope codex|agy|claude|cursor|raw [--role read-only|writer]
 #
 # 1. Envelope (envelope failure is not an invalid verdict):
 #    codex   the -o file is the answer text
@@ -25,10 +25,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --envelope) envelope="$2"; shift 2 ;;
     --role) role="$2"; shift 2 ;;
-    *) r2_die "route2-validate: unknown option $1" ;;
+    *) mae_die "maestro-validate: unknown option $1" ;;
   esac
 done
-[[ -f "$schema" && -f "$file" ]] || r2_die "usage: route2-validate <schema.json> <file> --envelope … [--role …]"
+[[ -f "$schema" && -f "$file" ]] || mae_die "usage: maestro-validate <schema.json> <file> --envelope … [--role …]"
 
 fail() { jq -cn --arg st "$1" --arg e "$2" '{valid: false, stage: $st, errors: [$e], verdict: null}'; exit 1; }
 
@@ -58,7 +58,7 @@ case "$envelope" in
     else
       text="$(jq -r '.result // ""' <<<"$res")"
     fi ;;
-  *) r2_die "route2-validate: unknown envelope $envelope" ;;
+  *) mae_die "maestro-validate: unknown envelope $envelope" ;;
 esac
 
 # --- 2. extraction: one top-level object --------------------------------------------------------

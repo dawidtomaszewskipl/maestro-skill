@@ -1,8 +1,8 @@
-# route2.policy.yml — standing roster preferences for the route2 skill.
+# maestro.policy.yml — standing roster preferences for the maestro skill.
 #
 # Put this file at the root of a repository (team-shared, committed) or at
-# ~/.config/route2/policy.yml (your own defaults). Precedence:
-#   command-line flags  >  repo route2.policy.yml  >  ~/.config/route2/policy.yml  >  skill defaults
+# ~/.config/maestro/policy.yml (your own defaults). Precedence:
+#   command-line flags  >  repo maestro.policy.yml  >  ~/.config/maestro/policy.yml  >  skill defaults
 # Every key is optional. Slot names are the --model values:
 #   sonnet opus fable haiku astra sol luna terra gemini grok self
 # Transports: native agy cursor codex (a slot@transport pair names one).
@@ -45,7 +45,7 @@ effort:
 families:
   google: off
   # xai: on        # Grok through Cursor; on by default when `agent` is installed and signed in
-  # claude: on     # can be switched off too (route2's director is whatever host runs it)
+  # claude: on     # can be switched off too (maestro's director is whatever host runs it)
 
 # Transports the director never picks on its own (an explicit slot@transport still wins).
 transports:

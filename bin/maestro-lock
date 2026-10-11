@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# route2-lock — one director per checkout, fenced by a secret per owner (docs/hosts.md, "Lock").
+# maestro-lock — one director per checkout, fenced by a secret per owner (docs/hosts.md, "Lock").
 #
-#   route2-lock acquire --run R --token T --host H [--session S] [--pid P --starttime ST]
+#   maestro-lock acquire --run R --token T --host H [--session S] [--pid P --starttime ST]
 #                       [--resume] [--fence F]
-#   route2-lock check     --gen F
-#   route2-lock exec      --gen F -- <command…>   run <command> inside the fence (flock held)
-#   route2-lock heartbeat --gen F
-#   route2-lock release   --token T --gen F
-#   route2-lock show
+#   maestro-lock check     --gen F
+#   maestro-lock exec      --gen F -- <command…>   run <command> inside the fence (flock held)
+#   maestro-lock heartbeat --gen F
+#   maestro-lock release   --token T --gen F
+#   maestro-lock show
 #
 # acquire prints {result, generation, fence}. The FENCE is "<generation>.<secret>": the secret is
 # generated at acquire and returned only to the acquirer; the lock stores only its sha256. Every
@@ -16,22 +16,22 @@
 # Re-entry: `acquire --fence F` with the current fence returns it unchanged. A live owner keeps
 # the lock against everyone else, its own run's --resume included.
 #
-# The lock record (.route2/lock) is {run_id, token, generation, fence_sha, host, session_key,
-# liveness}; liveness = {kind: "pid", pid, starttime} or {kind: "heartbeat"} (.route2/lock.heartbeat
+# The lock record (.maestro/lock) is {run_id, token, generation, fence_sha, host, session_key,
+# liveness}; liveness = {kind: "pid", pid, starttime} or {kind: "heartbeat"} (.maestro/lock.heartbeat
 # mtime, touched by every fenced call). Every read-modify-write happens under `flock -w 30` on
-# .route2/lock.flock; exec uses `flock -o`, so the command and its children hold no lock fd.
+# .maestro/lock.flock; exec uses `flock -o`, so the command and its children hold no lock fd.
 #
 # Exit codes: 0 ok · 3 held by a live owner · 4 not the current fence (superseded) · 5 blocked
 # (jobs of the previous owner alive) or tampered · 2 usage or I/O error.
 set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/_lib.sh"
 
-SD="$(r2_state_dir)"
+SD="$(mae_state_dir)"
 LOCK="$SD/lock"
 LF="$SD/lock.flock"
 HB="$SD/lock.heartbeat"
-WAIT_S="${ROUTE2_FLOCK_WAIT:-30}"
-WINDOW="${ROUTE2_HEARTBEAT_WINDOW:-1800}"
+WAIT_S="${MAESTRO_FLOCK_WAIT:-30}"
+WINDOW="${MAESTRO_HEARTBEAT_WINDOW:-1800}"
 
 mkdir -p "$SD"
 : >> "$LF"
@@ -58,7 +58,7 @@ owner_alive() {
   case "$kind" in
     pid)
       pid="$(jq -r '.liveness.pid' <<<"$rec")"; st="$(jq -r '.liveness.starttime' <<<"$rec")"
-      if r2_pid_same "$pid" "$st"; then echo true; else echo false; fi ;;
+      if mae_pid_same "$pid" "$st"; then echo true; else echo false; fi ;;
     heartbeat)
       if [[ -f "$HB" ]]; then
         age=$(( $(date +%s) - $(stat -c %Y "$HB") ))
@@ -73,7 +73,7 @@ live_jobs_of_run() {
   for d in "$SD"/jobs/*/; do
     [[ -f "$d/meta.json" ]] || continue
     [[ "$(jq -r '.run_id // empty' "$d/meta.json")" == "$run" ]] || continue
-    st="$("$R2_BIN/route2-wait" "$(basename "$d")" --peek | jq -r '.state')"
+    st="$("$MAESTRO_BIN/maestro-wait" "$(basename "$d")" --peek | jq -r '.state')"
     case "$st" in running|lingering|orphaned|uncertain) printf '%s\n' "$(basename "$d")" ;; esac
   done
 }
@@ -81,15 +81,15 @@ live_jobs_of_run() {
 write_lock() {
   local gen
   gen="$(jq -r '.generation' <<<"$1")"
-  r2_atomic_write "$LOCK" <<<"$1"
-  r2_audit_record "$SD" lock "$gen"
+  mae_atomic_write "$LOCK" <<<"$1"
+  mae_audit_record "$SD" lock "$gen"
 }
 
 with_flock() {
   local fd rc=0
   exec {fd}>>"$LF"
   if ! flock -w "$WAIT_S" "$fd"; then
-    exec {fd}>&-; r2_die "lock: could not take $LF within ${WAIT_S}s"
+    exec {fd}>&-; mae_die "lock: could not take $LF within ${WAIT_S}s"
   fi
   "$@" || rc=$?
   exec {fd}>&-
@@ -107,9 +107,9 @@ fence_ok() {  # $1 = lock record, $2 = presented fence
 do_acquire() {
   local rec cur_run cur_token gen alive live_jobs liveness new secret fence
   [[ -n "${opt[run]:-}" && -n "${opt[token]:-}" && -n "${opt[host]:-}" ]] \
-    || r2_die "acquire needs --run, --token and --host"
+    || mae_die "acquire needs --run, --token and --host"
   rec="$(read_lock)"
-  if [[ -f "$LOCK" ]] && ! r2_audit_verify "$SD" lock; then
+  if [[ -f "$LOCK" ]] && ! mae_audit_verify "$SD" lock; then
     jq -cn '{result: "tampered", file: "lock"}'; return 5
   fi
   cur_run="$(jq -r '.run_id // empty' <<<"$rec")"
@@ -153,7 +153,7 @@ do_acquire() {
   fence="$((gen + 1)).$secret"
   new="$(jq -cn --arg run "${opt[run]}" --arg token "${opt[token]}" --argjson g "$((gen + 1))" \
     --arg fs "$(sha "$fence")" --arg host "${opt[host]}" --arg s "${opt[session]:-}" \
-    --argjson l "$liveness" --arg at "$(r2_now)" \
+    --argjson l "$liveness" --arg at "$(mae_now)" \
     '{run_id: $run, token: $token, generation: $g, fence_sha: $fs, host: $host,
       session_key: (if $s == "" then null else $s end), liveness: $l, acquired_at: $at}')"
   write_lock "$new"
@@ -170,19 +170,19 @@ check_fence_unlocked() {  # caller holds the flock
   local rec
   rec="$(read_lock)"
   if ! fence_ok "$rec" "${opt[gen]:-}"; then
-    r2_warn "fence: the presented fence is not the current owner's — this director was superseded (or never held the lock)"
+    mae_warn "fence: the presented fence is not the current owner's — this director was superseded (or never held the lock)"
     return 4
   fi
-  r2_audit_verify "$SD" lock || return 4
+  mae_audit_verify "$SD" lock || return 4
 }
 
 do_release() {
   local rec
   rec="$(read_lock)"
-  [[ "$(jq -r '.token // empty' <<<"$rec")" == "${opt[token]:-}" ]] || { r2_warn "release: token mismatch"; return 4; }
+  [[ "$(jq -r '.token // empty' <<<"$rec")" == "${opt[token]:-}" ]] || { mae_warn "release: token mismatch"; return 4; }
   check_fence_unlocked || return 4
   rm -f "$LOCK" "$HB"
-  r2_audit_record "$SD" lock "release"
+  mae_audit_record "$SD" lock "release"
   jq -cn '{result: "released"}'
 }
 
@@ -195,12 +195,12 @@ case "$cmd" in
   release)   with_flock do_release ;;
   show)      read_lock | jq -c 'del(.fence_sha)' ;;
   exec)
-    r2_in_fence && r2_die "nested route2-lock exec refused (already inside the fence)"
-    [[ ${#rest[@]} -gt 0 ]] || r2_die "exec needs -- <command…>"
-    exec flock -w "$WAIT_S" -o "$LF" env ROUTE2_IN_FENCE=1 "$0" __exec_locked --gen "${opt[gen]:-}" -- "${rest[@]}" ;;
+    mae_in_fence && mae_die "nested maestro-lock exec refused (already inside the fence)"
+    [[ ${#rest[@]} -gt 0 ]] || mae_die "exec needs -- <command…>"
+    exec flock -w "$WAIT_S" -o "$LF" env MAESTRO_IN_FENCE=1 "$0" __exec_locked --gen "${opt[gen]:-}" -- "${rest[@]}" ;;
   __exec_locked)
     check_fence_unlocked || exit 4
     [[ -f "$HB" ]] && touch "$HB"
     exec "${rest[@]}" ;;
-  *) r2_die "usage: route2-lock acquire|check|exec|heartbeat|release|show …" ;;
+  *) mae_die "usage: maestro-lock acquire|check|exec|heartbeat|release|show …" ;;
 esac
