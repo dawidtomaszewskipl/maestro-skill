@@ -128,14 +128,15 @@ here.
 | A21 | docs/cascade.md "Protocol" step 3 :49–56 and step 7 :70–79, "Abort classification" :83–99, "Drafter appendix" :101–117 | drafter `DRAFT_ABORT` → automatic escalation | the drafter appendix gains the authority clause; the director classifies the abort reason before escalating: an authority gap is row 2 with no escalation; capability or context keeps the existing escalation |
 | A22 | SKILL.md "Flags", `--unattended`; docs/hosts.md "Detection" | a headless director (`claude -p`, `codex exec`, `agent -p`) — nobody can answer | without `--unattended`: validation stop; with it: the run proceeds under this matrix |
 | A23 | SKILL.md "Stage 0" step 0; docs/hosts.md "Detection" | host `unknown` | stop, row 2 (`--host=` is the answer) |
-| A24 | SKILL.md "Checkpoint and resume"; docs/hosts.md "Resume across hosts" | a resume in a different host, director family or model line | stop, row 2 |
+| A24 | SKILL.md "Checkpoint and resume"; docs/hosts.md "Resume across hosts", "Director identity" | a resume in a different host, director family or model line; the director's identity changing between dispatches so that a `self` or degraded-mode assignment becomes illegal | stop, row 2 |
 | A25 | SKILL.md "Stage 0" step 3a; docs/hosts.md "Capability checks" | a capability the run needs is missing (state, git metadata, model reach, tests, visual); a host permission prompt denied | stop, row 2 (changing the host's configuration is the user's authority) |
 | A26 | SKILL.md "Stage 0" step 0; docs/hosts.md "Lock" | the checkout's lock is held by a live director, or another run's jobs are still alive | stop, row 2 |
 | A27 | SKILL.md "Launching workers"; docs/hosts.md "Jobs" | a job ends `blocked` (members that cannot be classified or killed) | not a decision: the run ends with `result: blocked`, the lock kept and the members listed; the same with or without `--unattended` |
 | A28 | SKILL.md "The cross-family rule", degraded modes | one eligible family with a single line (Google, xAI) | stop, row 2 (extends A7) |
 | A29 | SKILL.md "Stage 0" step 5; docs/catalog.md "Resolution" | the newest candidate is denied and an older one passes; a renamed line kept on its previous slug | recorded assumption, row 1 (announced in the Assign line and the report); no candidate passing → row 2 (A5) |
 | A30 | SKILL.md "Launching workers"; docs/commands.md "Validating a verdict" | a named critic's verdict invalid after the re-ask | stop, row 2 (the named critic cannot be replaced silently); an unnamed critic moves to the next eligible one |
-| A31 | SKILL.md "Stage 0" step 4a; docs/catalog.md "Sources" | a transport's catalog cannot be acquired | the transport is ineligible; a flag or pin that needs it → row 2 (as A9) |
+| A31 | SKILL.md "Stage 0" step 4a; docs/catalog.md "Sources", "Pins" | a transport's catalog cannot be acquired; a pinned version or slug missing from the catalog | the transport is ineligible; a flag or pin that needs it → row 2 (as A8, A9) |
+| A32 | SKILL.md "Roster", rubric row 6 | `self` ineligible (director model unknown) and none of `sonnet`, `sol`, `gemini`, `grok` eligible | stop, row 2 |
 
 ### Reproducing the search
 
@@ -143,6 +144,11 @@ here.
 grep -n -i -E "\bask|question|halt|confirm|hand(s|ed)? .{0,40}over|user's call|user picks" \
   SKILL.md $(ls docs/*.md | grep -v '/unattended.md$')    # from the repository root
 ```
+
+route2 re-ran the search over its own SKILL.md, `docs/hosts.md` and `docs/catalog.md`
+(2026-10-11): every new ask point is A22–A32; the remaining hits are "confirm" in director checks
+(`docs/hosts.md`, "Marker confirmation", transport switch step 1), "how it asks the user" (the
+adapter table) and the routing-precedence table's halts (A8, A9, A16a).
 
 A hit inside an `--unattended` pointer sentence (SKILL.md :36, :63–67, :97, :228–229, :256–258,
 :388–396, :401–406, :478–481, :528–530) belongs to the entry that sentence names. Every other hit
@@ -381,7 +387,7 @@ assumptions:
 
 ## Scenario test
 
-The test of the matrix. The inventory is the coverage baseline: every entry A1–A31 appears in at
+The test of the matrix. The inventory is the coverage baseline: every entry A1–A32 appears in at
 least one scenario, in the **Covers** column. Each input states, in this order, the invocation
 (task text and flags), the relevant policy, the checkpoint state and what is already authorized;
 each expected outcome names the row and the inventory id, plus the precedence rule where several
@@ -451,6 +457,7 @@ audit log page` (`.a continue`, `.b archive-and-start`, `refers_to` R).
 | 57 | `/route2 --unattended --model=sol …` · the catalog lists `gpt-6.2-sol`, its probe says the account cannot use it; `gpt-6.1-sol` passes | row 1, A29: `sol=gpt-6.1-sol (gpt-6.2-sol listed, denied for this account)` recorded as an assumption; the run continues | A29 |
 | 58 | `/route2 --unattended --critic=grok …` · Grok's verdict has two JSON objects, and again after the re-ask | named critic → row 2, A30 | A30 |
 | 59 | `/route2 --unattended --model=grok …` · `agent --list-models` fails (signed out) | the cursor transport is ineligible and a flag needs it → row 2, A31 (as A9) | A31 |
+| 60 | `/route2 --unattended fix the typo in the footer` in Cursor (director model unknown) with `families: {claude: off, openai: off, google: off}` and Grok's quota exhausted | rubric row 6: `self` ineligible, no fallback eligible → row 2, A32 | A32 |
 
 The cross-family reviewer checks three things:
 

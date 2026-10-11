@@ -43,6 +43,9 @@ if [[ "${1:-}" == "__wrapper" ]]; then
       st="$(cat "$d/stat" 2>/dev/null)" || continue
       rest="${st##*) }"
       read -r _ pp pg _ <<<"$rest"
+      # A process that vanished mid-read leaves empty fields: skip it (an empty subscript would
+      # abort the wrapper before it records the exit code).
+      [[ "$pp" =~ ^[0-9]+$ && "$pg" =~ ^[0-9]+$ ]] || continue
       ppid_of[$p]="$pp"; pgid_of[$p]="$pg"
     done
     local -A inset=([$$]=1)
@@ -70,13 +73,13 @@ if [[ "${1:-}" == "__wrapper" ]]; then
           argv: $argv, cwd: $cwd, exe: $exe}' >> "$J/members.jsonl"
     done
   }
-  record_members
+  record_members || true
   while kill -0 "$child" 2>/dev/null; do
     sleep "$POLL"
-    record_members
+    record_members || true
   done
   wait "$child"; rc=$?
-  record_members
+  ( record_members ) || true      # members that appeared since the last poll; never blocks the exit
   if (( rc > 128 )); then code="signal:$((rc - 128))"; else code="$rc"; fi
   printf '%s' "$code" > "$J/exit.tmp"; mv "$J/exit.tmp" "$J/exit"
   exit 0
