@@ -126,6 +126,9 @@ if group T2 "catalog"; then
   jqt "pick: exact pin of an excluded slug (preview)" "$(pick sol codex --pin-slug gpt-6.2-sol-preview)" \
     '.slug == "gpt-6.2-sol-preview" and .excluded == true and .identity.tag == "gpt-6.2-sol-preview"'
   jqt "pick: exact pin of a slug the catalog does not list → none" "$(pick sol codex --pin-slug gpt-9-sol-preview)" '.action == "none"'
+  jq '.transports.cursor.unmatched += ["kimi-k3-high"]' "$P/catalog.json" > "$P/ck.json"
+  jqt "pick: an excluded slug of another model cannot be pinned to grok" \
+    "$(ROUTE2_STATE="$P" "$B/route2-catalog" pick grok cursor --pin-slug kimi-k3-high --catalog "$P/ck.json")" '.action == "none" and (.reason | test("not a grok model"))'
   jqt "pick: effort with no slug → none" "$(pick gemini agy --effort xhigh)" '.action == "none"'
   jqt "pick: line without candidates → none + previous" \
     "$(jq '.previous = {luna: {codex: "6"}}' "$P/catalog.json" > "$P/cp.json"; ROUTE2_STATE="$P" "$B/route2-catalog" pick luna codex --catalog "$P/cp.json")" \
@@ -191,7 +194,7 @@ if group T4 "jobs"; then
   run --job j2 -- no-such-command-xyz >/dev/null
   jqt "launch failure" "$(st j2)" '.state == "exited" and .code == "launch-failed"'
   out="$(run --job j1 -- true 2>&1)"; eq "duplicate job id refused" 1 "$(grep -c 'never reused' <<<"$out")"
-  printf '#!/bin/bash\n(sleep 20 &)\nexit 0\n' > "$REPO/linger.sh"; chmod +x "$REPO/linger.sh"
+  printf '#!/bin/bash\n(sleep 90 &)\nexit 0\n' > "$REPO/linger.sh"; chmod +x "$REPO/linger.sh"
   run --job j3 -- ./linger.sh >/dev/null; sleep 3
   jqt "exit 0 with a surviving descendant → lingering" "$(st j3)" '.state == "lingering" and (.live_members | length) == 1'
   run --job j4 -- bash -c 'sleep 30' >/dev/null; sleep 1.5
@@ -236,7 +239,7 @@ if group T4 "jobs"; then
   a="$("$B/route2-wait" j9 --max 0)"; sleep 2.5; b2="$("$B/route2-wait" j9 --max 0)"
   jqt "repeated identical error line is not progress" "[$a,$b2]" '.[1].progress_source == null'
   # shellcheck disable=SC2016  # the script body is written verbatim
-  printf '#!/bin/bash\nfor i in 1 2 3 4; do echo "$i"; sleep 1; done\n' > "$REPO/count.sh"; chmod +x "$REPO/count.sh"
+  printf '#!/bin/bash\nfor i in 1 2 3 4 5 6 7 8 9 10; do echo "$i"; sleep 1; done\n' > "$REPO/count.sh"; chmod +x "$REPO/count.sh"
   run --job j10 -- ./count.sh >/dev/null; sleep 1.5
   "$B/route2-wait" j10 --max 0 >/dev/null; sleep 1.2
   jqt "stdout growth is progress" "$("$B/route2-wait" j10 --max 0)" '.progress_source == "stdout"'
@@ -262,13 +265,35 @@ if group T4 "jobs"; then
   else bad "detach + exec to another program: still a member" "$o13"; fi
   "$B/route2-kill" j13 --gen "$gen" --grace 1 >/dev/null; sleep 1.5; "$B/route2-kill" j13 --gen "$gen" >/dev/null
   # The leader exec's into the test runner, which starts differently named workers: all protected.
-  printf '#!/bin/sh\nsh -c "sleep 7" &\nsh -c "sleep 7" &\nwait\n' > "$REPO/vendor/bin/pest"; chmod +x "$REPO/vendor/bin/pest"
+  printf '#!/bin/sh\nsh -c "sleep 15" &\nsh -c "sleep 15" &\nwait\n' > "$REPO/vendor/bin/pest"; chmod +x "$REPO/vendor/bin/pest"
   printf '#!/bin/bash\nsleep 1\nexec vendor/bin/pest --parallel\n' > "$REPO/launch.sh"; chmod +x "$REPO/launch.sh"
   run --job j14 --test-runner vendor/bin/pest -- ./launch.sh >/dev/null; sleep 3
   jqt "leader exec'd into the test runner: waiting-tests, nothing signalled" "$("$B/route2-kill" j14 --gen "$gen")" \
     '.result == "waiting-tests" and (.protected | length) >= 3'
-  sleep 7
+  for _ in $(seq 30); do [[ "$(st j14 | jq -r .state)" == running ]] || break; sleep 1; done
   jqt "after the tests end the job is done" "$("$B/route2-kill" j14 --gen "$gen")" '.result == "done"'
+  # Recorder-level pid reuse: a recorded pid now reused (different start time) is not used as a
+  # seed, so neither it nor its children join the job.
+  FP="$WORK/fakeproc"; mkdir -p "$FP"
+  fake() { mkdir -p "$FP/$1"; printf '%s (x) S %s %s %s 0 -1 0 0 0 0 0 0 0 0 20 0 1 0 %s 0 0\n' "$1" "$2" "$3" "$3" "$4" > "$FP/$1/stat"; printf 'x\0' > "$FP/$1/cmdline"; }
+  fake 500 1 500 1000; fake 600 1 600 2222; fake 601 600 600 2300
+  mkdir -p "$WORK/rj"; printf '{"pid":600,"starttime":"1111","ppid":500,"pgid":500}\n' > "$WORK/rj/members.jsonl"
+  ROUTE2_PROC="$FP" "$B/route2-run" __record_once "$WORK/rj" 500
+  if grep -q '"pid":601' "$WORK/rj/members.jsonl" || [[ "$(grep -c '"pid":600' "$WORK/rj/members.jsonl")" != 1 ]]; then
+    bad "recorder: a reused pid seeds nothing" "$(cat "$WORK/rj/members.jsonl")"
+  else ok "recorder: a reused pid seeds nothing"; fi
+  fake 700 500 500 3000
+  ROUTE2_PROC="$FP" "$B/route2-run" __record_once "$WORK/rj" 500
+  if grep -q '"pid":700' "$WORK/rj/members.jsonl"; then ok "recorder: a real child of the root is recorded"; else bad "recorder: a real child of the root is recorded"; fi
+  # Detach + exec OUT of the process group after being recorded: still a member.
+  printf '#!/bin/bash\n(sleep 2; exec setsid tail -f /dev/null) &\nexit 0\n' > "$REPO/dexg.sh"; chmod +x "$REPO/dexg.sh"
+  run --job j15 -- ./dexg.sh >/dev/null; sleep 4
+  o15="$(st j15)"; m15="$(jq -r '.live_members[0].pid // empty' <<<"$o15")"
+  if [[ "$(jq -r .state <<<"$o15")" == lingering && -n "$m15" && "$(readlink "/proc/$m15/exe")" == *tail \
+        && "$(awk '{print $5}' "/proc/$m15/stat")" != "$(jq -r .pgid .route2/jobs/j15/meta.json)" ]]; then
+    ok "detach + exec out of the process group: still a member"
+  else bad "detach + exec out of the process group: still a member" "$o15"; fi
+  "$B/route2-kill" j15 --gen "$gen" --grace 1 >/dev/null; sleep 1.5; "$B/route2-kill" j15 --gen "$gen" >/dev/null
   # Unreadable /proc → uncertain.
   jqt "unreadable /proc → uncertain" "$(ROUTE2_PROC="$WORK/noproc" "$B/route2-wait" j10 --peek)" '.state == "uncertain"'
   cd "$ROOT" || exit 2
@@ -349,6 +374,13 @@ if group T7 "role resolution"; then
   jqt "openai-only, an Astra director building as self → sol, not astra" "$(roles '{"builder":"self","director_family":"openai","director_line":"astra","eligible":["self","astra","sol"]}')" '.critics == ["sol"] and .degraded == "openai"'
   jqt "named critic not available → stop" "$(roles '{"builder":"opus","named_critics":["grok"],"eligible":["opus","sol"]}')" '.stop.reason | test("not available")'
   jqt "high stakes, one named critic → a second family added" "$(roles '{"builder":"opus","high_stakes":true,"named_critics":["sol"],"eligible":["opus","sol","gemini","grok"]}')" '.critics == ["sol","gemini"]'
+  r6() { "$B/route2-roles" --row6 <<<"$1"; }
+  jqt "row 6: self when the director is known" "$(r6 '{"eligible":["self","sonnet"],"director_family":"claude","director_line":"opus"}')" '.implementer == "self"'
+  jqt "row 6: director line unknown → sonnet" "$(r6 '{"eligible":["self","sonnet","sol"],"director_family":"claude"}')" '.implementer == "sonnet"'
+  jqt "row 6: only gemini eligible → gemini" "$(r6 '{"eligible":["gemini"]}')" '.implementer == "gemini"'
+  jqt "row 6: nothing eligible → halt" "$(r6 '{"eligible":["haiku"]}')" '.implementer == null and .stop.row == 2'
+  eq "native canonical pin older than the alias: opus 5 → claude-opus-5" claude-opus-5 "$("$B/route2-catalog" native-id opus 5)"
+  eq "native canonical pin opus 5.5 → claude-opus-5-5" claude-opus-5-5 "$("$B/route2-catalog" native-id opus 5.5)"
   tr_() { "$B/route2-roles" --transports <<<"$1"; }
   O='"order":["native","agy","cursor"]'
   jqt "transports: first eligible" "$(tr_ '{"slot":"opus",'"$O"',"available":{"native":true,"agy":true,"cursor":true}}')" '.action == "use" and .transport == "native"'
@@ -410,6 +442,17 @@ if group T8 "lock"; then
   t0="$(date +%s)"; printf '{"y":1}\n' | "$B/route2-state" --gen "$g" append ledger.jsonl >/dev/null; t1="$(date +%s)"
   if (( t1 - t0 <= 3 )); then ok "fenced write not blocked by a test wait"; else bad "fenced write not blocked by a test wait" "$((t1 - t0)) s"; fi
   sleep 6; "$B/route2-kill" kt --gen "$g" --grace 1 >/dev/null; sleep 1.5; "$B/route2-kill" kt --gen "$g" >/dev/null
+  # A stale owner's own --resume adopts its running job.
+  REPO5="$(new_repo)"; cd "$REPO5" || exit 2
+  sleep 300 & own=$!
+  fo="$(L acquire --run ra --token tra --host test --pid "$own" --starttime "$(st_of "$own")" | jq -r .fence)"
+  "$B/route2-run" --gen "$fo" --job ra.build.r1.a1 --run ra --role build -- sleep 30 >/dev/null; sleep 1
+  kill "$own"; wait "$own" 2>/dev/null
+  jqt "resume of a stale owner adopts its running job" "$(L acquire --run ra --token tra --host test --resume)" \
+    '.result == "acquired" and (.adopted_jobs | index("ra.build.r1.a1") != null)'
+  fr="$(L show | jq -r .generation)"; : "$fr"
+  pkill -P "$(jq -r .wrapper_pid .route2/jobs/ra.build.r1.a1/meta.json)" 2>/dev/null || true
+  cd "$REPO" || exit 2
   # Another run vs a stale lock with a running job → blocked.
   kill "$d1" "$d2" 2>/dev/null; wait "$d1" "$d2" 2>/dev/null
   "$B/route2-run" --gen "$g" --job bj --run r1 --role build -- sleep 8 >/dev/null; sleep 1
@@ -483,6 +526,7 @@ if group T9 "audit and .route2 fingerprint"; then
   jqt "adopt with a reason" "$("$B/route2-state" --gen "$g" adopt CHECKPOINT.md --reason "user inspected it")" '.result == "adopted"'
   jqt "adopted file verifies" "$("$B/route2-state" verify CHECKPOINT.md)" '.result == "ok"'
   jqt "the adoption is marked in the audit" "$(tail -1 .route2/audit.jsonl)" '.adopted == true and .reason == "user inspected it"'
+  if grep -qF "${g#*.}" .route2/audit.jsonl; then bad "no audit path discloses the fence secret"; else ok "no audit path discloses the fence secret"; fi
   # Lifecycle: delete, archive, rotate — and a fresh checkpoint afterwards without adopt.
   REPO4="$(new_repo)"; cd "$REPO4" || exit 2
   g4="$("$B/route2-lock" acquire --run r --token t --host test | jq -r .fence)"
@@ -525,6 +569,15 @@ if group T10 "ledger rows from job output"; then
   row="$("$B/route2-ledger" --dry-run --job j3 --stage fix --cli codex --transport codex --family openai --model gpt-6.1-sol)"
   jqt "codex resume of the same thread: delta in the token fields, raw kept" "$row" \
     '.input_tokens == 15 and .output_tokens == 5 and .reasoning_tokens == 2 and .raw_cumulative.input_tokens == 25 and .status == "completed"'
+  "$B/route2-ledger" --gen "$g" --job j3 --stage fix --cli codex --transport codex --family openai --model gpt-6.1-sol >/dev/null
+  mkdir -p .route2/jobs/j5; cp .route2/jobs/j3/out .route2/jobs/j5/out
+  jqt "equal cumulative counters → zero delta" "$("$B/route2-ledger" --dry-run --job j5 --stage fix --cli codex --transport codex --family openai --model gpt-6.1-sol)" '.input_tokens == 0 and .output_tokens == 0'
+  mkdir -p .route2/jobs/j6
+  printf '{"type":"thread.started","thread_id":"t1"}\n{"type":"turn.completed","usage":{"input_tokens":4,"output_tokens":2}}\n' > .route2/jobs/j6/out
+  jqt "counters that went down → reset recorded, raw values kept" "$("$B/route2-ledger" --dry-run --job j6 --stage fix --cli codex --transport codex --family openai --model gpt-6.1-sol)" '.counter_reset == true and .input_tokens == 4'
+  jqt "effective_config kept as an object; service tier recorded" \
+    "$("$B/route2-ledger" --dry-run --job j2 --stage build --cli codex --transport codex --family openai --model gpt-6.1-sol --effective-config '{"model":"gpt-6.1-sol","sandbox":"read-only"}' --service-tier priority)" \
+    '.effective_config.sandbox == "read-only" and .service_tier_requested == "priority"'
   mkdir -p .route2/jobs/j4; cp "$FX/verdicts/agy-denied.json" .route2/jobs/j4/out
   row="$("$B/route2-ledger" --dry-run --job j4 --stage critique --cli agy --transport agy --family google --model gemini-3.8-flash-medium)"
   jqt "agy row: status and denied actions recorded" "$row" '.status == "SUCCESS" and .denied_actions == ["mcp"]'

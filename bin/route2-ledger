@@ -4,7 +4,7 @@
 #   route2-ledger --gen N --job <id> --stage <stage> --cli codex|agy|claude-cli|cursor-agent
 #                 --transport native|agy|cursor|codex --family <family> --model <requested>
 #                 [--effort E] [--round R] [--outcome TEXT] [--verdict V]
-#                 [--effective-config TEXT] [--dry-run]
+#                 [--effective-config JSON|TEXT] [--service-tier TIER] [--dry-run]
 #
 # Reads .route2/jobs/<id>/: `out` (the event stream or envelope), `answer` (codex -o), `exit`,
 # `meta.json`. Usage is taken from the CLI's own fields — codex: the last turn.completed.usage;
@@ -18,7 +18,7 @@ set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/_lib.sh"
 
 SD="$(r2_state_dir)"
-gen="" job="" stage="" cli="" transport="" family="" model="" effort="" round="" outcome="" verdict="" effcfg="" dry=0
+gen="" job="" stage="" cli="" transport="" family="" model="" effort="" round="" outcome="" verdict="" effcfg="" tier="" dry=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --gen) gen="$2"; shift 2 ;;
@@ -33,6 +33,7 @@ while [[ $# -gt 0 ]]; do
     --outcome) outcome="$2"; shift 2 ;;
     --verdict) verdict="$2"; shift 2 ;;
     --effective-config) effcfg="$2"; shift 2 ;;
+    --service-tier) tier="$2"; shift 2 ;;
     --dry-run) dry=1; shift ;;
     *) r2_die "route2-ledger: unknown option $1" ;;
   esac
@@ -86,16 +87,19 @@ case "$cli" in
 esac
 
 # Cumulative counters (codex resume, agy conversation): delta against this session's last raw row.
-raw=null
+raw=null counter_reset=false
 if [[ "$cli" == codex || "$cli" == agy ]] && [[ -n "$sid" ]]; then
   raw="$usage"
-  # The latest earlier raw row of this session whose counters do not exceed the current ones
-  # (a later row would give a negative "delta": then there is nothing to subtract).
-  prev="$( { jq -c --arg s "$sid" --argjson cur "$raw" 'select(.session_id == $s and .raw_cumulative != null)
-             | .raw_cumulative | select((.input_tokens // 0) <= ($cur.input_tokens // 0)
-                                        and (.output_tokens // 0) <= ($cur.output_tokens // 0))' "$SD/ledger.jsonl" 2>/dev/null || true; } | tail -1)"
-  if [[ -n "$prev" && "$prev" != "$raw" ]]; then
-    usage="$(jq -c --argjson p "$prev" 'with_entries(.value = (if (.value | type) == "number" and ($p[.key] | type) == "number" then .value - $p[.key] else .value end))' <<<"$raw")"
+  # The immediately preceding raw row of this session. Equal counters give a zero delta; a counter
+  # that went DOWN means the counters were reset (a new process for the same id): the raw values
+  # are then this call's own usage, and the row says so.
+  prev="$( { jq -c --arg s "$sid" 'select(.session_id == $s and .raw_cumulative != null) | .raw_cumulative' "$SD/ledger.jsonl" 2>/dev/null || true; } | tail -1)"
+  if [[ -n "$prev" ]]; then
+    if jq -e --argjson p "$prev" 'to_entries | any((.value | type) == "number" and ($p[.key] | type) == "number" and .value < $p[.key])' <<<"$raw" >/dev/null; then
+      counter_reset=true
+    else
+      usage="$(jq -c --argjson p "$prev" 'with_entries(.value = (if (.value | type) == "number" and ($p[.key] | type) == "number" then .value - $p[.key] else .value end))' <<<"$raw")"
+    fi
   fi
 fi
 
@@ -105,7 +109,8 @@ row="$(jq -cn --arg ts "$(r2_now)" --argjson meta "$meta" --arg stage "$stage" -
   --arg transport "$transport" --arg family "$family" --arg model "$model" --argjson served "${served:-null}" \
   --arg effort "$effort" --arg round "$round" --arg sid "$sid" --arg job "$job" --argjson usage "$usage" \
   --argjson dur "${dur:-null}" --argjson code "$code" --arg outcome "$outcome" --arg verdict "$verdict" \
-  --argjson raw "$raw" --arg status "$status" --argjson denied "${denied:-null}" --arg effcfg "$effcfg" '
+  --argjson raw "$raw" --arg status "$status" --argjson denied "${denied:-null}" --arg effcfg "$effcfg" \
+  --arg tier "$tier" --argjson reset "$counter_reset" '
   def nn: if . == "" then null else . end;
   {ts: $ts, run_id: ($meta.run_id // null), host: ($meta.host | nn), stage: $stage,
    round: ($round | nn | if . then tonumber? // . else null end), cli: $cli, transport: ($transport | nn),
@@ -114,7 +119,9 @@ row="$(jq -cn --arg ts "$(r2_now)" --argjson meta "$meta" --arg stage "$stage" -
   + $usage
   + {total_tokens: ($usage.total_tokens // (if $usage.input_tokens and $usage.output_tokens then $usage.input_tokens + $usage.output_tokens else null end)),
      raw_cumulative: $raw, status: ($status | nn), denied_actions: $denied,
-     effective_config: ($effcfg | nn), service_tier_requested: null, service_tier_observed: null,
+     effective_config: ($effcfg | nn | if . == null then null else (try fromjson catch .) end),
+     service_tier_requested: ($tier | nn), service_tier_observed: null,
+     counter_reset: (if $reset then true else null end),
      exit_code: $code, outcome: ($outcome | nn), verdict: ($verdict | nn)}')"
 if [[ $dry -eq 1 ]]; then printf '%s\n' "$row"; exit 0; fi
 [[ -n "$gen" ]] || r2_die "route2-ledger needs --gen N (or --dry-run)"

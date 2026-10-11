@@ -20,19 +20,14 @@ POLL="${ROUTE2_MEMBER_POLL:-1}"
 
 # ------------------------------------------------------------------------------------------------
 # __wrapper <jobdir>: the session leader. Starts the command, records members, writes exit.
-if [[ "${1:-}" == "__wrapper" ]]; then
+# __record_once <jobdir> <root-pid>: one recorder pass with <root-pid> standing for the wrapper and
+#   the identities already in members.jsonl as the seen set (tests run it on a fake /proc).
+if [[ "${1:-}" == "__wrapper" || "${1:-}" == "__record_once" ]]; then
+  mode="$1"
   set +e
   J="$2"
-  mapfile -d '' -t CMD < "$J/cmd"
-  cd "$(cat "$J/cwd")" 2>/dev/null || { printf 'launch-failed' > "$J/exit.tmp"; mv "$J/exit.tmp" "$J/exit"; exit 0; }
-  if ! command -v "${CMD[0]}" >/dev/null 2>&1; then
-    printf 'launch-failed' > "$J/exit.tmp"; mv "$J/exit.tmp" "$J/exit"; exit 0
-  fi
-  echo "$$" > "$J/wrapper.pid"
-  "${CMD[@]}" < /dev/null > "$J/out" 2> "$J/err" &
-  child=$!
-  echo "$child" > "$J/leader.pid.tmp"; mv "$J/leader.pid.tmp" "$J/leader.pid"
-
+  ROOT_PID=$$
+  [[ "$mode" == __record_once ]] && ROOT_PID="$3"
   declare -A seen=()
   record_members() {
     # Descendants of the wrapper (by ppid chain) and members of its process group.
@@ -44,10 +39,8 @@ if [[ "${1:-}" == "__wrapper" ]]; then
     while read -r p pp pg; do
       [[ "$p" =~ ^[0-9]+$ && "$pp" =~ ^[0-9]+$ && "$pg" =~ ^[0-9]+$ ]] || continue
       ppid_of[$p]="$pp"; pgid_of[$p]="$pg"
-    done < <(awk '{ line = $0; sub(/^.*\) /, "", line); split(line, f, " ");
-                    n = FILENAME; sub(/\/stat$/, "", n); sub(/^.*\//, "", n); print n, f[2], f[3] }' \
-               "$(r2_proc)"/[0-9]*/stat 2>/dev/null)
-    local -A inset=([$$]=1)
+    done < <(r2_proc_table)
+    local -A inset=([$ROOT_PID]=1)
     # Seed only from identities still alive: a recorded pid whose start time changed is a reused
     # pid, and neither it nor its children belong to this job.
     local k
@@ -59,13 +52,13 @@ if [[ "${1:-}" == "__wrapper" ]]; then
       changed=0
       for p in "${!ppid_of[@]}"; do
         [[ -n "${inset[$p]:-}" ]] && continue
-        if [[ -n "${inset[${ppid_of[$p]}]:-}" || "${pgid_of[$p]}" == "$$" ]]; then
+        if [[ -n "${inset[${ppid_of[$p]}]:-}" || "${pgid_of[$p]}" == "$ROOT_PID" ]]; then
           inset[$p]=1; changed=1
         fi
       done
     done
     for p in "${!inset[@]}"; do
-      [[ "$p" == "$$" ]] && continue
+      [[ "$p" == "$ROOT_PID" ]] && continue
       local stt key
       stt="$(r2_pid_starttime "$p")"; [[ -n "$stt" ]] || continue
       key="$p:$stt"
@@ -77,6 +70,23 @@ if [[ "${1:-}" == "__wrapper" ]]; then
           argv: $argv, cwd: $cwd, exe: $exe}' >> "$J/members.jsonl"
     done
   }
+  if [[ "$mode" == __record_once ]]; then
+    while IFS= read -r k; do [[ -n "$k" ]] && seen[$k]=1; done \
+      < <(jq -r '"\(.pid):\(.starttime)"' "$J/members.jsonl" 2>/dev/null || true)
+    record_members
+    exit 0
+  fi
+
+  mapfile -d '' -t CMD < "$J/cmd"
+  cd "$(cat "$J/cwd")" 2>/dev/null || { printf 'launch-failed' > "$J/exit.tmp"; mv "$J/exit.tmp" "$J/exit"; exit 0; }
+  if ! command -v "${CMD[0]}" >/dev/null 2>&1; then
+    printf 'launch-failed' > "$J/exit.tmp"; mv "$J/exit.tmp" "$J/exit"; exit 0
+  fi
+  echo "$$" > "$J/wrapper.pid"
+  "${CMD[@]}" < /dev/null > "$J/out" 2> "$J/err" &
+  child=$!
+  echo "$child" > "$J/leader.pid.tmp"; mv "$J/leader.pid.tmp" "$J/leader.pid"
+
   record_members || true
   while kill -0 "$child" 2>/dev/null; do
     sleep "$POLL"

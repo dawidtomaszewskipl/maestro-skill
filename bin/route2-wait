@@ -50,7 +50,11 @@ snapshot() {
   local pid st wpid
   pid="$(jq -r '.pid // empty' "$J/meta.json")"; st="$(jq -r '.pid_starttime // empty' "$J/meta.json")"
   wpid="$(jq -r '.wrapper_pid // empty' "$J/meta.json")"
-  [[ -n "$pid" ]] && r2_pid_same "$pid" "$st" && leader_alive=true
+  local leader_unreadable=0
+  if [[ -n "$pid" ]]; then
+    if r2_pid_same "$pid" "$st"; then leader_alive=true
+    elif [[ -d "$(r2_proc)/$pid" && ! -r "$(r2_proc)/$pid/stat" ]]; then leader_unreadable=1; fi
+  fi
   if [[ -n "$wpid" ]] && kill -0 "$wpid" 2>/dev/null \
      && [[ "$(r2_pid_cmdline "$wpid")" == *"__wrapper $J"* ]]; then wrapper_alive=true; fi
 
@@ -73,11 +77,11 @@ snapshot() {
   if [[ -n "$pg" ]]; then
     # One pass over /proc/*/stat: pids whose process group is the job's.
     # shellcheck disable=SC2013  # awk prints one pid per line; word splitting is what we want
-    for p in $(awk -v pg="$pg" '{ line = $0; sub(/^.*\) /, "", line); split(line, f, " ");
-                                   if (f[3] == pg) { n = FILENAME; sub(/\/stat$/, "", n); sub(/^.*\//, "", n); print n } }' \
-                 "$(r2_proc)"/[0-9]*/stat 2>/dev/null); do
+    for p in $(r2_proc_table | awk -v pg="$pg" '$3 == pg { print $1 }'); do
       [[ "$p" == "${pid:-0}" || "$p" == "${wpid:-0}" || "$p" == "$$" ]] && continue
-      # The wrapper's own helper subshells (its last member scan) are infrastructure, not members.
+      # The wrapper's own children other than the leader (its poll `sleep`, its last member scan)
+      # are infrastructure, not members.
+      [[ -n "${wpid:-}" && "$(r2_pid_ppid "$p")" == "$wpid" ]] && continue
       [[ "$(r2_pid_cmdline "$p")" == *"__wrapper $J"* ]] && continue
       jq -e --arg p "$p" 'any(.[]; (.pid|tostring) == $p)' <<<"$live" >/dev/null && continue
       live="$(jq -c --arg p "$p" --arg st "$(r2_pid_starttime "$p")" --arg a "$(r2_pid_cmdline "$p")" \
@@ -86,7 +90,7 @@ snapshot() {
   fi
 
   if [[ "$leader_alive" == true ]]; then state=running
-  elif (( unreadable )); then state=uncertain
+  elif (( unreadable || leader_unreadable )); then state=uncertain
   elif [[ -z "$code" && "$wrapper_alive" == true ]]; then state=running
   elif [[ -n "$code" ]]; then
     if [[ "$(jq 'length' <<<"$live")" -gt 0 ]]; then state=lingering; else state=exited; fi

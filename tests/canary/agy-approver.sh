@@ -26,6 +26,11 @@ while tmux has-session -t "$S" 2>/dev/null; do
     fi
     last=$(date +%s); sleep 3; continue
   fi
+  if grep -q "Allow access to this file?" <<<"$pane" && grep -q "outside workspace" <<<"$pane"; then
+    echo "$(date +%T) DENY file access outside the workspace: $(grep -m1 -oE '(Read|Write): [^ ]+' <<<"$pane")" >> "$LOG"
+    tmux send-keys -t "$S" Down Down Enter
+    last=$(date +%s); sleep 3; continue
+  fi
   if grep -q "Do you trust the contents" <<<"$pane"; then tmux send-keys -t "$S" Enter; sleep 3; continue; fi
   if (( $(date +%s) - last > IDLE )); then echo "$(date +%T) idle ${IDLE}s, stopping" >> "$LOG"; break; fi
   sleep 3

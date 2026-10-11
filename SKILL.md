@@ -325,7 +325,8 @@ the session reports serving (`docs/commands.md`, "Effective identity").
    answers): `"$R2/bin/route2-catalog" pick <slot> <transport> --effort <e>
    --scope <scope>` names the candidate; `use` = a fresh successful probe
    exists; `probe` = run the transport's probe line (`docs/commands.md`) and
-   record it with `route2-catalog record-probe --gen N`; a denial walks down to
+   record it with `route2-catalog record-probe --gen N` (probe records are this
+   checkout's own — never read or reuse another repository's); a denial walks down to
    the next older candidate (announced: "gpt-6.2-sol listed, denied for this
    account"); quota and network failures do not walk down (§ "Routing
    precedence"). Native Claude is probed through `claude -p --model <alias>`,

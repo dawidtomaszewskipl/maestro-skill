@@ -17,6 +17,9 @@
 #       scope: → {action: "use"|"probe", version, slug} or {action: "none", reason, previous}.
 #   route2-catalog record-probe --gen N <transport> <slug> ok|denied --scope JSON [--detail TEXT]
 #   route2-catalog record-resolved --gen N <slot> <transport> <version>
+#   route2-catalog native-id <slot> <version>
+#       the full Claude Code model id a canonical pin reaches native through (opus 5 → claude-opus-5,
+#       opus 5.5 → claude-opus-5-5); the pin holds only if a probe of that id returns exactly it
 #
 # Probe records (.route2/model-probes.json) are keyed "<transport>:<slug>" and scoped: a record
 # counts only when its scope object equals the caller's (CLI version, account identity, config
@@ -88,6 +91,11 @@ SD="$(r2_state_dir 2>/dev/null || echo .route2)"
 sub="${1:-}"; shift || true
 
 case "$sub" in
+  native-id)
+    case "${1:-}" in opus|fable|sonnet|haiku) ;; *) r2_die "native-id: a Claude slot (opus, fable, sonnet, haiku)" ;; esac
+    [[ "${2:-}" =~ ^[0-9]+(\.[0-9]+)*$ ]] || r2_die "native-id: a version such as 5 or 5.5"
+    printf 'claude-%s-%s\n' "$1" "${2//./-}" ;;
+
   compare)
     jq -rn --arg a "$1" --arg b "$2" "$JQ_LIB"' vcmp($a | vparse; $b | vparse)' ;;
 
@@ -224,7 +232,13 @@ case "$sub" in
           def rec($slug): $probes[$t + ":" + $slug] // null;
           def fresh($r): $r != null and $r.scope == $scope
              and (($now - ($r.at_epoch // 0)) < (if $r.result == "ok" then 7*86400 else 86400 end));
-        (($tr.unmatched // []) | index($ps)) as $excluded_hit
+        # A slug excluded from automatic resolution may be pinned only if it still belongs to the
+        # line of the slot (gpt-<v>-sol-preview for sol, claude-opus-… for opus) — never another model.
+        def line_re: {astra: "^gpt-[0-9.]+-astra(-|$)", sol: "^gpt-[0-9.]+-sol(-|$)", luna: "^gpt-[0-9.]+-luna(-|$)",
+                      terra: "^gpt-[0-9.]+-terra(-|$)", gemini: "^gemini-[0-9.]+-flash(-|$)", grok: "^grok-[0-9.]+(-|$)",
+                      opus: "^claude-opus-[0-9]", fable: "^claude-fable-[0-9]", sonnet: "^claude-sonnet-[0-9]",
+                      haiku: "^claude-haiku-[0-9]"}[$slot] // "^$";
+        ((($tr.unmatched // []) | index($ps)) as $i | if $i != null and ($ps | test(line_re)) then $i else null end) as $excluded_hit
         | ( if $ps != "" and $excluded_hit != null and ([ $cands[] | select(.slugs | to_entries | any(.value == $ps)) ] | length) == 0 then
               # An exact pin may name a slug excluded from automatic resolution (preview, dated):
               # its identity is the slug itself (a tag), it never matches another transport.
@@ -234,7 +248,9 @@ case "$sub" in
           else $cands end ) as $pool
         | if ($pool | length) == 0 then
             {action: "none",
-             reason: (if $ps != "" then "pinned slug \($ps) not in the \($t) catalog"
+             reason: (if $ps != "" and (($tr.unmatched // []) | index($ps)) != null and ($ps | test(line_re) | not)
+                        then "pinned slug \($ps) is not a \($slot) model"
+                      elif $ps != "" then "pinned slug \($ps) not in the \($t) catalog"
                       elif $pin != "" then "pinned version \($pin) not in the \($t) catalog"
                       else "line \($slot) has no candidates on \($t)" end),
              previous: $prev}

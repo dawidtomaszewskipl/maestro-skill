@@ -97,6 +97,6 @@ and an end-to-end canary per host; the results are written next to the rules the
 [workers](docs/workers.md) · [policy](docs/policy.md) · [setup](docs/setup.md) ·
 [cascade](docs/cascade.md) · [checkpoint](docs/checkpoint.md) · [ledger](docs/ledger.md) ·
 [unattended](docs/unattended.md) · [sandbox and pre-flight](docs/sandbox-and-preflight.md) ·
-[troubleshooting](docs/troubleshooting.md)
+[troubleshooting](docs/troubleshooting.md) · [release 1.0.0 gate evidence](docs/release-1.0.0.md)
 
 Polish: [README_pl.md](README_pl.md).

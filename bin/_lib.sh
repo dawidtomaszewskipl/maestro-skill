@@ -128,3 +128,12 @@ r2_audit_record() {
   jq -cn --arg f "$rel" --arg s "$(r2_sha256_file "$sd/$rel")" --arg g "$gen" --arg at "$(r2_now)" \
     '{file: $f, sha256_after: $s, gen: ($g | tonumber? // $g), at: $at}' >> "$sd/audit.jsonl"
 }
+
+# "pid ppid pgid" for every process whose stat is readable, one line each. `cat` keeps going past
+# a file that vanished or cannot be opened (awk would stop at the first one); the pid is taken
+# from the stat line itself, so no file name is needed.
+r2_proc_table() {
+  cat "$(r2_proc)"/[0-9]*/stat 2>/dev/null \
+    | awk '{ pid = $1; line = $0; sub(/^.*\) /, "", line); split(line, f, " ");
+             if (pid ~ /^[0-9]+$/ && f[2] ~ /^[0-9]+$/ && f[3] ~ /^[0-9]+$/) print pid, f[2], f[3] }'
+}

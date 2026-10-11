@@ -102,7 +102,9 @@ Policy `pin` (`docs/policy.md`):
 
 ## Probes
 
-`.route2/model-probes.json`, one record per `<transport>:<slug>`: `{result: ok|denied, scope,
+`.route2/model-probes.json` **of this checkout** (never another repository's: an agy director in a
+canary tried to read a neighbouring repository's records to skip its own probes, and was refused
+access outside its workspace), one record per `<transport>:<slug>`: `{result: ok|denied, scope,
 at, at_epoch, detail}`. A record counts only when its **scope** equals the caller's and it is
 fresh — successful probes for 7 days, denials for 24 hours. The scope:
 

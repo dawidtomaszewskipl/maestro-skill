@@ -169,13 +169,25 @@ finishes, so route2 brings its own:
   recorded command or a recorded test command but that were never members — reported, never
   signalled; for a writer you do not integrate or relaunch until they are settled.
 - `bin/route2-kill <id> --gen N [--grace S]` stops a job **without ever signalling a test**, one
-  step per call (call it again until `done` or `blocked`): `waiting-tests` while any protected
-  process lives — a test root (a member whose full command line equals a recorded test command, or
-  whose argv holds a recorded runner path such as `vendor/bin/pest` — never a bare interpreter name
-  like `php`), every recorded descendant of it, and every shell wrapper between the leader and it;
-  then `signalled` (SIGTERM to each remaining member individually, inside the fence), `killed`
-  (SIGKILL after the grace period), `done`, or `blocked` (a member outside the recorded tree, a
-  member surviving SIGKILL, or `uncertain`). Test jobs (`--kind test`) are refused outright.
+  step per call (call it again until `done` or `blocked`):
+  - **Protected:** a test root — a member whose recorded *or current* command line equals a
+    recorded test command, or holds a recorded runner path such as `vendor/bin/pest` (never a bare
+    interpreter name like `php`) — every descendant of it, and every shell wrapper between the
+    leader and it. A member that later `exec`s into the runner is a test root from then on.
+  - **Proven safe to signal:** the leader; a member whose recorded ancestry reaches the wrapper;
+    a member the recorder never saw (found in the job's process group) only if its *current*
+    ancestry reaches a recorded member or the wrapper. A recorded member whose parent is unknown
+    (re-parented before the first poll) is safe only when the job has no tests at all.
+    Anything else → `blocked` (fail closed).
+  - **Steps:** `waiting-tests` while anything is protected (nothing signalled, the lock not held);
+    otherwise, **inside the fence**, the whole classification runs again and — only if it still
+    finds nothing protected or unknown — SIGTERM goes to each member individually and `kill.state`
+    advances in the same fenced section (`signalled`); after the grace period the same for SIGKILL
+    (`killed`); then `done`, or `blocked` for members surviving SIGKILL or `uncertain`. Test jobs
+    (`--kind test`) are refused outright.
+- The wrapper's own children (its poll `sleep`, its last member scan) are infrastructure and never
+  members. `/proc` is read with `cat` over all `stat` files (it continues past processes that vanish
+  mid-read); an unreadable leader or member makes the state `uncertain`.
 
 **You never end your turn while a job is `running`, `lingering` or `orphaned`.** Loop
 `route2-wait --max <n>` (the adapter row above: 25, agy 8), sample progress, and ask the user
