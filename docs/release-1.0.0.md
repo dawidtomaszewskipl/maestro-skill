@@ -23,12 +23,18 @@ repository); the outcomes and the commands that produced them are summarised her
 | V11 plan-only canary | ✓ (`needs-decision`, real locale bug; resume + `adopt`) | ✓ `plan-only` | ✓ `plan-only` | ✓ (`needs-decision`, same bug) |
 | V11 full build, tests, commit | ✓ (`a0108c8`, also the transport switch `55f7cdb`) | ✓ (`e18d5b2`) | ✓ (`03714ab`) | ✓ (`6040b24`) |
 | V11 parallel split in worktrees | — | ✓ (`7c38644`, two Sonnet workers) | — | — |
-| V11 director killed mid-build, `--resume` | ✓ (`a0108c8`) | ✓ (`76d1b6e`) | ✓ (`2d0dc4a`) | see below |
+| V11 director killed mid-build, `--resume` | ✓ (`a0108c8`) | ✓ (`76d1b6e`) | ✓ (`2d0dc4a`) | ✓ (`9b3d238`) |
 | V11 transport switch (quota fault) | ✓ native → agy (shim) | n/a (Codex rebuilds `PATH`) | — | — |
 | V12 Cursor builder reads a screenshot path | — | — | ✓ | — |
 | V14 the director takes a screenshot and reads it | ✓ ("OTTER cc", green) | ✓ ("OTTER codex") | ✓ ("OTTER cursor"; `Shell(npx)`) | ✓ ("OTTER agy") |
 
-**agy, director killed mid-build:** recorded in `docs/hosts.md` once its canary finished.
+**agy, director killed mid-build:** the interactive agy session was killed while the Sol build
+job ran (the job stayed `running`); a new agy session ran `/route2 --resume --unattended`, adopted the
+lock, finished the run, ran the tests and committed `9b3d238`; bookkeeping rotated, lock released.
+On the way the run stopped twice, correctly: at the critique cap (`needs-decision`, row 3 — Grok kept
+finding real shell defects: integer overflow, `set -u`, `LC_ALL=C` with `[[`) and once because the
+agy director tried to read another repository's probe records and the access was refused (an agy
+refusal ends its turn — `docs/hosts.md`).
 
 ## Limits stated, not hidden
 
