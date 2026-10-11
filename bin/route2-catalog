@@ -51,7 +51,7 @@ def classify($transport):
           | {slot: .line, version: (.v | vparse), effort: .e, fast: false})
         // null )
     elif $transport == "cursor" then
-      ( (capture("^grok-(?<v>[0-9]+(\\.[0-9]+)*)-(?<e>low|medium|high|xhigh|max)(?<f>-fast)?$")
+      ( (capture("^grok-(?<v>[0-9]+(\\.[0-9]+)*)(-(?<e>low|medium|high|xhigh|max))?(?<f>-fast)?$")
           | {slot: "grok", version: (.v | vparse), effort: .e, fast: (.f != null)})
         // (capture("^claude-(?<line>opus|sonnet|fable|haiku)-(?<v>[0-9]+(-[0-9]+)*)-(?<e>low|medium|high|xhigh|max)(?<f>-fast)?$")
           | {slot: .line, version: (.v | vparse), effort: .e, fast: (.f != null)})
@@ -114,6 +114,7 @@ case "$sub" in
     if [[ -n "$fixtures" ]]; then
       if [[ -f "$fixtures/codex-models.json" ]]; then cp "$fixtures/codex-models.json" "$tmpd/codex.json"; codex_mode=live
       elif [[ -f "$fixtures/codex-cache.json" ]]; then cp "$fixtures/codex-cache.json" "$tmpd/codex.json"; codex_mode=cache
+      elif [[ -f "$fixtures/codex-bundled.json" ]]; then cp "$fixtures/codex-bundled.json" "$tmpd/codex.json"; codex_mode=bundled
       else codex_err="fixture missing"; fi
     elif command -v codex >/dev/null 2>&1; then
       if "$R2_BIN/route2-env" -- codex debug models > "$tmpd/codex.json" 2>"$tmpd/codex.err"; then codex_mode=live
@@ -223,7 +224,12 @@ case "$sub" in
           def rec($slug): $probes[$t + ":" + $slug] // null;
           def fresh($r): $r != null and $r.scope == $scope
              and (($now - ($r.at_epoch // 0)) < (if $r.result == "ok" then 7*86400 else 86400 end));
-        ( if $ps != "" then [ $cands[] | select(.slugs | to_entries | any(.value == $ps)) | . + {forced_slug: $ps} ]
+        (($tr.unmatched // []) | index($ps)) as $excluded_hit
+        | ( if $ps != "" and $excluded_hit != null and ([ $cands[] | select(.slugs | to_entries | any(.value == $ps)) ] | length) == 0 then
+              # An exact pin may name a slug excluded from automatic resolution (preview, dated):
+              # its identity is the slug itself (a tag), it never matches another transport.
+              [ {version: [], slugs: {}, forced_slug: $ps, excluded: true} ]
+            elif $ps != "" then [ $cands[] | select(.slugs | to_entries | any(.value == $ps)) | . + {forced_slug: $ps} ]
           elif $pin != "" then [ $cands[] | select(vcmp(.version; $pin | vparse) == 0) ]
           else $cands end ) as $pool
         | if ($pool | length) == 0 then
@@ -234,13 +240,17 @@ case "$sub" in
              previous: $prev}
           else
             [ $pool[] | (.forced_slug // slug_of(.)) as $s | select($s != null)
-              | {version: (.version | map(tostring) | join(".")), slug: $s, rec: rec($s)} ] as $list
+              | {version: (.version | map(tostring) | join(".")), slug: $s, rec: rec($s),
+                 excluded: (.excluded // false)} ] as $list
             | ([ $list[] | select((fresh(.rec) and .rec.result == "denied") | not) ] | first) as $c
             | if ($list | length) == 0 then
                 {action: "none", reason: "no \($slot) slug on \($t) for effort \($e)", previous: $prev}
               elif $c == null then
                 {action: "none", reason: "every candidate is denied for this account", previous: $prev,
                  denied: [ $list[] | .slug ]}
+              elif $c.excluded then {action: (if fresh($c.rec) and $c.rec.result == "ok" then "use" else "probe" end),
+                 version: null, slug: $c.slug, identity: {line: $slot, tag: $c.slug}, excluded: true,
+                 note: "exact pin of a slug excluded from automatic resolution; it matches no other transport"}
               elif fresh($c.rec) and $c.rec.result == "ok" then {action: "use", version: $c.version, slug: $c.slug,
                  skipped: [ $list[] | select(fresh(.rec) and .rec.result == "denied") | .slug ]}
               else {action: "probe", version: $c.version, slug: $c.slug,

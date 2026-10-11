@@ -11,6 +11,9 @@
 # in files under $HOME / $CODEX_HOME, not in these variables).
 set -euo pipefail
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  sed -n '2,/^[^#]/{/^#/s/^# \{0,1\}//p}' "$0"; exit 0
+fi
 [[ "${1:-}" == "--" ]] && shift
 [[ $# -gt 0 ]] || { echo "usage: route2-env -- <command> [args…]" >&2; exit 2; }
 

@@ -119,7 +119,7 @@ here.
 | A13 | SKILL.md "The loop" step 4 :424–430, caps :483–487 | critique cap, critic `reject` | stop, row 3 |
 | A14 | SKILL.md "The loop" step 7 :460–463, caps :483–487 | fix-loop cap | stop, row 4 |
 | A15 | SKILL.md "Flags", `--plan-only` :55–58; "The loop" step 4 :431–435 | `--plan-only` hand-over | not a stop: the plan-only report is the normal result, with the assumption list |
-| A16a | SKILL.md "Time and the watchdog" (safety stops, dirty-exit); "Launching workers" (transport switch); docs/hosts.md "Transport switch"; docs/catalog.md "Precedence" | safety stop; quota or limit exhaustion | safety stop → row 5, exactly as today. Quota or unavailability of a Claude slot's transport **with an eligible next transport serving the same model id** → the transport-switch transaction, automatically (the user configured the order; no stop). Row 5 when the order is exhausted, the next transport is denied by policy, the next one serves a different version, or a forced `@transport` failed |
+| A16a | SKILL.md "Time and the watchdog" (safety stops, dirty-exit); "Launching workers" (transport switch); docs/hosts.md "Transport switch"; docs/catalog.md "Precedence" | safety stop; quota or limit exhaustion | safety stop → row 5, exactly as today. Quota or unavailability of a Claude slot's transport → the transport-switch transaction, automatically (the user configured the order; no stop), onto the **next eligible transport serving the same model id** — denied and unavailable transports are skipped, never switched onto (`route2-roles --transports`). Row 5 only when no such transport remains (a later one serves another version, or none is left) or a forced `@transport` failed |
 | A16b | SKILL.md "Time and the watchdog", dirty-exit :511–519 | dirty-exit after a crash, kill or tree mismatch | not a stop by itself. Recovery keeps the outcome that triggered it: an audit stop stays row 2; a crash continues or swaps as today (A17, A18); a tree mismatch is inspected and its keep/reset decision recorded as today. A mismatch the director cannot attribute to a known worker is row 2, because someone else changed the tree |
 | A17 | SKILL.md "Time and the watchdog", swap | swap: limits, the user's call, a crashed host; no eligible critic after a swap | limits with no transport left → row 5 stop (with one left it is A16a's switch, not a swap); the user's call is unreachable (no user); a crashed host → swap as today; no eligible critic → stop, row 2 |
 | A18 | SKILL.md "Time and the watchdog" :506–510 | out-of-scope decline → one rewritten brief, then reroute; transient API failure | unchanged (the director's existing authority); transient API failure → continue, unchanged |
@@ -231,8 +231,9 @@ task_text, flags, current: <decision>, history: [...]}` (`docs/checkpoint.md`, "
   - `continue` — the existing run;
   - `start: <queued task id>`;
   - `build: <task id> <plan_sha256>`;
-  - `archive-and-start` — rename the existing checkpoint to `CHECKPOINT-<run_id>.archived.md`, then
-    start the attempted task. Never a delete.
+  - `archive-and-start` — `route2-state --gen N rotate --to <run_id>` (the checkpoint, the pending
+    decision and the audit move to `.route2/archive/<run_id>/`), then start the attempted task.
+    Never a delete.
 - The file is deleted once its `current` is resolved and acted on: the started run has written its
   first checkpoint, or the existing run continues.
 - A new non-resume invocation supersedes it: the old `current` moves to `history` (`answer:
@@ -325,7 +326,8 @@ The existing ordering is preserved.
        - write the changed flags, and a raised `fix_cap`, into the checkpoint of the run that
          continues or starts, with the decision id as their source (`flag_sources`);
        - execute the `action`;
-       - delete `pending-decision.md` once its `current` is resolved and acted on;
+       - delete `pending-decision.md` (`route2-state --gen N delete pending-decision.md`) once its
+         `current` is resolved and acted on;
     5. **failed validation:** move the answered decision to `history` with its answer and the
        failed rule (`failed_rule`), and write the remedy as the new `current` in the **same**
        record. That record is `pending-decision.md` or the checkpoint's `decisions`; an unrelated

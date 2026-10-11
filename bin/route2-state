@@ -4,6 +4,13 @@
 #   route2-state --gen N write  <file>     replace <file> with stdin
 #   route2-state --gen N append <file>     append stdin (one or more lines) to <file>
 #   route2-state verify <file>             exit 0 iff <file> matches its last audit entry
+#   route2-state --gen N delete <file>     remove it (verified first; the audit records it absent)
+#   route2-state --gen N archive <file> --to <name>
+#       move it to .route2/archive/<name>/ (verified first; recorded absent)
+#   route2-state --gen N rotate --to <name>
+#       end of a run / archive-and-start: verify every audited file, move CHECKPOINT.md,
+#       pending-decision.md and audit.jsonl to .route2/archive/<name>/, and start a fresh audit
+#       whose first entries are the current hashes of the files that stay (ledger, lock, jobs)
 #   route2-state --gen N adopt <file> --reason "<text>"
 #       accept the file as it is now (an audit entry marked adopted, with the reason). Only on the
 #       user's explicit decision after they inspected the file — never under --unattended, never
@@ -26,6 +33,29 @@ allowed() {
   esac
 }
 
+if [[ "${1:-}" == "__rotate" ]]; then
+  name="$2" gen="$3"
+  [[ "$name" =~ ^[A-Za-z0-9._:-]+$ ]] || r2_die "rotate: --to may hold only [A-Za-z0-9._:-]"
+  bad=""
+  if [[ -f "$SD/audit.jsonl" ]]; then
+    while IFS= read -r f; do
+      r2_audit_verify "$SD" "$f" 2>/dev/null || bad+="$f "
+    done < <(jq -r '.file' "$SD/audit.jsonl" | sort -u)
+  fi
+  [[ -z "$bad" ]] || { jq -cn --arg b "$bad" '{result: "tampered", files: ($b | split(" ") | map(select(. != "")))}'; exit 5; }
+  A="$SD/archive/$name"; [[ -e "$A" ]] && r2_die "rotate: $A exists"
+  mkdir -p "$A"
+  keep="$(jq -r '.file' "$SD/audit.jsonl" 2>/dev/null | sort -u | grep -vxE 'CHECKPOINT.md|pending-decision.md' || true)"
+  for f in CHECKPOINT.md pending-decision.md audit.jsonl; do [[ -f "$SD/$f" ]] && mv "$SD/$f" "$A/$f"; done
+  while IFS= read -r f; do
+    [[ -n "$f" ]] || continue
+    jq -cn --arg f "$f" --arg s "$(r2_sha256_file "$SD/$f")" --arg g "${gen%%.*}" --arg at "$(r2_now)" --arg n "$name" \
+      '{file: $f, sha256_after: $s, gen: ($g | tonumber? // $g), at: $at, rotated_from: $n}' >> "$SD/audit.jsonl"
+  done <<<"$keep"
+  jq -cn --arg a "$A" '{result: "rotated", archive: $a}'
+  exit 0
+fi
+
 if [[ "${1:-}" == "__locked" ]]; then
   op="$2" rel="$3" src="$4" gen="$5"
   if [[ "$op" != adopt ]] && ! r2_audit_verify "$SD" "$rel"; then
@@ -43,6 +73,8 @@ if [[ "${1:-}" == "__locked" ]]; then
     exit 0
   fi
   case "$op" in
+    delete)  rm -f "$SD/$rel" ;;
+    archive) name="$(cat "$src")"; mkdir -p "$SD/archive/$name/$(dirname "$rel")"; mv "$SD/$rel" "$SD/archive/$name/$rel" ;;
     write)  r2_atomic_write "$SD/$rel" < "$src" ;;
     append) { cat "$SD/$rel" 2>/dev/null || true; cat "$src"; } | r2_atomic_write "$SD/$rel" ;;
   esac
@@ -54,19 +86,28 @@ fi
 
 gen=""
 if [[ "${1:-}" == "--gen" ]]; then gen="$2"; shift 2; fi
+if [[ "${1:-}" == "rotate" ]]; then
+  [[ -n "$gen" && "${2:-}" == "--to" && -n "${3:-}" ]] || r2_die "usage: route2-state --gen N rotate --to <name>"
+  exec "$R2_BIN/route2-lock" exec --gen "$gen" -- "$0" __rotate "$3" "$gen"
+fi
 op="${1:-}" rel="${2:-}"
-[[ -n "$op" && -n "$rel" ]] || r2_die "usage: route2-state [--gen N] write|append|verify|adopt <file>"
+[[ -n "$op" && -n "$rel" ]] || r2_die "usage: route2-state [--gen N] write|append|verify|adopt|delete|archive <file>, or rotate --to <name>"
 allowed "$rel" || r2_die "route2-state: $rel is not bookkeeping (CHECKPOINT.md, ledger.jsonl, pending-decision.md, tasks/<id>/entry.json)"
 
 case "$op" in
   verify)
     if r2_audit_verify "$SD" "$rel"; then jq -cn --arg f "$rel" '{result: "ok", file: $f}'
     else jq -cn --arg f "$rel" '{result: "tampered", file: $f}'; exit 5; fi ;;
-  write|append|adopt)
+  write|append|adopt|delete|archive)
     [[ -n "$gen" ]] || r2_die "route2-state $op needs --gen N"
     mkdir -p "$SD/tmp"
     src="$(mktemp "$SD/tmp/state.XXXXXX")"
-    if [[ "$op" == adopt ]]; then
+    if [[ "$op" == delete ]]; then
+      : > "$src"
+    elif [[ "$op" == archive ]]; then
+      [[ "${3:-}" == "--to" && "${4:-}" =~ ^[A-Za-z0-9._:-]+$ ]] || r2_die "route2-state archive needs --to <name>"
+      printf '%s' "$4" > "$src"
+    elif [[ "$op" == adopt ]]; then
       [[ "${3:-}" == "--reason" && -n "${4:-}" ]] || r2_die "route2-state adopt needs --reason \"<text>\""
       printf '%s' "$4" > "$src"
     else

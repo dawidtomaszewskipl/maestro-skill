@@ -6,9 +6,16 @@
 #
 # Input:  {builder: slot, drafter: slot|null, high_stakes: bool, eligible: [slot…],
 #          named_critics: [slot…], policy_critic: slot|null, policy_reviewer: slot|null,
-#          fable_budget: bool, director_family: family|null}
-#   eligible = slots with at least one eligible (model, transport) pair this run; "self" counts
-#   as the director's family.
+#          fable_budget: bool, director_family: family|null, director_line: slot|null}
+#   eligible = slots with at least one eligible (model, transport) pair this run; "self" is the
+#   director's family AND model line — both must be known for self to build.
+#
+#   route2-roles --transports < input.json
+# Input:  {slot, order: [transport…], available: {transport: bool}, denied: [transport…],
+#          forced: transport|null, event: "first-use"|"runtime-failure", failed: transport|null,
+#          frozen_version: "5.5"|null, versions: {transport: "5.5"}}
+# Output: {action: "use"|"switch"|"swap"|"halt", transport, reason, row}  (docs/catalog.md,
+#          "Precedence"; row = the --unattended stop-matrix row when the action is a stop)
 # Output: {critics: [slot…], reviewer: slot|null, degraded: family|null, notes: [...],
 #          stop: null | {reason, remedy}}
 set -euo pipefail
@@ -16,14 +23,54 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   sed -n '2,/^[^#]/{/^#/s/^# \{0,1\}//p}' "$0"; exit 0
 fi
 
+if [[ "${1:-}" == "--transports" ]]; then
+  # shellcheck disable=SC2016  # jq program
+  exec jq -c '
+  . as $in
+  | ($in.order // []) as $order
+  | ($in.denied // []) as $denied
+  | def avail($t): ($in.available[$t] // false);
+    def denied($t): ($denied | index($t)) != null;
+    def same($t): ($in.frozen_version == null) or (($in.versions[$t] // null) == $in.frozen_version);
+  if $in.forced then
+    if ($order | index($in.forced)) == null then
+      {action: "halt", transport: $in.forced, reason: "\($in.slot) has no transport \($in.forced)", row: 2}
+    elif $in.event == "runtime-failure" then
+      {action: "halt", transport: $in.forced, reason: "forced @\($in.forced) failed at run time; a forced transport never falls through", row: 5}
+    elif avail($in.forced) | not then
+      {action: "halt", transport: $in.forced, reason: "forced @\($in.forced) is unavailable; explicit never beats unavailability", row: 2}
+    else
+      {action: "use", transport: $in.forced, reason: (if denied($in.forced) then "forced; policy denies it — explicit wins, with a warning" else "forced" end), row: null}
+    end
+  elif $in.event == "runtime-failure" then
+    # Continue the SAME model on the next eligible transport after the failed one; denied and
+    # unavailable ones are skipped, never switched onto.
+    ($order | index($in.failed)) as $i
+    | ([ $order[($i // -1) + 1:][] | select(avail(.) and (denied(.) | not)) ]) as $next
+    | ([ $next[] | select(same(.)) ] | first // null) as $t
+    | if $t then {action: "switch", transport: $t, reason: "\($in.failed) failed; next eligible transport serving \($in.frozen_version // "the frozen model")", row: null}
+      elif ($next | length) > 0 then {action: "swap", transport: $next[0], reason: "the next eligible transport serves a different version", row: 5}
+      else {action: "swap", transport: null, reason: "no eligible transport left", row: 5} end
+  else
+    # First use (no identity frozen yet) or a normal choice: first eligible transport in order;
+    # denied and unavailable ones are skipped and named. A transport that failed its first-use
+    # probe is reported unavailable by the caller.
+    ([ $order[] | select(avail(.) and (denied(.) | not)) ] | first // null) as $t
+    | ([ $order[] | select(avail(.) and denied(.)) ] | first // null) as $d
+    | if $t then {action: "use", transport: $t, reason: "first eligible transport in order", skipped: [ $order[] | select((avail(.) and (denied(.) | not)) | not) ], row: null}
+      elif $d and $in.explicit then {action: "use", transport: $d, reason: "explicit --model beats policy denial (warning)", row: null}
+      else {action: "halt", transport: null, reason: "no eligible transport for \($in.slot)", row: 2} end
+  end'
+fi
+
 # shellcheck disable=SC2016  # jq program
 exec jq -c '
 . as $in
-| def fam($s): if $s == "self" then ($in.director_family // "unknown")
+| def line($s): if $s == "self" then ($in.director_line // null) else $s end;
+  def fam($s): if $s == "self" then ($in.director_family // "unknown")
     elif ($s | IN("opus","fable","sonnet","haiku")) then "claude"
     elif ($s | IN("astra","sol","luna","terra")) then "openai"
     elif $s == "gemini" then "google" elif $s == "grok" then "xai" else "unknown" end;
-  def line($s): if $s == "self" then null else $s end;
 ($in.eligible // []) as $el
 | (fam($in.builder)) as $bf
 | (if $in.drafter then fam($in.drafter) else null end) as $df
@@ -41,35 +88,48 @@ exec jq -c '
                            google: ["gemini"], xai: ["grok"]}[$f] // [] | first_of(.);
   def prov($s): if $s == "grok" then ["grok is provisional (unmeasured)"] else [] end;
 
-# --- the builder family must be known -----------------------------------------------------------
-if $bf == "unknown" then
+# --- the builder family (and for self, the line) must be known -------------------------------------
+if $bf == "unknown" or ($in.builder == "self" and line("self") == null) then
   {critics: [], reviewer: null, degraded: null, notes: [],
-   stop: {reason: "builder family unknown (self with an unknown director model)", remedy: "pick an external builder, or state the director model from a measured source"}}
+   stop: {reason: "self is not eligible: the director model family or line is unknown", remedy: "pick an external builder, or state the director model from a measured source"}}
 
 # --- named critics: they beat policy, never the family rule -----------------------------------
 elif (($in.named_critics // []) | length) > 0 then
   ($in.named_critics) as $n
   | ([ $n[] | . as $x | select(($excl | index(fam($x))) != null) ]) as $bad
-  | if ($bad | length) > 0 then
+  | ([ $n[] | . as $x | select(($el | index($x)) == null) ]) as $unavail
+  | ($n | map(fam(.)) | unique) as $nf
+  | if ($unavail | length) > 0 then
+      {critics: [], reviewer: null, degraded: null, notes: [],
+       stop: {reason: "named critic \($unavail | join(",")) is not available this run", remedy: "name an available critic"}}
+    elif ($bad | length) > 0 then
       {critics: [], reviewer: null, degraded: null, notes: [],
        stop: {reason: "named critic \($bad | join(",")) shares the builder or drafter family", remedy: "name a critic from another family"}}
     elif $in.high_stakes and ($n | length) == 2 and fam($n[0]) == fam($n[1]) then
       {critics: [], reviewer: null, degraded: null, notes: [],
        stop: {reason: "two named critics from one family on a high-stakes change", remedy: "name critics from two families"}}
     else
-      {critics: $n,
-       reviewer: ($in.policy_reviewer as $r | if $r and ok($r) then $r else $n[0] end),
-       degraded: null, notes: ([ $n[] | prov(.)[] ]), stop: null}
+      # High stakes need critics from two families: complete the named set from the table.
+      (if $in.high_stakes and ($nf | length) < 2 then
+         ([ ($T[$bf] // {second: []}).second[] | . as $x | select(($nf | index($x)) == null) | slot_of_family($x) | select(. != null) ] | first // null)
+       else null end) as $extra
+      | {critics: ($n + (if $extra then [$extra] else [] end)),
+         reviewer: ($in.policy_reviewer as $r | if $r and ok($r) then $r else $n[0] end),
+         degraded: null,
+         notes: ([ $n[] | prov(.)[] ]
+                 + (if $extra then ["high stakes: second critic \($extra) added from another family"] + prov($extra) else [] end)
+                 + (if $in.high_stakes and ($nf | length) < 2 and ($extra == null) then ["high stakes: no second critic (no other family eligible)"] else [] end)),
+         stop: null}
     end
 
 # --- single eligible family: degraded same-family critique ---------------------------------------
 elif ($fams | length) == 1 then
   ($fams[0]) as $f
-  | ([ $in.builder, $in.drafter ] | map(select(. != null)) | map(line(.))) as $used
+  | ([ $in.builder, $in.drafter ] | map(select(. != null)) | map(line(.)) | map(select(. != null))) as $used
   | (if $f == "claude" then
-       (if ($in.builder | IN("sonnet","opus")) then ["fable","opus","sonnet"] else ["opus","fable","sonnet"] end)
+       (if (line($in.builder) // "" | IN("sonnet","opus")) then ["fable","opus","sonnet"] else ["opus","fable","sonnet"] end)
      elif $f == "openai" then
-       (if $in.builder == "astra" then ["sol","luna"] else ["astra","sol","luna"] end)
+       (if line($in.builder) == "astra" then ["sol","luna"] else ["astra","sol","luna"] end)
      else [] end) as $order
   | ([ $order[] | . as $x | select(($el | index($x)) != null and ($used | index($x)) == null) ] | first // null) as $c
   | if $c == null then

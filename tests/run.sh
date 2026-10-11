@@ -37,7 +37,7 @@ new_repo() {  # a scratch git repo with one commit; prints its path
 if group T1 "lint"; then
   SC="${SHELLCHECK:-shellcheck}"
   if command -v "$SC" >/dev/null 2>&1; then
-    out="$(cd "$ROOT" && "$SC" bin/route2-* bin/_lib.sh install.sh tests/*.sh 2>&1)"
+    out="$(cd "$ROOT" && "$SC" bin/route2-* bin/_lib.sh install.sh tests/*.sh tests/canary/*.sh tests/canary/shim/claude 2>&1)"
     eq "shellcheck clean" "" "$out"
   else
     bad "shellcheck available" "set SHELLCHECK or install shellcheck"
@@ -77,16 +77,23 @@ if group T2 "catalog"; then
   jq -n '{models: ([ "gpt-6.1-sol","gpt-6.10-sol","gpt-6.9-sol","gpt-7-sol","gpt-6.2-sol-preview","gpt-6-astra","gpt-reserve" ]
                     | map({slug: ., visibility: "list", supported_reasoning_levels: [{effort: "low"},{effort: "medium"}]}))}' > "$S/codex-models.json"
   printf 'Fetching available models...\ngemini-3.8-flash-high\tG\ngemini-4-flash-high\tG4\ngemini-4-flash-preview-high\tP\nclaude-opus-5-10-high\tO\nclaude-opus-5-5-high\tO\n' > "$S/agy-models.txt"
-  printf 'Available models\n\ngrok-4.7-high - Grok\ngrok-5-high - Grok 5\ngrok-5-high-fast - Grok 5 Fast\ncursor-grok-9-high - X\n\nTip: …\n' > "$S/cursor-models.txt"
+  printf 'Available models\n\ngrok-4.7-high - Grok\ngrok-5-high - Grok 5\ngrok-5-high-fast - Grok 5 Fast\ngrok-6 - Grok 6 (no effort suffix)\ncursor-grok-9-high - X\n\nTip: …\n' > "$S/cursor-models.txt"
   out="$(ROUTE2_STATE="$WORK/c2" "$B/route2-catalog" refresh --fixtures "$S" --out "$WORK/c2/catalog.json")"
   jqt "synthetic: sol order 7, 6.10, 6.9, 6.1" "$out" '.slots.codex.sol == ["7","6.10","6.9","6.1"]'
   jqt "synthetic: gemini 4 before 3.8" "$out" '.slots.agy.gemini == ["4","3.8"]'
   jqt "synthetic: opus 5.10 before 5.5" "$out" '.slots.agy.opus == ["5.10","5.5"]'
-  jqt "synthetic: grok 5 first, fast kept apart" "$out" '.slots.cursor.grok == ["5","4.7"]'
+  jqt "synthetic: grok 6 (no effort suffix) first, then 5, fast kept apart" "$out" '.slots.cursor.grok == ["6","5","4.7"]'
   jqt "synthetic: preview and dated slugs unmatched" "$(cat "$WORK/c2/catalog.json")" \
     '(.transports.codex.unmatched | index("gpt-6.2-sol-preview") != null) and (.transports.agy.unmatched | index("gemini-4-flash-preview-high") != null)'
   jqt "synthetic: fast slugs recorded separately" "$(cat "$WORK/c2/catalog.json")" \
-    '.transports.cursor.slots.grok[0].fast_slugs.high == "grok-5-high-fast" and .transports.cursor.slots.grok[0].slugs.high == "grok-5-high"'
+    '.transports.cursor.slots.grok[1].fast_slugs.high == "grok-5-high-fast" and .transports.cursor.slots.grok[1].slugs.high == "grok-5-high" and .transports.cursor.slots.grok[0].slugs.default == "grok-6"'
+  # Bundled fallback: no live catalog and no cache.
+  Bd="$WORK/bundled"; mkdir -p "$Bd"
+  jqt "no live catalog, no cache, no bundled → acquisition failure" \
+    "$(ROUTE2_STATE="$WORK/c5" "$B/route2-catalog" refresh --fixtures "$Bd" --out "$WORK/c5/catalog.json")" '.sources.codex.error != null'
+  jq -n '{models: [{slug: "gpt-6-sol", visibility: "list"}]}' > "$Bd/codex-bundled.json"
+  jqt "bundled fallback → mode bundled (degraded discovery)" \
+    "$(ROUTE2_STATE="$WORK/c6" "$B/route2-catalog" refresh --fixtures "$Bd" --out "$WORK/c6/catalog.json")" '.sources.codex.mode == "bundled" and .slots.codex.sol == ["6"]'
 
   # Acquisition failures vs empty lines.
   E="$WORK/e"; mkdir -p "$E"; printf 'Fetching available models...\n' > "$E/agy-models.txt"; printf '{not json' > "$E/codex-models.json"
@@ -116,6 +123,9 @@ if group T2 "catalog"; then
   jqt "pick: canonical pin 6.9" "$(pick sol codex --pin 6.9)" '.slug == "gpt-6.9-sol"'
   jqt "pick: exact slug pin" "$(pick sol codex --pin-slug gpt-6.1-sol)" '.slug == "gpt-6.1-sol"'
   jqt "pick: missing pin → none" "$(pick sol codex --pin 9)" '.action == "none" and (.reason | test("pinned version 9"))'
+  jqt "pick: exact pin of an excluded slug (preview)" "$(pick sol codex --pin-slug gpt-6.2-sol-preview)" \
+    '.slug == "gpt-6.2-sol-preview" and .excluded == true and .identity.tag == "gpt-6.2-sol-preview"'
+  jqt "pick: exact pin of a slug the catalog does not list → none" "$(pick sol codex --pin-slug gpt-9-sol-preview)" '.action == "none"'
   jqt "pick: effort with no slug → none" "$(pick gemini agy --effort xhigh)" '.action == "none"'
   jqt "pick: line without candidates → none + previous" \
     "$(jq '.previous = {luna: {codex: "6"}}' "$P/catalog.json" > "$P/cp.json"; ROUTE2_STATE="$P" "$B/route2-catalog" pick luna codex --catalog "$P/cp.json")" \
@@ -171,7 +181,7 @@ fi
 if group T4 "jobs"; then
   REPO="$(new_repo)"; cd "$REPO" || exit 2
   L() { "$B/route2-lock" "$@"; }
-  gen="$(L acquire --run r --token t --host test | jq -r .generation)"
+  gen="$(L acquire --run r --token t --host test | jq -r .fence)"
   run() { "$B/route2-run" --gen "$gen" --run r --role build "$@"; }
   st() { "$B/route2-wait" "$1" --peek; }
   run --job j0 -- bash -c 'exit 0' >/dev/null; sleep 1.5
@@ -230,6 +240,35 @@ if group T4 "jobs"; then
   run --job j10 -- ./count.sh >/dev/null; sleep 1.5
   "$B/route2-wait" j10 --max 0 >/dev/null; sleep 1.2
   jqt "stdout growth is progress" "$("$B/route2-wait" j10 --max 0)" '.progress_source == "stdout"'
+  # PID reuse: a recorded pid now held by an unrelated process (start time differs) is not a member.
+  sleep 30 & other=$!
+  run --job j11 -- sleep 3 >/dev/null; sleep 1.5
+  printf '{"pid":%s,"starttime":"1","ppid":1,"pgid":1,"argv":"sleep 30","cwd":"/","exe":"/usr/bin/sleep"}\n' "$other" >> .route2/jobs/j11/members.jsonl
+  jqt "a reused pid (start time differs) is not a member" "$(st j11)" "[.live_members[].pid] | index($other) == null"
+  sleep 2.5
+  jqt "… and does not keep the job alive" "$(st j11)" '.state == "exited"'
+  kill "$other" 2>/dev/null; wait "$other" 2>/dev/null
+  # A member that setsid's after it was recorded stays a member.
+  printf '#!/bin/bash\n(sleep 2; exec setsid sleep 25) &\nexit 0\n' > "$REPO/esc.sh"; chmod +x "$REPO/esc.sh"
+  run --job j12 -- ./esc.sh >/dev/null; sleep 4
+  jqt "a member that setsid's later is still a member (lingering)" "$(st j12)" '.state == "lingering" and (.live_members | length) >= 1'
+  "$B/route2-kill" j12 --gen "$gen" --grace 1 >/dev/null; sleep 1.5; "$B/route2-kill" j12 --gen "$gen" >/dev/null
+  # A member that detaches and exec's a different program stays a member.
+  printf '#!/bin/bash\n(sleep 2; exec tail -f /dev/null) &\nexit 0\n' > "$REPO/dex.sh"; chmod +x "$REPO/dex.sh"
+  run --job j13 -- ./dex.sh >/dev/null; sleep 4
+  o13="$(st j13)"; m13="$(jq -r '.live_members[0].pid // empty' <<<"$o13")"
+  if [[ "$(jq -r .state <<<"$o13")" == lingering && -n "$m13" && "$(readlink "/proc/$m13/exe")" == *tail ]]; then
+    ok "detach + exec to another program: still a member (same pid and start time, now tail)"
+  else bad "detach + exec to another program: still a member" "$o13"; fi
+  "$B/route2-kill" j13 --gen "$gen" --grace 1 >/dev/null; sleep 1.5; "$B/route2-kill" j13 --gen "$gen" >/dev/null
+  # The leader exec's into the test runner, which starts differently named workers: all protected.
+  printf '#!/bin/sh\nsh -c "sleep 7" &\nsh -c "sleep 7" &\nwait\n' > "$REPO/vendor/bin/pest"; chmod +x "$REPO/vendor/bin/pest"
+  printf '#!/bin/bash\nsleep 1\nexec vendor/bin/pest --parallel\n' > "$REPO/launch.sh"; chmod +x "$REPO/launch.sh"
+  run --job j14 --test-runner vendor/bin/pest -- ./launch.sh >/dev/null; sleep 3
+  jqt "leader exec'd into the test runner: waiting-tests, nothing signalled" "$("$B/route2-kill" j14 --gen "$gen")" \
+    '.result == "waiting-tests" and (.protected | length) >= 3'
+  sleep 7
+  jqt "after the tests end the job is done" "$("$B/route2-kill" j14 --gen "$gen")" '.result == "done"'
   # Unreadable /proc → uncertain.
   jqt "unreadable /proc → uncertain" "$(ROUTE2_PROC="$WORK/noproc" "$B/route2-wait" j10 --peek)" '.state == "uncertain"'
   cd "$ROOT" || exit 2
@@ -305,46 +344,64 @@ if group T7 "role resolution"; then
   jqt "policy critic used when legal" "$(roles '{"builder":"opus","policy_critic":"gemini","eligible":'"$ALL"'}')" '.critics == ["gemini"]'
   jqt "policy critic from the builder family is dropped" "$(roles '{"builder":"opus","policy_critic":"sonnet","eligible":'"$ALL"'}')" '.critics == ["sol"]'
   jqt "self with unknown director family → stop" "$(roles '{"builder":"self","director_family":null,"eligible":["sol"]}')" '.stop != null'
-  jqt "self as a known claude director → sol" "$(roles '{"builder":"self","director_family":"claude","eligible":["self","sol"]}')" '.critics == ["sol"]'
+  jqt "self as a known claude director (family and line) → sol" "$(roles '{"builder":"self","director_family":"claude","director_line":"opus","eligible":["self","sol"]}')" '.critics == ["sol"]'
+  jqt "self with known family but unknown line → stop" "$(roles '{"builder":"self","director_family":"claude","eligible":["self","sol"]}')" '.stop != null'
+  jqt "openai-only, an Astra director building as self → sol, not astra" "$(roles '{"builder":"self","director_family":"openai","director_line":"astra","eligible":["self","astra","sol"]}')" '.critics == ["sol"] and .degraded == "openai"'
+  jqt "named critic not available → stop" "$(roles '{"builder":"opus","named_critics":["grok"],"eligible":["opus","sol"]}')" '.stop.reason | test("not available")'
+  jqt "high stakes, one named critic → a second family added" "$(roles '{"builder":"opus","high_stakes":true,"named_critics":["sol"],"eligible":["opus","sol","gemini","grok"]}')" '.critics == ["sol","gemini"]'
+  tr_() { "$B/route2-roles" --transports <<<"$1"; }
+  O='"order":["native","agy","cursor"]'
+  jqt "transports: first eligible" "$(tr_ '{"slot":"opus",'"$O"',"available":{"native":true,"agy":true,"cursor":true}}')" '.action == "use" and .transport == "native"'
+  jqt "transports: first-use quota on native → agy" "$(tr_ '{"slot":"opus",'"$O"',"available":{"native":false,"agy":true,"cursor":true}}')" '.transport == "agy" and .skipped == ["native"]'
+  jqt "transports: runtime quota, agy denied → switch to cursor (same version)" "$(tr_ '{"slot":"opus",'"$O"',"available":{"native":true,"agy":true,"cursor":true},"denied":["agy"],"event":"runtime-failure","failed":"native","frozen_version":"5.5","versions":{"agy":"5.5","cursor":"5.5"}}')" '.action == "switch" and .transport == "cursor"'
+  jqt "transports: next serves another version → swap, row 5" "$(tr_ '{"slot":"opus",'"$O"',"available":{"agy":false,"cursor":true},"event":"runtime-failure","failed":"native","frozen_version":"5.5","versions":{"cursor":"5"}}')" '.action == "swap" and .row == 5'
+  jqt "transports: forced @agy failing at run time never falls through" "$(tr_ '{"slot":"opus",'"$O"',"available":{"agy":true},"forced":"agy","event":"runtime-failure","failed":"agy"}')" '.action == "halt" and .row == 5'
+  jqt "transports: forced @agy unavailable → halt row 2" "$(tr_ '{"slot":"opus",'"$O"',"available":{"agy":false},"forced":"agy"}')" '.action == "halt" and .row == 2'
+  jqt "transports: forced @agy denied by policy → used with a warning" "$(tr_ '{"slot":"opus",'"$O"',"available":{"agy":true},"denied":["agy"],"forced":"agy"}')" '.action == "use" and (.reason | test("warning"))'
+  jqt "transports: explicit --model, all transports denied → first available" "$(tr_ '{"slot":"fable","order":["native","cursor"],"available":{"native":true,"cursor":true},"denied":["native","cursor"],"explicit":true}')" '.action == "use" and .transport == "native"'
+  jqt "transports: nothing eligible → halt row 2" "$(tr_ '{"slot":"haiku","order":["native"],"available":{"native":false}}')" '.action == "halt" and .row == 2'
+  jqt "transports: @transport the slot does not have → halt" "$(tr_ '{"slot":"haiku","order":["native"],"available":{},"forced":"agy"}')" '.action == "halt"'
 fi
 
 # =============================================================================================
 if group T8 "lock"; then
   REPO="$(new_repo)"; cd "$REPO" || exit 2
   L() { "$B/route2-lock" "$@"; }
-  sleep 300 & live=$!; lst="$(awk '{print $22}' "/proc/$live/stat")"
-  a="$(L acquire --run r1 --token t1 --host test --pid "$live" --starttime "$lst")"
-  jqt "acquire" "$a" '.result == "acquired" and .generation == 1'
-  jqt "same owner → re-entrant, same generation" "$(L acquire --run r1 --token t1 --host test --pid "$live" --starttime "$lst")" '.result == "reentrant" and .generation == 1'
-  out="$(L acquire --run r2 --token t2 --host test --pid $$ --starttime "$(awk '{print $22}' /proc/$$/stat)")"
-  jqt "other run, live owner → held" "$out" '.result == "held"'
+  st_of() { awk '{print $22}' "/proc/$1/stat"; }
+  sleep 300 & live=$!
+  a="$(L acquire --run r1 --token t1 --host test --pid "$live" --starttime "$(st_of "$live")")"
+  f1="$(jq -r .fence <<<"$a")"
+  jqt "acquire returns generation and fence" "$a" '.result == "acquired" and .generation == 1 and (.fence | startswith("1."))'
+  jqt "the lock file never holds the fence" "$(cat .route2/lock)" 'has("fence") | not'
+  jqt "holder of the fence → re-entrant, same fence" "$(L acquire --run r1 --token t1 --host test --fence "$f1")" ".result == \"reentrant\" and .fence == \"$f1\""
+  jqt "same token and liveness but no fence → held" "$(L acquire --run r1 --token t1 --host test --pid "$live" --starttime "$(st_of "$live")")" '.result == "held"'
+  jqt "other run, live owner → held" "$(L acquire --run r2 --token t2 --host test --pid $$ --starttime "$(st_of $$)")" '.result == "held"'
   jqt "resume of the same run while the owner is live → held" "$(L acquire --run r1 --token t1 --host test --resume --pid $$ --starttime x)" '.result == "held"'
-  # The owner dies; two simultaneous resumes: exactly one acquires.
+  out="$(L exec --gen 1 -- touch "$WORK/gen-only" 2>&1; echo "rc=$?")"
+  if [[ ! -e "$WORK/gen-only" && "$out" == *"rc=4"* ]]; then ok "the generation alone (readable) grants no mutation"; else bad "generation alone refused" "$out"; fi
+  # The owner dies; two simultaneous PID-based resumes: exactly one acquires.
   kill "$live"; wait "$live" 2>/dev/null
   sleep 300 & d1=$!; sleep 300 & d2=$!
-  ( L acquire --run r1 --token t1 --host test --resume --pid "$d1" --starttime "$(awk '{print $22}' "/proc/$d1/stat")" > "$WORK/res1" ) &
-  r1p=$!
-  ( L acquire --run r1 --token t1 --host test --resume --pid "$d2" --starttime "$(awk '{print $22}' "/proc/$d2/stat")" > "$WORK/res2" ) &
-  r2p=$!
+  ( L acquire --run r1 --token t1 --host test --resume --pid "$d1" --starttime "$(st_of "$d1")" > "$WORK/res1" ) & r1p=$!
+  ( L acquire --run r1 --token t1 --host test --resume --pid "$d2" --starttime "$(st_of "$d2")" > "$WORK/res2" ) & r2p=$!
   wait "$r1p" "$r2p" 2>/dev/null
-  n_acq="$(cat "$WORK/res1" "$WORK/res2" | jq -s '[.[] | select(.result == "acquired")] | length')"
-  n_held="$(cat "$WORK/res1" "$WORK/res2" | jq -s '[.[] | select(.result == "held")] | length')"
-  eq "two simultaneous resumes: one acquires, one held" "1 1" "$n_acq $n_held"
-  g="$(L show | jq -r .generation)"
-  eq "generation advanced to 2" 2 "$g"
-  # A stale generation never mutates.
-  out="$(L exec --gen 1 -- touch "$WORK/should-not-exist" 2>&1; echo "rc=$?")"
-  if [[ ! -e "$WORK/should-not-exist" && "$out" == *"rc=4"* ]]; then ok "stale generation: exec refused, command not run"; else bad "stale generation: exec refused" "$out"; fi
-  # Nested fence refused instead of deadlocking.
+  eq "two simultaneous PID resumes: one acquires, one held" "1 1" \
+    "$(cat "$WORK/res1" "$WORK/res2" | jq -s '[.[] | select(.result == "acquired")] | length') $(cat "$WORK/res1" "$WORK/res2" | jq -s '[.[] | select(.result == "held")] | length')"
+  win="$(cat "$WORK/res1" "$WORK/res2" | jq -rs '.[] | select(.result == "acquired") | .fence')"
+  g="$win"
+  eq "generation advanced to 2" 2 "$(L show | jq -r .generation)"
+  out="$(L exec --gen "$f1" -- touch "$WORK/should-not-exist" 2>&1; echo "rc=$?")"
+  if [[ ! -e "$WORK/should-not-exist" && "$out" == *"rc=4"* ]]; then ok "superseded fence: exec refused, command not run"; else bad "superseded fence refused" "$out"; fi
   out="$(L exec --gen "$g" -- "$B/route2-lock" exec --gen "$g" -- true 2>&1; echo "rc=$?")"
   if [[ "$out" == *nested*refused* ]]; then ok "nested route2-lock exec refused"; else bad "nested route2-lock exec refused" "$out"; fi
   # During a live job: bookkeeping writable, the wrapper holds no lock fd.
-  "$B/route2-run" --gen "$g" --job lj --run r1 --role build -- bash -c 'sleep 6' >/dev/null; sleep 1
+  "$B/route2-run" --gen "$g" --job lj --run r1 --role build -- sleep 6 >/dev/null; sleep 1
   w="$(jq -r .wrapper_pid .route2/jobs/lj/meta.json)"
   held=0
   for fd in "/proc/$w/fd"/*; do [[ "$(readlink "$fd" 2>/dev/null)" == *lock.flock ]] && held=1; done
   if (( held )); then bad "wrapper holds no lock fd"; else ok "wrapper holds no lock fd"; fi
   jqt "ledger write during a live job" "$(printf '{"x":1}\n' | "$B/route2-state" --gen "$g" append ledger.jsonl)" '.result == "written"'
+  jqt "the audit records the generation, never the fence" "$(tail -1 .route2/audit.jsonl)" '(.gen | tostring) == "2"'
   # A kill waiting for a protected test does not block other fenced calls.
   mkdir -p vendor/bin; printf '#!/bin/sh\nexec sleep 6\n' > vendor/bin/pest; chmod +x vendor/bin/pest
   printf '#!/bin/bash\nsh -c "vendor/bin/pest" &\nsleep 20\n' > b.sh; chmod +x b.sh
@@ -355,26 +412,49 @@ if group T8 "lock"; then
   sleep 6; "$B/route2-kill" kt --gen "$g" --grace 1 >/dev/null; sleep 1.5; "$B/route2-kill" kt --gen "$g" >/dev/null
   # Another run vs a stale lock with a running job → blocked.
   kill "$d1" "$d2" 2>/dev/null; wait "$d1" "$d2" 2>/dev/null
-  "$B/route2-run" --gen "$g" --job bj --run r1 --role build -- bash -c 'sleep 8' >/dev/null; sleep 1
+  "$B/route2-run" --gen "$g" --job bj --run r1 --role build -- sleep 8 >/dev/null; sleep 1
   jqt "different run vs stale lock with a running job → blocked" "$(L acquire --run r9 --token t9 --host test)" '.result == "blocked"'
   sleep 8
   jqt "different run takes over once the job ended" "$(L acquire --run r9 --token t9 --host test)" '.result == "acquired"'
-  # Heartbeat liveness when no host pid is known.
+  # Heartbeat liveness: two simultaneous heartbeat resumes of a stale owner → exactly one acquires.
   REPO2="$(new_repo)"; cd "$REPO2" || exit 2
   L acquire --run h1 --token th --host test >/dev/null
   jqt "heartbeat owner is live" "$(L acquire --run h2 --token t2 --host test)" '.result == "held"'
   touch -d '2 hours ago' .route2/lock.heartbeat
-  jqt "stale heartbeat → takeover" "$(L acquire --run h2 --token t2 --host test)" '.result == "acquired"'
-  g2="$(L show | jq -r .generation)"
-  jqt "release" "$(L release --token t2 --gen "$g2")" '.result == "released"'
-  jqt "generation survives release" "$(L acquire --run h3 --token t3 --host test)" ".generation == $((g2 + 1))"
+  ( L acquire --run h1 --token th --host test --resume > "$WORK/hb1" ) & p1=$!
+  ( L acquire --run h1 --token th --host test --resume > "$WORK/hb2" ) & p2=$!
+  wait "$p1" "$p2" 2>/dev/null
+  eq "two simultaneous heartbeat resumes: one acquires, one held" "1 1" \
+    "$(cat "$WORK/hb1" "$WORK/hb2" | jq -s '[.[] | select(.result == "acquired")] | length') $(cat "$WORK/hb1" "$WORK/hb2" | jq -s '[.[] | select(.result == "held")] | length')"
+  lose="$(cat "$WORK/hb1" "$WORK/hb2" | jq -rs '.[] | select(.result == "held") | .owner.generation')"
+  out="$(L exec --gen "$lose.guess" -- touch "$WORK/loser-mutation" 2>&1; echo "rc=$?")"
+  if [[ ! -e "$WORK/loser-mutation" && "$out" == *"rc=4"* ]]; then ok "the losing resume cannot mutate"; else bad "the losing resume cannot mutate" "$out"; fi
+  hw="$(cat "$WORK/hb1" "$WORK/hb2" | jq -rs '.[] | select(.result == "acquired") | .fence')"
+  touch -d '2 hours ago' .route2/lock.heartbeat
+  jqt "stale heartbeat → takeover by another run" "$(L acquire --run h2 --token t2 --host test)" '.result == "acquired"'
+  out="$(L exec --gen "$hw" -- touch "$WORK/stale-hb" 2>&1; echo "rc=$?")"
+  if [[ ! -e "$WORK/stale-hb" && "$out" == *"rc=4"* ]]; then ok "superseded heartbeat owner cannot mutate"; else bad "superseded heartbeat owner" "$out"; fi
+  hf="$(L show >/dev/null; L acquire --run h2 --token t2 --host test --fence "9.wrong" | jq -r '.result')"
+  eq "a wrong fence is not re-entry" held "$hf"
+  touch .route2/lock.heartbeat
+  g2gen="$(L show | jq -r .generation)"
+  owner="$(cd "$REPO2" && L acquire --run h3 --token t3 --host test | jq -r .result)"
+  eq "live heartbeat owner keeps the lock" held "$owner"
+  cd "$ROOT" || exit 2
+  # Release and the monotonic generation.
+  REPO3="$(new_repo)"; cd "$REPO3" || exit 2
+  f="$(L acquire --run x --token tx --host test | jq -r .fence)"
+  jqt "release needs the fence" "$(L release --token tx --gen "${f%%.*}.nope" 2>&1 | jq -Rc '{m: .}')" '.m | test("superseded|not the current")'
+  jqt "release with the fence" "$(L release --token tx --gen "$f")" '.result == "released"'
+  jqt "generation survives release" "$(L acquire --run y --token ty --host test)" '.generation == 2'
+  : "$g2gen"
   cd "$ROOT" || exit 2
 fi
 
 # =============================================================================================
 if group T9 "audit and .route2 fingerprint"; then
   REPO="$(new_repo)"; cd "$REPO" || exit 2
-  g="$("$B/route2-lock" acquire --run r --token t --host test | jq -r .generation)"
+  g="$("$B/route2-lock" acquire --run r --token t --host test | jq -r .fence)"
   printf 'stage: plan\n' | "$B/route2-state" --gen "$g" write CHECKPOINT.md >/dev/null
   printf '# plan\n' > .route2/PLAN.md
   "$B/route2-fp" snapshot > "$WORK/a.json"
@@ -388,7 +468,7 @@ if group T9 "audit and .route2 fingerprint"; then
   out="$(printf 'stage: build\n' | "$B/route2-state" --gen "$g" write CHECKPOINT.md 2>&1; echo "rc=$?")"
   if [[ "$out" == *tampered*rc=5* ]]; then ok "tampering before a legitimate write → that write stops"; else bad "tampering before a legitimate write → that write stops" "$out"; fi
   REPO2="$(new_repo)"; cd "$REPO2" || exit 2
-  g="$("$B/route2-lock" acquire --run r --token t --host test | jq -r .generation)"
+  g="$("$B/route2-lock" acquire --run r --token t --host test | jq -r .fence)"
   printf '# plan\n' > .route2/PLAN.md; "$B/route2-fp" snapshot > "$WORK/b.json"
   printf 'changed\n' >> .route2/PLAN.md
   jqt "protected input (.route2/PLAN.md) changed → detected" "$("$B/route2-fp" compare "$WORK/b.json")" '.diffs | index("protected .route2 inputs") != null'
@@ -403,6 +483,22 @@ if group T9 "audit and .route2 fingerprint"; then
   jqt "adopt with a reason" "$("$B/route2-state" --gen "$g" adopt CHECKPOINT.md --reason "user inspected it")" '.result == "adopted"'
   jqt "adopted file verifies" "$("$B/route2-state" verify CHECKPOINT.md)" '.result == "ok"'
   jqt "the adoption is marked in the audit" "$(tail -1 .route2/audit.jsonl)" '.adopted == true and .reason == "user inspected it"'
+  # Lifecycle: delete, archive, rotate — and a fresh checkpoint afterwards without adopt.
+  REPO4="$(new_repo)"; cd "$REPO4" || exit 2
+  g4="$("$B/route2-lock" acquire --run r --token t --host test | jq -r .fence)"
+  printf 'pending\n' | "$B/route2-state" --gen "$g4" write pending-decision.md >/dev/null
+  jqt "delete an audited file" "$("$B/route2-state" --gen "$g4" delete pending-decision.md)" '.result == "written"'
+  jqt "deleted file verifies as absent" "$("$B/route2-state" verify pending-decision.md)" '.result == "ok"'
+  jqt "recreating a deleted file needs no adopt" "$(printf 'again\n' | "$B/route2-state" --gen "$g4" write pending-decision.md)" '.result == "written"'
+  printf 'cp1\n' | "$B/route2-state" --gen "$g4" write CHECKPOINT.md >/dev/null
+  printf '{"r":1}\n' | "$B/route2-state" --gen "$g4" append ledger.jsonl >/dev/null
+  jqt "rotate at the end of a run" "$("$B/route2-state" --gen "$g4" rotate --to run-1)" '.result == "rotated"'
+  if [[ -f .route2/archive/run-1/CHECKPOINT.md && -f .route2/archive/run-1/audit.jsonl && ! -f .route2/CHECKPOINT.md ]]; then ok "rotate moved checkpoint and audit to the archive"; else bad "rotate moved checkpoint and audit"; fi
+  jqt "after rotate a new run writes a fresh checkpoint without adopt" "$(printf 'cp2\n' | "$B/route2-state" --gen "$g4" write CHECKPOINT.md)" '.result == "written"'
+  jqt "the ledger stays audited across the rotation" "$("$B/route2-state" verify ledger.jsonl)" '.result == "ok"'
+  printf 'x\n' >> .route2/ledger.jsonl
+  jqt "rotate refuses while an audited file was tampered with" "$("$B/route2-state" --gen "$g4" rotate --to run-2)" '.result == "tampered"'
+  cd "$REPO2" || exit 2
   # Audit prefix rewritten → detected.
   "$B/route2-fp" snapshot > "$WORK/c.json"; sed -i '1s/.*/{"file":"x"}/' .route2/audit.jsonl
   jqt "audit prefix rewritten → detected" "$("$B/route2-fp" compare "$WORK/c.json")" '.diffs | index("audit.jsonl prefix") != null'
@@ -412,7 +508,7 @@ fi
 # =============================================================================================
 if group T10 "ledger rows from job output"; then
   REPO="$(new_repo)"; cd "$REPO" || exit 2
-  g="$("$B/route2-lock" acquire --run r --token t --host test | jq -r .generation)"
+  g="$("$B/route2-lock" acquire --run r --token t --host test | jq -r .fence)"
   mkdir -p .route2/jobs/j1 .route2/jobs/j2
   cp "$FX/verdicts/cursor-stream.jsonl" .route2/jobs/j1/out; printf 0 > .route2/jobs/j1/exit
   printf '{"run_id":"r","host":"codex"}' > .route2/jobs/j1/meta.json
@@ -424,6 +520,14 @@ if group T10 "ledger rows from job output"; then
   jqt "codex row: usage, session, total" "$row" '.session_id == "t1" and .input_tokens == 10 and .reasoning_tokens == 1 and .total_tokens == 13'
   jqt "append goes through route2-state" "$("$B/route2-ledger" --gen "$g" --job j2 --stage build --cli codex --transport codex --family openai --model gpt-6.1-sol)" '.result == "written"'
   jqt "ledger verifies" "$("$B/route2-state" verify ledger.jsonl)" '.result == "ok"'
+  mkdir -p .route2/jobs/j3
+  printf '{"type":"thread.started","thread_id":"t1"}\n{"type":"turn.completed","usage":{"input_tokens":25,"cached_input_tokens":10,"output_tokens":8,"reasoning_output_tokens":3}}\n' > .route2/jobs/j3/out
+  row="$("$B/route2-ledger" --dry-run --job j3 --stage fix --cli codex --transport codex --family openai --model gpt-6.1-sol)"
+  jqt "codex resume of the same thread: delta in the token fields, raw kept" "$row" \
+    '.input_tokens == 15 and .output_tokens == 5 and .reasoning_tokens == 2 and .raw_cumulative.input_tokens == 25 and .status == "completed"'
+  mkdir -p .route2/jobs/j4; cp "$FX/verdicts/agy-denied.json" .route2/jobs/j4/out
+  row="$("$B/route2-ledger" --dry-run --job j4 --stage critique --cli agy --transport agy --family google --model gemini-3.8-flash-medium)"
+  jqt "agy row: status and denied actions recorded" "$row" '.status == "SUCCESS" and .denied_actions == ["mcp"]'
   cd "$ROOT" || exit 2
 fi
 

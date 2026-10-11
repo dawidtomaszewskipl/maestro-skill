@@ -142,9 +142,11 @@ history: []
 ```
 
 Its actions: `start: <corrected flag line>`, `continue` (the existing run), `start: <queued task
-id>`, `build: <task id> <plan_sha256>`, and `archive-and-start` — rename the checkpoint to
-`CHECKPOINT-<run_id>.archived.md`, then start the attempted task; never a delete. The file is
-deleted once its `current` is answered and acted on; a new non-resume invocation moves its
+id>`, `build: <task id> <plan_sha256>`, and `archive-and-start` — `route2-state --gen N rotate --to
+<run_id>` (the checkpoint, the pending decision and the audit move to `.route2/archive/<run_id>/`,
+verified first), then start the attempted task; never a delete. The file is
+deleted (`route2-state --gen N delete pending-decision.md`) once its `current` is answered and acted
+on; a new non-resume invocation moves its
 `current` to `history` and re-runs every check.
 
 **Candidates on resume** — the existing order, for an attended resume too:
@@ -220,3 +222,20 @@ deleted once its `current` is answered and acted on; a new non-resume invocation
    A transport the frozen slot can no longer use → the transport switch (`docs/hosts.md`).
 6. A checkpoint with `plan_only: true` at `stage: report` is not resumed but built: SKILL.md,
    "Building a `--plan-only` plan".
+
+## Audit and the bookkeeping lifecycle (route2)
+
+`CHECKPOINT.md`, `ledger.jsonl`, `pending-decision.md`, `lock` and every job's `meta.json`, `cmd`
+and `cwd` are **audited**: each write appends `{file, sha256_after, gen, at}` to
+`.route2/audit.jsonl`, and every later write first checks the file against its last entry. Every
+change goes through a helper, inside the fence:
+
+| Operation | Helper |
+| --- | --- |
+| write or append | `route2-state --gen N write|append <file>` (`route2-ledger` for ledger rows) |
+| remove (a resolved `pending-decision.md`) | `route2-state --gen N delete <file>` — recorded as absent, so the file can be created again later |
+| move one file away | `route2-state --gen N archive <file> --to <name>` |
+| end of a run, or `archive-and-start` | `route2-state --gen N rotate --to <run_id>` — verifies every audited file, moves `CHECKPOINT.md`, `pending-decision.md` and `audit.jsonl` to `.route2/archive/<run_id>/`, and starts a fresh audit whose first entries are the current hashes of what stays (the ledger, the lock, the jobs) |
+| accept a file changed outside route2 | `route2-state --gen N adopt <file> --reason "…"` — **only on the user's decision** after they inspected it; never under `--unattended` |
+
+A file changed any other way stops the next write or `--resume` (row 2 under `--unattended`).

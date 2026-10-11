@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Canary shim for route2's transport-switch test. Every call goes to the real claude, except the
+# FIRST builder call (a tool set with Edit): it runs for real until the worker's init and its
+# first Edit/Write, then the real process is killed and Claude Code's quota error is printed.
+REAL="${ROUTE2_REAL_CLAUDE:-$HOME/.local/bin/claude}"
+ST="${ROUTE2_SHIM_STATE:?set ROUTE2_SHIM_STATE to a scratch directory}"
+mkdir -p "$ST"
+echo "$(date +%T) $*" | cut -c1-300 >> "$ST/calls.log"
+if [[ " $* " == *"Edit"* && ! -e "$ST/faulted" ]]; then
+  touch "$ST/faulted"
+  "$REAL" "$@" > "$ST/real.jsonl" &
+  pid=$!
+  for _ in $(seq 600); do
+    if grep -q '"name":"\(Edit\|Write\)"' "$ST/real.jsonl" 2>/dev/null && grep -q '"type":"user"' "$ST/real.jsonl"; then break; fi
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 1
+  done
+  sleep 2; kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  cat "$ST/real.jsonl"
+  printf '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"Claude AI usage limit reached. Your limit will reset at 3am.","session_id":"%s"}\n' \
+    "$(grep -m1 -o '"session_id":"[^"]*"' "$ST/real.jsonl" | cut -d'"' -f4)"
+  echo "Claude AI usage limit reached. Your limit will reset at 3am." >&2
+  echo "$(date +%T) FAULT injected (pid $pid killed)" >> "$ST/calls.log"
+  exit 1
+fi
+exec "$REAL" "$@"

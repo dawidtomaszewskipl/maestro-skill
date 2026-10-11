@@ -54,16 +54,39 @@ snapshot() {
   if [[ -n "$wpid" ]] && kill -0 "$wpid" 2>/dev/null \
      && [[ "$(r2_pid_cmdline "$wpid")" == *"__wrapper $J"* ]]; then wrapper_alive=true; fi
 
-  # Live members: recorded (pid, starttime) pairs still alive, leader excluded.
+  # Live members: recorded (pid, starttime) pairs still alive, leader excluded — plus any live
+  # process still in the job's process group that the recorder never saw (the wrapper may have
+  # died between polls). A recorded pid whose /proc entry exists but cannot be read makes the
+  # state uncertain: it is never counted as gone.
+  local unreadable=0 pg
   if [[ -f "$J/members.jsonl" ]]; then
     live="$(jq -c --arg leader "${pid:-0}" 'select((.pid|tostring) != $leader)' "$J/members.jsonl" \
       | while IFS= read -r m; do
           p="$(jq -r .pid <<<"$m")"; s="$(jq -r .starttime <<<"$m")"
-          if r2_pid_same "$p" "$s"; then printf '%s\n' "$m"; fi
-        done | jq -sc 'unique_by(.pid)')"
+          if r2_pid_same "$p" "$s"; then printf '%s\n' "$m"
+          elif [[ -d "$(r2_proc)/$p" && ! -r "$(r2_proc)/$p/stat" ]]; then printf '{"unreadable":%s}\n' "$p"; fi
+        done | jq -sc 'unique_by(.pid // .unreadable)')"
+  fi
+  if jq -e 'any(.[]; has("unreadable"))' <<<"$live" >/dev/null 2>&1; then unreadable=1; fi
+  live="$(jq -c 'map(select(has("unreadable") | not))' <<<"$live")"
+  pg="$(jq -r '.pgid // empty' "$J/meta.json")"
+  if [[ -n "$pg" ]]; then
+    # One pass over /proc/*/stat: pids whose process group is the job's.
+    # shellcheck disable=SC2013  # awk prints one pid per line; word splitting is what we want
+    for p in $(awk -v pg="$pg" '{ line = $0; sub(/^.*\) /, "", line); split(line, f, " ");
+                                   if (f[3] == pg) { n = FILENAME; sub(/\/stat$/, "", n); sub(/^.*\//, "", n); print n } }' \
+                 "$(r2_proc)"/[0-9]*/stat 2>/dev/null); do
+      [[ "$p" == "${pid:-0}" || "$p" == "${wpid:-0}" || "$p" == "$$" ]] && continue
+      # The wrapper's own helper subshells (its last member scan) are infrastructure, not members.
+      [[ "$(r2_pid_cmdline "$p")" == *"__wrapper $J"* ]] && continue
+      jq -e --arg p "$p" 'any(.[]; (.pid|tostring) == $p)' <<<"$live" >/dev/null && continue
+      live="$(jq -c --arg p "$p" --arg st "$(r2_pid_starttime "$p")" --arg a "$(r2_pid_cmdline "$p")" \
+        --arg pg "$pg" '. + [{pid: ($p|tonumber), starttime: $st, argv: $a, pgid: ($pg|tonumber), unrecorded: true}]' <<<"$live")"
+    done
   fi
 
   if [[ "$leader_alive" == true ]]; then state=running
+  elif (( unreadable )); then state=uncertain
   elif [[ -z "$code" && "$wrapper_alive" == true ]]; then state=running
   elif [[ -n "$code" ]]; then
     if [[ "$(jq 'length' <<<"$live")" -gt 0 ]]; then state=lingering; else state=exited; fi

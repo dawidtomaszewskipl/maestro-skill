@@ -20,12 +20,26 @@ set -euo pipefail
 
 SD="$(r2_state_dir)"
 
-if [[ "${1:-}" == "__signal" ]]; then   # inside the fence: __signal <TERM|KILL> <pid:starttime>…
-  shift; sig="$1"; shift
+if [[ "${1:-}" == "__signal" ]]; then   # inside the fence: __signal <job> <TERM|KILL> <pid:starttime>…
+  shift; jobdir="$1" sig="$2"; shift 2
+  # Last look before signalling: a target that has meanwhile exec'd into a recorded test runner
+  # is protected after all — it is skipped, and the next step reports waiting-tests.
+  runners="$(jq -r '(.test_runners // [])[]' "$jobdir/meta.json" 2>/dev/null || true)"
+  tcmds="$(jq -r '(.test_cmds // [])[]' "$jobdir/meta.json" 2>/dev/null || true)"
   for ps in "$@"; do
     p="${ps%%:*}"; s="${ps#*:}"
-    if r2_pid_same "$p" "$s"; then kill "-$sig" "$p" 2>/dev/null || true; fi
+    r2_pid_same "$p" "$s" || continue
+    cl="$(r2_pid_cmdline "$p")"
+    skip=0
+    if [[ -n "$tcmds" ]] && grep -qxF -- "$cl" <<<"$tcmds"; then skip=1; fi
+    for r in $runners; do for w in $cl; do [[ "$w" == "$r" || "$w" == */"$r" ]] && skip=1; done; done
+    (( skip )) || kill "-$sig" "$p" 2>/dev/null || true
   done
+  # The state update belongs to the same fenced section as the signals.
+  now="$(date +%s)"
+  ks="$(cat "$jobdir/kill.state" 2>/dev/null || echo '{}')"
+  if [[ "$sig" == TERM ]]; then jq -c --argjson t "$now" '. + {term_at: $t}' <<<"$ks" | r2_atomic_write "$jobdir/kill.state"
+  else jq -c --argjson t "$now" '. + {kill_at: $t}' <<<"$ks" | r2_atomic_write "$jobdir/kill.state"; fi
   exit 0
 fi
 
@@ -54,10 +68,14 @@ esac
 # Live set = leader (if alive) + live members.
 pid="$(jq -r '.pid // empty' "$J/meta.json")"; pst="$(jq -r '.pid_starttime // empty' "$J/meta.json")"
 wpid="$(jq -r '.wrapper_pid // empty' "$J/meta.json")"
-live="$(jq -c '.live_members' <<<"$snap")"
+# Current command lines, not only the recorded ones: a member may have exec'd into a test runner.
+live="$(jq -c '.live_members' <<<"$snap" | jq -c '.[]' | while IFS= read -r m; do
+    p="$(jq -r .pid <<<"$m")"
+    jq -c --arg cur "$(r2_pid_cmdline "$p")" '. + {argv_now: $cur}' <<<"$m"
+  done | jq -sc .)"
 if [[ -n "$pid" ]] && r2_pid_same "$pid" "$pst"; then
   live="$(jq -c --arg p "$pid" --arg s "$pst" --arg a "$(r2_pid_cmdline "$pid")" --arg e "$(r2_pid_exe "$pid")" \
-    '. + [{pid: ($p|tonumber), starttime: $s, ppid: null, argv: $a, exe: $e, leader: true}]' <<<"$live")"
+    '. + [{pid: ($p|tonumber), starttime: $s, ppid: null, argv: $a, argv_now: $a, exe: $e, leader: true}]' <<<"$live")"
 fi
 
 # Classification against the recorded tree (members.jsonl keeps each process's ORIGINAL ppid, so a
@@ -67,15 +85,17 @@ classified="$(jq -c --slurpfile rec <(cat "$J/members.jsonl" 2>/dev/null || true
   ($rec | map({key: (.pid | tostring), value: .}) | from_entries) as $byp
   | def chain: [recurse(($byp[tostring].ppid) // empty)] | map(tostring);
     def is_shell: ((.exe // "") | test("/(ba|da|z)?sh$")) or ((.argv // "") | test("^(\\S*/)?(ba|da|z)?sh( |$)"));
+    def runner_in($argv): [ ($meta.test_runners // [])[] as $r | ($argv | split(" "))[]
+              | select(. == $r or endswith("/" + $r)) ] | length > 0;
     def is_test_root: . as $m
-      | ((($meta.test_cmds // []) | index($m.argv)) != null)
-        or ([ ($meta.test_runners // [])[] as $r | ($m.argv | split(" "))[]
-              | select(. == $r or endswith("/" + $r)) ] | length > 0);
-  [ $rec[] | select(is_test_root) | .pid | tostring ] as $roots
+      | [ $m.argv, ($m.argv_now // empty) ] | any(. as $a | ((($meta.test_cmds // []) | index($a)) != null) or runner_in($a));
+  ([ $rec[] | select(is_test_root) | .pid | tostring ]
+   + [ .[] | select(is_test_root) | .pid | tostring ]) as $roots
   | map(. + {chain: (.pid | chain)})
   | map(. + {test: (.chain | any(. as $c | $roots | index($c) != null)),
              classifiable: ((.leader // false) or (.chain | index($w) != null)
-                            or ((($byp[.pid | tostring].pgid) // -1 | tostring) == $w))})
+                            or ((($byp[.pid | tostring].pgid) // -1 | tostring) == $w)
+                            or (((.pgid // -1) | tostring) == $w))})
   | . as $all
   | map(. as $m | . + {wrapper_of_test: (($m | is_shell) and
         ([ $all[] | select(.test and (.pid != $m.pid)) | .chain | index($m.pid | tostring) != null ] | any))})
@@ -100,14 +120,12 @@ if [[ ${#targets[@]} -eq 0 ]]; then
   jq -cn --arg j "$job" '{job_id: $j, result: "done", state: "lost"}'; exit 0
 fi
 if [[ -z "$term_at" ]]; then
-  "$R2_BIN/route2-lock" exec --gen "$gen" -- "$0" __signal TERM "${targets[@]}"
-  jq -cn --argjson t "$now" '{term_at: $t}' | r2_atomic_write "$J/kill.state"
+  "$R2_BIN/route2-lock" exec --gen "$gen" -- "$0" __signal "$J" TERM "${targets[@]}" || exit 4
   jq -cn --arg j "$job" --argjson n "${#targets[@]}" '{job_id: $j, result: "signalled", count: $n}'
 elif (( now - term_at < grace )); then
   jq -cn --arg j "$job" --argjson left "$(( grace - (now - term_at) ))" '{job_id: $j, result: "signalled", grace_left_s: $left}'
 elif [[ -z "$(jq -r '.kill_at // empty' <<<"$ks")" ]]; then
-  "$R2_BIN/route2-lock" exec --gen "$gen" -- "$0" __signal KILL "${targets[@]}"
-  jq -c --argjson t "$now" '. + {kill_at: $t}' <<<"$ks" | r2_atomic_write "$J/kill.state"
+  "$R2_BIN/route2-lock" exec --gen "$gen" -- "$0" __signal "$J" KILL "${targets[@]}" || exit 4
   jq -cn --arg j "$job" --argjson n "${#targets[@]}" '{job_id: $j, result: "killed", count: $n}'
 else
   jq -cn --arg j "$job" --argjson c "$classified" '{job_id: $j, result: "blocked", reason: "members survived SIGKILL", members: $c}'

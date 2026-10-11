@@ -77,7 +77,7 @@ r2_pid_same() {
 
 # NUL-separated cmdline as one space-joined line ("" if unreadable).
 r2_pid_cmdline() {
-  tr '\0' ' ' < "$(r2_proc)/$1/cmdline" 2>/dev/null | sed 's/ $//' || true
+  { tr '\0' ' ' < "$(r2_proc)/$1/cmdline"; } 2>/dev/null | sed 's/ $//' || true
 }
 
 r2_pid_exe() { readlink "$(r2_proc)/$1/exe" 2>/dev/null || true; }
@@ -124,7 +124,7 @@ r2_audit_verify() {
 }
 
 r2_audit_record() {
-  local sd="$1" rel="$2" gen="$3"
+  local sd="$1" rel="$2" gen="${3%%.*}"     # a fence "<gen>.<secret>": only the generation is written
   jq -cn --arg f "$rel" --arg s "$(r2_sha256_file "$sd/$rel")" --arg g "$gen" --arg at "$(r2_now)" \
     '{file: $f, sha256_after: $s, gen: ($g | tonumber? // $g), at: $at}' >> "$sd/audit.jsonl"
 }

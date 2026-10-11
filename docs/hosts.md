@@ -239,15 +239,18 @@ liveness}` and is changed only under `flock -w 30` on `.route2/lock.flock`.
   `{kind: heartbeat}` — every fenced call touches `.route2/lock.heartbeat`, and the owner is live
   while it is younger than `ROUTE2_HEARTBEAT_WINDOW` (default 1800 s; set it to at least 2 ×
   T_slow).
-- **Generation fencing.** Every acquire or takeover increments the generation (it never goes back,
-  even after a release) and publishes the new owner's liveness in the same flock section. Every
-  mutation runs as `route2-lock exec --gen N -- <command>`, which checks `N` and runs the command
-  **while still holding the flock** (`flock -o`: the command and its children hold no lock
+- **Fencing.** Every acquire or takeover increments the generation (it never goes back, even after
+  a release), publishes the new owner's liveness in the same flock section, and returns a **fence**
+  `<generation>.<secret>` to that owner alone — the lock stores only `sha256(fence)`, so neither
+  the readable generation nor the run's token lets a contender mutate (review round 1 reproduced
+  two heartbeat resumes both passing a generation-only check). Re-entry needs the fence
+  (`acquire … --fence F`). Every mutation runs as `route2-lock exec --gen F -- <command>`, which
+  checks the fence and runs the command **while still holding the flock** (`flock -o`: the command and its children hold no lock
   descriptor) — no takeover can fall between the check and the mutation. A nested `route2-lock
   exec` is refused instead of deadlocking. A stale generation → you were superseded; stop without
   touching anything.
-- **Re-entrant** only for the same owner (token and liveness). A second `/route2` in the same host
-  session is a different owner.
+- **Re-entrant** only for the holder of the current fence. A second `/route2` in the same host
+  session — or a second resume of the same run — is a different owner.
 - A **live** owner keeps the lock against everyone, a `--resume` of its own run included. `--resume`
   takes over only a **stale** owner (pid dead or restarted, heartbeat expired) and then adopts the
   run's jobs. Two simultaneous resumes: the first takes over and publishes its liveness, the second

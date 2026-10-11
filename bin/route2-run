@@ -37,19 +37,23 @@ if [[ "${1:-}" == "__wrapper" ]]; then
   record_members() {
     # Descendants of the wrapper (by ppid chain) and members of its process group.
     local -A ppid_of=() pgid_of=()
-    local p st rest pp pg changed
-    for d in "$(r2_proc)"/[0-9]*; do
-      p="${d##*/}"
-      st="$(cat "$d/stat" 2>/dev/null)" || continue
-      rest="${st##*) }"
-      read -r _ pp pg _ <<<"$rest"
-      # A process that vanished mid-read leaves empty fields: skip it (an empty subscript would
-      # abort the wrapper before it records the exit code).
-      [[ "$pp" =~ ^[0-9]+$ && "$pg" =~ ^[0-9]+$ ]] || continue
+    local p pp pg changed
+    # One awk pass over /proc/*/stat: "pid ppid pgid" per live process. A process that vanished
+    # mid-read is simply absent (an empty subscript would abort the wrapper before it records
+    # the exit code).
+    while read -r p pp pg; do
+      [[ "$p" =~ ^[0-9]+$ && "$pp" =~ ^[0-9]+$ && "$pg" =~ ^[0-9]+$ ]] || continue
       ppid_of[$p]="$pp"; pgid_of[$p]="$pg"
-    done
+    done < <(awk '{ line = $0; sub(/^.*\) /, "", line); split(line, f, " ");
+                    n = FILENAME; sub(/\/stat$/, "", n); sub(/^.*\//, "", n); print n, f[2], f[3] }' \
+               "$(r2_proc)"/[0-9]*/stat 2>/dev/null)
     local -A inset=([$$]=1)
-    for p in "${!seen[@]}"; do inset[${p%%:*}]=1; done
+    # Seed only from identities still alive: a recorded pid whose start time changed is a reused
+    # pid, and neither it nor its children belong to this job.
+    local k
+    for k in "${!seen[@]}"; do
+      if r2_pid_same "${k%%:*}" "${k#*:}"; then inset[${k%%:*}]=1; fi
+    done
     changed=1
     while [[ $changed -eq 1 ]]; do
       changed=0
@@ -121,6 +125,8 @@ if [[ "${1:-}" == "__locked" ]]; then
   mkdir "$J" 2>/dev/null || r2_die "route2-run: job $job already exists ($J) — job ids are never reused"
   printf '%s\0' "${cmd[@]}" > "$J/cmd"
   printf '%s' "$cwd" > "$J/cwd"
+  r2_audit_record "$SD" "jobs/$job/cmd" "$gen"
+  r2_audit_record "$SD" "jobs/$job/cwd" "$gen"
   # Spawn: setsid, stdin /dev/null, stdout/stderr away, every fd above 2 closed.
   (
     fds=()
@@ -150,6 +156,8 @@ if [[ "${1:-}" == "__locked" ]]; then
              pid_starttime: (if $st == "" then null else $st end),
              leader_argv: (if $largv == "" then null else $largv end),
              wrapper_pid: ($wpid|tonumber? // null)}' "${cmd[@]}" | r2_atomic_write "$J/meta.json"
+  # meta.json is immutable from here on; its hash is audited so a read-only proof can check it.
+  r2_audit_record "$SD" "jobs/$job/meta.json" "$gen"
   jq -c --arg dir "$J" '{job_id, pid, pgid, pid_starttime, dir: $dir}' "$J/meta.json"
   exit 0
 fi

@@ -1,20 +1,28 @@
 #!/usr/bin/env bash
-# route2-lock — one director per checkout, fenced by a generation (docs/hosts.md, "Lock").
+# route2-lock — one director per checkout, fenced by a secret per owner (docs/hosts.md, "Lock").
 #
-#   route2-lock acquire --run R --token T --host H [--session S] [--pid P --starttime ST] [--resume]
-#   route2-lock check   --gen N
-#   route2-lock exec    --gen N -- <command…>     run <command> inside the fence (flock held)
-#   route2-lock heartbeat --gen N
-#   route2-lock release --token T [--gen N]
+#   route2-lock acquire --run R --token T --host H [--session S] [--pid P --starttime ST]
+#                       [--resume] [--fence F]
+#   route2-lock check     --gen F
+#   route2-lock exec      --gen F -- <command…>   run <command> inside the fence (flock held)
+#   route2-lock heartbeat --gen F
+#   route2-lock release   --token T --gen F
 #   route2-lock show
 #
-# The lock record (.route2/lock, JSON) is {run_id, token, generation, host, session_key, liveness}.
-# liveness = {kind: "pid", pid, starttime} or {kind: "heartbeat"} (then .route2/lock.heartbeat's
-# mtime counts). Every read-modify-write happens under `flock -w 30` on .route2/lock.flock; the
-# descriptor is closed before anything else is executed, so no child ever inherits it.
+# acquire prints {result, generation, fence}. The FENCE is "<generation>.<secret>": the secret is
+# generated at acquire and returned only to the acquirer; the lock stores only its sha256. Every
+# fenced call takes it as --gen, so the generation alone (readable in the lock file) never grants
+# a mutation, and two contenders that both know the run's token still get different fences.
+# Re-entry: `acquire --fence F` with the current fence returns it unchanged. A live owner keeps
+# the lock against everyone else, its own run's --resume included.
 #
-# Exit codes: 0 ok · 3 held by a live owner · 4 stale generation / not the owner · 5 blocked
-# (jobs of the previous owner still alive) · 2 usage or I/O error.
+# The lock record (.route2/lock) is {run_id, token, generation, fence_sha, host, session_key,
+# liveness}; liveness = {kind: "pid", pid, starttime} or {kind: "heartbeat"} (.route2/lock.heartbeat
+# mtime, touched by every fenced call). Every read-modify-write happens under `flock -w 30` on
+# .route2/lock.flock; exec uses `flock -o`, so the command and its children hold no lock fd.
+#
+# Exit codes: 0 ok · 3 held by a live owner · 4 not the current fence (superseded) · 5 blocked
+# (jobs of the previous owner alive) or tampered · 2 usage or I/O error.
 set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/_lib.sh"
 
@@ -30,7 +38,6 @@ mkdir -p "$SD"
 
 cmd="${1:-}"; shift || true
 
-# Parse --key value pairs into variables opt_<key> (dashes → underscores); stop at "--".
 declare -A opt=()
 rest=()
 while [[ $# -gt 0 ]]; do
@@ -43,8 +50,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 read_lock() { if [[ -f "$LOCK" ]]; then cat "$LOCK"; else echo '{}'; fi; }
+sha() { printf '%s' "$1" | sha256sum | cut -c1-64; }
 
-# Is the recorded owner alive?  prints true|false
 owner_alive() {
   local rec="$1" kind pid st age
   kind="$(jq -r '.liveness.kind // empty' <<<"$rec")"
@@ -61,7 +68,6 @@ owner_alive() {
   esac
 }
 
-# Jobs recorded for a run that are not confirmed terminated (running|lingering|orphaned|uncertain).
 live_jobs_of_run() {
   local run="$1" d st
   for d in "$SD"/jobs/*/; do
@@ -72,14 +78,14 @@ live_jobs_of_run() {
   done
 }
 
-write_lock() {  # $1 = JSON record; audited like the rest of the bookkeeping
+write_lock() {
   local gen
   gen="$(jq -r '.generation' <<<"$1")"
   r2_atomic_write "$LOCK" <<<"$1"
   r2_audit_record "$SD" lock "$gen"
 }
 
-with_flock() {  # run a shell function under the flock, descriptor closed afterwards
+with_flock() {
   local fd rc=0
   exec {fd}>>"$LF"
   if ! flock -w "$WAIT_S" "$fd"; then
@@ -90,8 +96,16 @@ with_flock() {  # run a shell function under the flock, descriptor closed afterw
   return "$rc"
 }
 
+# The fence the caller presents must be the current one: generation part equal, secret hash equal.
+fence_ok() {  # $1 = lock record, $2 = presented fence
+  local rec="$1" f="$2" gen
+  [[ -n "$f" && "$f" == *.* ]] || return 1
+  gen="$(jq -r '.generation // empty' <<<"$rec")"
+  [[ "${f%%.*}" == "$gen" && "$(sha "$f")" == "$(jq -r '.fence_sha // empty' <<<"$rec")" ]]
+}
+
 do_acquire() {
-  local rec cur_run cur_token gen alive live_jobs liveness new
+  local rec cur_run cur_token gen alive live_jobs liveness new secret fence
   [[ -n "${opt[run]:-}" && -n "${opt[token]:-}" && -n "${opt[host]:-}" ]] \
     || r2_die "acquire needs --run, --token and --host"
   rec="$(read_lock)"
@@ -101,7 +115,6 @@ do_acquire() {
   cur_run="$(jq -r '.run_id // empty' <<<"$rec")"
   cur_token="$(jq -r '.token // empty' <<<"$rec")"
   gen="$(jq -r '.generation // 0' <<<"$rec")"
-  # The generation never goes back: after a release the counter in lock.gen continues it.
   if [[ -f "$SD/lock.gen" ]] && (( $(cat "$SD/lock.gen") > gen )); then gen="$(cat "$SD/lock.gen")"; fi
   if [[ -n "${opt[pid]:-}" ]]; then
     liveness="$(jq -cn --arg p "${opt[pid]}" --arg s "${opt[starttime]:-}" '{kind:"pid", pid:($p|tonumber), starttime:$s}')"
@@ -110,50 +123,56 @@ do_acquire() {
   fi
 
   if [[ -n "$cur_run" ]]; then
+    # Re-entry: only the holder of the current fence.
+    if [[ -n "${opt[fence]:-}" ]] && fence_ok "$rec" "${opt[fence]}"; then
+      [[ -f "$HB" ]] && touch "$HB"
+      jq -cn --argjson g "$(jq '.generation' <<<"$rec")" --arg f "${opt[fence]}" \
+        '{result: "reentrant", generation: $g, fence: $f}'
+      return 0
+    fi
     alive="$(owner_alive "$rec")"
-    # Re-entrant: the same live owner (same token and the same liveness) gets the same generation.
-    if [[ "$cur_token" == "${opt[token]}" && "$alive" == true \
-          && "$(jq -c '.liveness' <<<"$rec")" == "$liveness" ]]; then
-      jq -cn --argjson g "$gen" '{result: "reentrant", generation: $g}'; return 0
-    fi
     if [[ "$alive" == true ]]; then
-      jq -cn --argjson owner "$rec" '{result: "held", owner: $owner}'; return 3
+      jq -cn --argjson owner "$(jq -c 'del(.fence_sha)' <<<"$rec")" '{result: "held", owner: $owner}'; return 3
     fi
-    # Stale owner.
     if [[ -n "${opt[resume]:-}" ]]; then
       [[ "$cur_run" == "${opt[run]}" && "$cur_token" == "${opt[token]}" ]] || {
-        jq -cn --argjson owner "$rec" '{result: "held", reason: "resume of a different run or token", owner: $owner}'
+        jq -cn --argjson owner "$(jq -c 'del(.fence_sha)' <<<"$rec")" \
+          '{result: "held", reason: "resume of a different run or token", owner: $owner}'
         return 3; }
     else
       live_jobs="$(live_jobs_of_run "$cur_run")"
       if [[ -n "$live_jobs" ]]; then
-        jq -cn --arg jobs "$live_jobs" --argjson owner "$rec" \
+        jq -cn --arg jobs "$live_jobs" --argjson owner "$(jq -c 'del(.fence_sha)' <<<"$rec")" \
           '{result: "blocked", jobs: ($jobs | split("\n") | map(select(. != ""))), owner: $owner}'
         return 5
       fi
     fi
   fi
 
+  secret="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  fence="$((gen + 1)).$secret"
   new="$(jq -cn --arg run "${opt[run]}" --arg token "${opt[token]}" --argjson g "$((gen + 1))" \
-    --arg host "${opt[host]}" --arg s "${opt[session]:-}" --argjson l "$liveness" --arg at "$(r2_now)" \
-    '{run_id: $run, token: $token, generation: $g, host: $host,
+    --arg fs "$(sha "$fence")" --arg host "${opt[host]}" --arg s "${opt[session]:-}" \
+    --argjson l "$liveness" --arg at "$(r2_now)" \
+    '{run_id: $run, token: $token, generation: $g, fence_sha: $fs, host: $host,
       session_key: (if $s == "" then null else $s end), liveness: $l, acquired_at: $at}')"
   write_lock "$new"
   printf '%s' "$((gen + 1))" > "$SD/lock.gen"
+  # Publish liveness in the same flock section (a heartbeat owner is live from this instant).
   if [[ "$(jq -r '.kind' <<<"$liveness")" == heartbeat ]]; then touch "$HB"; fi
   local adopted=""
   [[ -n "${opt[resume]:-}" ]] && adopted="$(live_jobs_of_run "${opt[run]}")"
-  jq -cn --argjson g "$((gen + 1))" --arg a "$adopted" \
-    '{result: "acquired", generation: $g, adopted_jobs: ($a | split("\n") | map(select(. != "")))}'
+  jq -cn --argjson g "$((gen + 1))" --arg f "$fence" --arg a "$adopted" \
+    '{result: "acquired", generation: $g, fence: $f, adopted_jobs: ($a | split("\n") | map(select(. != "")))}'
 }
 
-check_gen_unlocked() {  # caller holds the flock
-  local rec gen
+check_fence_unlocked() {  # caller holds the flock
+  local rec
   rec="$(read_lock)"
-  gen="$(jq -r '.generation // empty' <<<"$rec")"
-  [[ -n "${opt[gen]:-}" && "$gen" == "${opt[gen]}" ]] || {
-    r2_warn "fence: generation ${opt[gen]:-?} is not current (${gen:-none}) — this director was superseded"
-    return 4; }
+  if ! fence_ok "$rec" "${opt[gen]:-}"; then
+    r2_warn "fence: the presented fence is not the current owner's — this director was superseded (or never held the lock)"
+    return 4
+  fi
   r2_audit_verify "$SD" lock || return 4
 }
 
@@ -161,28 +180,26 @@ do_release() {
   local rec
   rec="$(read_lock)"
   [[ "$(jq -r '.token // empty' <<<"$rec")" == "${opt[token]:-}" ]] || { r2_warn "release: token mismatch"; return 4; }
-  if [[ -n "${opt[gen]:-}" ]]; then check_gen_unlocked || return 4; fi
+  check_fence_unlocked || return 4
   rm -f "$LOCK" "$HB"
   r2_audit_record "$SD" lock "release"
   jq -cn '{result: "released"}'
 }
 
-do_heartbeat() { check_gen_unlocked || return 4; touch "$HB"; }
+do_heartbeat() { check_fence_unlocked || return 4; touch "$HB"; }
 
 case "$cmd" in
   acquire)   with_flock do_acquire ;;
-  check)     with_flock check_gen_unlocked && jq -cn --arg g "${opt[gen]}" '{result: "current", generation: ($g|tonumber)}' ;;
+  check)     with_flock check_fence_unlocked && jq -cn --arg f "${opt[gen]}" '{result: "current", generation: ($f | split(".")[0] | tonumber)}' ;;
   heartbeat) with_flock do_heartbeat ;;
   release)   with_flock do_release ;;
-  show)      read_lock ;;
+  show)      read_lock | jq -c 'del(.fence_sha)' ;;
   exec)
     r2_in_fence && r2_die "nested route2-lock exec refused (already inside the fence)"
     [[ ${#rest[@]} -gt 0 ]] || r2_die "exec needs -- <command…>"
-    # flock -o: the lock descriptor is closed before <command> is executed; flock(1) itself holds
-    # the lock until <command> exits. The inner call checks the generation under that lock.
     exec flock -w "$WAIT_S" -o "$LF" env ROUTE2_IN_FENCE=1 "$0" __exec_locked --gen "${opt[gen]:-}" -- "${rest[@]}" ;;
   __exec_locked)
-    check_gen_unlocked || exit 4
+    check_fence_unlocked || exit 4
     [[ -f "$HB" ]] && touch "$HB"
     exec "${rest[@]}" ;;
   *) r2_die "usage: route2-lock acquire|check|exec|heartbeat|release|show …" ;;

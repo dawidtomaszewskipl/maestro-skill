@@ -287,10 +287,12 @@ the session reports serving (`docs/commands.md`, "Effective identity").
    the lock: `"$R2/bin/route2-lock" acquire --run <run_id> --token <token>
    --host <host> --session <key> [--pid <host_pid> --starttime <st>]` (pid and
    start time from `route2-host` when known; otherwise heartbeat liveness).
-   Keep the returned **generation** `N`: every later mutation of the checkout or
-   of `.route2/` goes through `"$R2/bin/route2-lock" exec --gen N -- …` or a
-   helper given `--gen N`, and a refusal there means you were superseded — stop
-   at once. `held` → another director owns this checkout (attended: ask whether
+   Keep the returned **fence** (`<generation>.<secret>`; written `N` below):
+   every later mutation of the checkout or of `.route2/` goes through
+   `"$R2/bin/route2-lock" exec --gen N -- …` or a helper given `--gen N`, and a
+   refusal there means you were superseded — stop at once. The fence is your
+   credential: keep it in this conversation, **never write it into a file**
+   (the lock stores only its hash; re-entry is `acquire … --fence N`). `held` → another director owns this checkout (attended: ask whether
    to wait or abandon; unattended: row 2). `blocked` → jobs of a previous run are
    still alive (`docs/hosts.md`, "Jobs").
 1. Parse flags; reject unknown names, unknown values, illegal combinations.
@@ -400,7 +402,9 @@ skipped ones.
   `--last` or `--continue`.
 - **Transport switch** — a Claude slot whose transport hits quota or becomes
   unavailable continues on the next eligible transport of its order *for the
-  same model id*, as one transaction (`docs/hosts.md`, "Transport switch"):
+  same model id* (`"$R2/bin/route2-roles" --transports` decides use, switch,
+  swap or halt from the order, availability, policy denials and the frozen
+  version), as one transaction (`docs/hosts.md`, "Transport switch"):
   confirm the old session ended, dirty-exit, checkpoint, probe, a new session
   with a brief rewritten for the new transport's capabilities plus the current
   diff and open findings, announced and ledgered. Family unchanged → critics
@@ -532,8 +536,11 @@ closing question against the stop matrix (`docs/unattended.md` A11).
 9. **Report.** Spec, who did what (requested and served models named, with
    transports), review mode, test scope and status, sandbox rung, host,
    families and policy, the cost table (`docs/ledger.md`), what was skipped or
-   degraded (including degraded discovery and provisional slots). Release the
-   lock (`route2-lock release --token <token> --gen N`). A task queue from
+   degraded (including degraded discovery and provisional slots). When the run
+   is **finished** — committed, no open decision, no queued or planned task, not
+   a `--plan-only` result (those checkpoints are still needed) — close its
+   bookkeeping (`route2-state --gen N rotate --to <run_id>`). Then release the
+   lock (`route2-lock release --token <token> --gen N`) in every case. A task queue from
    `--setup` continues with the next task. Under `--unattended` the report opens
    with a `result:` line (`docs/unattended.md`, "Report").
 

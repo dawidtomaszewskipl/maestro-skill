@@ -23,7 +23,7 @@ for a in "$@"; do
     --check=live) check=live ;;
     -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
     -*) echo "install.sh: unknown option $a" >&2; exit 2 ;;
-    *) project="${a%/}" ;;
+    *) project="$(cd "$a" 2>/dev/null && pwd)" || { echo "install.sh: no such directory: $a" >&2; exit 2; } ;;
   esac
 done
 has() { [[ ",$hosts," == *",$1,"* ]]; }
