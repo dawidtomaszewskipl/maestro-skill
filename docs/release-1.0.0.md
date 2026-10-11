@@ -13,7 +13,7 @@ than the alias: `claude-opus-5` accepted, the `opus` alias serving `claude-opus-
 `v6-v7-cursor.txt`, `v9-survival.txt` (the late snapshots, 672–711 s, tied to the moment each
 director session ended), `v11-canaries.txt` (the final report lines and commits of every canary).
 
-`tests/run.sh` on the release revision: **233 passed, 0 failed** (T1–T10; T1 with shellcheck 0.10.0).
+`tests/run.sh` on the release revision: **241 passed, 0 failed** (T1–T10; T1 with shellcheck 0.10.0).
 
 ## Matrix
 

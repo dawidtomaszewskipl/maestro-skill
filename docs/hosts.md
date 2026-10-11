@@ -86,7 +86,7 @@ If your identity changes between dispatches (a model switch, even within a famil
 | Foreground cap | 600 s (silently cut) | the Bash tool's: 120 s default, 600 s max | ~30 s, then the command continues as a background terminal (documented: `yield_time_ms` max 30 000) | set by the model per call (measured: `timeout: 90000` on a `sleep 75`, which finished normally) | 10 s, then the command continues as a background task (measured: `WaitMsBeforeAsync: 10000`) |
 | `route2-wait --max` | — (harness) | 25 | 25 | 25 | 8 |
 | Ask the user | `AskUserQuestion` | nobody — `--unattended` only | `request_user_input` when the tool is listed, else a plain question and end the turn | a plain question and end the turn | `ask_question` (documented in agy's bundled skills) |
-| Ask only when | no worker is running | — | no job is `running`, `lingering` or `orphaned` | same | same |
+| Ask only when | no worker is running | — | no job is `running`, `lingering`, `orphaned` or `uncertain` with a live leader | same | same |
 | Supported configuration | default | default | `codex --sandbox danger-full-access` — the director's own commands must reach the model APIs and run the tests; Codex's default sandbox blocks the network | a project `.cursor/cli.json` allowing exactly the commands below, **without `--force`** | approve command prompts **and file-write prompts**; a **refused** prompt (e.g. file access outside the workspace) ends agy's turn and it waits for the user — under `--unattended` that is a stall, so the configuration must allow everything the run needs inside the workspace and nothing outside it ("Allow creation of this file?" — measured: an interactive agy director asks before writing `.route2/PLAN.md` too), or `permissions.allow` rules in `~/.gemini/antigravity-cli/settings.json` |
 
 **Cursor's allowlist** (`<project>/.cursor/cli.json`; documented: "Only permissions can be
@@ -159,7 +159,7 @@ finishes, so route2 brings its own:
   | `lingering` | `exit` written but members remain (a writer left a background process) — **not** terminated |
   | `orphaned` | leader gone, no `exit`, members remain |
   | `lost` | leader gone, no `exit`, no member left — terminated, outcome unknown |
-  | `uncertain` | `/proc` unreadable — never counted as terminated |
+  | `uncertain` | `/proc`, the leader or a member unreadable — it outranks a live leader (`leader_alive` says whether the leader still runs); never counted as terminated, and `route2-wait` blocks on it like `running` while the leader lives |
 
   Progress = new bytes on stdout (the `--json`/`stream-json` event streams of codex, `claude -p`
   and Cursor, thinking deltas included), or new stderr/`--also` bytes whose last line differs from
@@ -187,9 +187,11 @@ finishes, so route2 brings its own:
     (`--kind test`) are refused outright.
 - The wrapper's own children (its poll `sleep`, its last member scan) are infrastructure and never
   members. `/proc` is read with `cat` over all `stat` files (it continues past processes that vanish
-  mid-read); an unreadable leader or member makes the state `uncertain`.
+  mid-read); an unreadable leader or member makes the state `uncertain` even while the leader is
+  alive, so `route2-kill` never classifies an incomplete live set.
 
-**You never end your turn while a job is `running`, `lingering` or `orphaned`.** Loop
+**You never end your turn while a job is `running`, `lingering` or `orphaned`, or `uncertain`
+with `leader_alive: true`.** Loop
 `route2-wait --max <n>` (the adapter row above: 25, agy 8), sample progress, and ask the user
 nothing meanwhile. Hang = no progress for max(15 min,
 2 × T_slow) → read the job's files → `route2-kill`; never for tests.

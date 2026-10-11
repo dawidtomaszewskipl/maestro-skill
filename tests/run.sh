@@ -324,6 +324,38 @@ if group T4 "jobs"; then
     "$(ROUTE2_PROC="$WORK/noproc" "$B/route2-kill" j10 --gen "$gen")" '.result == "blocked"'
   # Unreadable /proc → uncertain.
   jqt "unreadable /proc → uncertain" "$(ROUTE2_PROC="$WORK/noproc" "$B/route2-wait" j10 --peek)" '.state == "uncertain"'
+  # A live leader does not outrank an unreadable member. Fake /proc with pids above pid_max (no
+  # real process can be signalled): leader L alive, recorded member L+1 alive, and a recovered
+  # process L+2 in the job's group whose stat was readable during the group scan but is not when
+  # its identity is read (the entry L+3 carries L+2's stat line — the scan takes the pid from the
+  # line itself — while L+2/stat is unreadable).
+  UP="$WORK/unrproc"; L0=4194400
+  ufake() { mkdir -p "$UP/$1"; printf '%s (x) S %s %s %s 0 -1 0 0 0 0 0 0 0 0 20 0 1 0 0 %s 0 0\n' "$2" "$3" "$4" "$4" "$5" > "$UP/$1/stat"; printf 'x\0' > "$UP/$1/cmdline"; }
+  ufake 1 1 0 1 1; ufake "$L0" "$L0" 1 "$L0" 5000; ufake "$((L0 + 1))" "$((L0 + 1))" "$L0" "$L0" 5001
+  ufake "$((L0 + 2))" "$((L0 + 2))" "$((L0 + 1))" "$L0" 5002; chmod 000 "$UP/$((L0 + 2))/stat"
+  ufake "$((L0 + 3))" "$((L0 + 2))" "$((L0 + 1))" "$L0" 5002
+  mkdir -p .route2/jobs/j18
+  jq -cn --argjson l "$L0" --arg cwd "$REPO" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{job_id: "j18", kind: "build", pid: $l, pid_starttime: "5000",
+     wrapper_pid: ($l - 1), pgid: $l, cwd: $cwd, cmd: ["./x.sh"], started_at: $t}' > .route2/jobs/j18/meta.json
+  # The leader's record names the (gone) wrapper as its parent, so the recorded member is
+  # classifiable: without the uncertainty the kill would proceed — the test tells the two apart.
+  { printf '{"pid":%s,"starttime":"5000","ppid":%s,"pgid":%s,"argv":"./x.sh","cwd":"%s","exe":"/usr/bin/bash"}\n' "$L0" "$((L0 - 1))" "$L0" "$REPO"
+    printf '{"pid":%s,"starttime":"5001","ppid":%s,"pgid":%s,"argv":"x","cwd":"%s","exe":"/usr/bin/x"}\n' "$((L0 + 1))" "$L0" "$L0" "$REPO"; } > .route2/jobs/j18/members.jsonl
+  jqt "live leader + unreadable recovered member → uncertain, leader_alive" \
+    "$(ROUTE2_PROC="$UP" "$B/route2-wait" j18 --peek)" '.state == "uncertain" and .leader_alive == true'
+  t0="$(date +%s)"; o18="$(ROUTE2_PROC="$UP" "$B/route2-wait" j18 --max 3)"
+  jqt "… route2-wait keeps blocking while the leader lives" "$o18" '.state == "uncertain"'
+  if (( $(date +%s) - t0 >= 3 )); then ok "… for the whole --max"; else bad "… for the whole --max" "returned after $(( $(date +%s) - t0 )) s"; fi
+  jqt "… route2-kill → blocked, nothing signalled" \
+    "$(ROUTE2_PROC="$UP" "$B/route2-kill" j18 --gen "$gen" --grace 1)" '.result == "blocked"'
+  if [[ -e .route2/jobs/j18/kill.state ]]; then bad "… kill.state unchanged" "$(cat .route2/jobs/j18/kill.state)"; else ok "… kill.state unchanged"; fi
+  # The fenced step itself (as if the outer look had passed) also refuses on the same snapshot.
+  jqt "… the fenced step refuses too" \
+    "$(ROUTE2_PROC="$UP" "$B/route2-lock" exec --gen "$gen" -- "$B/route2-kill" __step "$REPO/.route2/jobs/j18" TERM)" '.result == "blocked"'
+  if [[ -e .route2/jobs/j18/kill.state ]]; then bad "… and leaves kill.state alone" "$(cat .route2/jobs/j18/kill.state)"; else ok "… and leaves kill.state alone"; fi
+  chmod 600 "$UP/$((L0 + 2))/stat"
+  jqt "once readable: running (the recovered process joins the live set)" \
+    "$(ROUTE2_PROC="$UP" "$B/route2-wait" j18 --peek)" '.state == "running" and ([.live_members[].pid] | index('"$((L0 + 2))"') != null)'
   cd "$ROOT" || exit 2
 fi
 

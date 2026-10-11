@@ -3,14 +3,15 @@
 #
 #   route2-wait <job-id> [--max S] [--peek] [--also FILE]
 #
-# Prints one JSON line: {job_id, state, code, elapsed, last_progress_at, progress_source,
+# Prints one JSON line: {job_id, state, code, leader_alive, elapsed, last_progress_at, progress_source,
 # live_members, unowned}. state:
 #   running    the leader (or the wrapper finishing it) is alive
 #   exited     exit written and no member left — terminated; success only for code "0"
 #   lingering  exit written but members remain (e.g. a writer left a background process)
 #   orphaned   leader gone, no exit, members remain
 #   lost       leader gone, no exit, no member left — terminated, outcome unknown
-#   uncertain  /proc unreadable: never counted as terminated
+#   uncertain  /proc, the leader or a member unreadable (the leader may still be alive: see
+#              leader_alive) — never counted as terminated; blocks like running while the leader lives
 # Blocks up to --max seconds (default $ROUTE2_WAIT_MAX or 25) while running; --peek never blocks
 # and never updates the progress record. --also FILE counts FILE's growth as progress too (agy's
 # CLI log). Progress = new bytes on stdout, or on stderr/--also with a last line different from
@@ -96,8 +97,10 @@ snapshot() {
     done
   fi
 
-  if [[ "$leader_alive" == true ]]; then state=running
-  elif (( unreadable || leader_unreadable )); then state=uncertain
+  # An unreadable leader or member outranks everything, a live leader included: the live set is
+  # incomplete, and route2-kill must never classify (or signal) an incomplete set.
+  if (( unreadable || leader_unreadable )); then state=uncertain
+  elif [[ "$leader_alive" == true ]]; then state=running
   elif [[ -z "$code" && "$wrapper_alive" == true ]]; then state=running
   elif [[ -n "$code" ]]; then
     if [[ "$(jq 'length' <<<"$live")" -gt 0 ]]; then state=lingering; else state=exited; fi
@@ -144,7 +147,8 @@ snapshot() {
   elapsed=$(( now - started ))
   jq -cn --arg j "$job" --arg state "$state" --arg code "$code" --argjson el "$elapsed" \
     --argjson lp "$lp" --arg src "$src" --argjson live "$live" --argjson un "$unowned" \
-    '{job_id: $j, state: $state, code: (if $code == "" then null else $code end), elapsed: $el,
+    --argjson la "$leader_alive" \
+    '{job_id: $j, state: $state, code: (if $code == "" then null else $code end), leader_alive: $la, elapsed: $el,
       last_progress_at: ($lp | todate), idle_s: (now - $lp | floor),
       progress_source: (if $src == "" then null else $src end),
       live_members: $live, unowned: $un}'
@@ -155,6 +159,8 @@ deadline=$(( $(date +%s) + max ))
 while :; do
   out="$(snapshot)"
   st="$(jq -r .state <<<"$out")"
+  # Keep blocking while the leader lives, even when the state is uncertain (it is not terminated).
+  if [[ "$st" == uncertain && "$(jq -r '.leader_alive // false' <<<"$out")" == true ]]; then st=running; fi
   if [[ "$st" != running || $(date +%s) -ge $deadline ]]; then printf '%s\n' "$out"; exit 0; fi
   sleep 2
 done

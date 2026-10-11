@@ -369,7 +369,8 @@ skipped ones.
   --run <run_id> --role <role> [--test-cmd …] -- "$R2/bin/route2-env" -- <line>`
   (it owns the output redirection — the line carries none), then
   `"$R2/bin/route2-wait" <job>` in a loop. **Never end your turn while a job is
-  `running`, `lingering` or `orphaned`**; ask the user nothing meanwhile. The
+  `running`, `lingering`, `orphaned`, or `uncertain` with `leader_alive: true`**;
+  ask the user nothing meanwhile. The
   one exception is `blocked` (`docs/hosts.md`): report it and stop with the
   lock kept.
 - **Every external worker runs through `"$R2/bin/route2-env" --`**, which strips
