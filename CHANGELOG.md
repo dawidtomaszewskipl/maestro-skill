@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.1 — 2026-10-12
+
+Fixes from the first real run (legat, interactive Claude Code):
+
+- **A helper given `--gen` inside `maestro-lock exec` no longer fails.** The nested exec used to
+  be refused outright; it now runs the command directly while the enclosing `flock` process (the
+  one holding this repository's lock) is alive and the fence is still current, and refuses
+  otherwise. Workers and jobs never inherit the fence variables. SKILL.md says which helpers take
+  the fence themselves, so wrapping them is not needed at all.
+- **`maestro-catalog refresh --gen N`.** The sources are read outside the lock (network calls), the
+  write of `catalog.json` runs inside the fence; a superseded fence leaves the file untouched.
+- **Ledger rows on an interactive Claude Code carry `run_id` and `host`.** Its job directories
+  have no `meta.json` (the Bash tool's background mode, not `maestro-run`); `maestro-ledger` now
+  takes both from the lock record, or from the new `--run`/`--host` options.
+- Tests 250 passing.
+
 ## 1.1.0 — 2026-10-11
 
 **Renamed from route2 to maestro** — a new skill in its own right, not a version of route. No change

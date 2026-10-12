@@ -96,8 +96,10 @@ mae_own_pids() {
 
 # --- fence ------------------------------------------------------------------------------------
 # Every mutating script self-wraps through `maestro-lock exec --gen N -- <script> __locked …`.
-# Inside the fence MAESTRO_IN_FENCE=1 is exported; a nested `maestro-lock exec` refuses instead of
-# deadlocking (the flock is held by the outer flock(1) process on its own descriptor).
+# Inside the fence MAESTRO_IN_FENCE=1 and MAESTRO_FENCE_HOLDER=<flock pid>:<start time> are
+# exported. A nested `maestro-lock exec` does not take the flock again (that would deadlock: the
+# outer flock(1) process holds it on its own descriptor); it runs the command directly while that
+# holder is alive and the fence is still current, and refuses otherwise.
 mae_in_fence() { [[ "${MAESTRO_IN_FENCE:-}" == "1" ]]; }
 
 # --- audit of director bookkeeping (docs/checkpoint.md, "Audit") -----------------------------

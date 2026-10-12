@@ -290,7 +290,13 @@ the session reports serving (`docs/commands.md`, "Effective identity").
    Keep the returned **fence** (`<generation>.<secret>`; written `N` below):
    every later mutation of the checkout or of `.maestro/` goes through
    `"$MAESTRO/bin/maestro-lock" exec --gen N -- …` or a helper given `--gen N`, and a
-   refusal there means you were superseded — stop at once. The fence is your
+   refusal there means you were superseded — stop at once. **A helper given
+   `--gen N` takes the fence itself** (`maestro-run`, `maestro-state`,
+   `maestro-kill`, `maestro-ledger`, `maestro-catalog refresh|record-probe|
+   record-resolved`): call it directly, never wrapped in `maestro-lock exec` —
+   that nesting is tolerated, but it is never needed. `maestro-lock exec` is for
+   commands that know nothing about the fence (`git commit`, `git apply`, a
+   file you write yourself). The fence is your
    credential: keep it in this conversation, **never write it into a file**
    (the lock stores only its hash; re-entry is `acquire … --fence N`). `held` → another director owns this checkout (attended: ask whether
    to wait or abandon; unattended: row 2). `blocked` → jobs of a previous run are
@@ -318,7 +324,7 @@ the session reports serving (`docs/commands.md`, "Effective identity").
    eligible families and transports (`maestro-roles`), validate it, apply the
    cascade family rule. It becomes final at the assignment step. Under
    `--unattended` every halt here is a row 2 stop (A8, A9).
-4a. **Live catalog**: `"$MAESTRO/bin/maestro-catalog" refresh` (codex `debug
+4a. **Live catalog**: `"$MAESTRO/bin/maestro-catalog" refresh --gen N` (codex `debug
    models`, `agy models`, `agent --list-models` — no model turns). Stale or
    bundled Codex data is degraded discovery: say so in the Assign line.
 5. **Probes for the slots the roster uses** (under `--setup`, after its

@@ -274,7 +274,10 @@ liveness}` and is changed only under `flock -w 30` on `.maestro/lock.flock`.
   (`acquire … --fence F`). Every mutation runs as `maestro-lock exec --gen F -- <command>`, which
   checks the fence and runs the command **while still holding the flock** (`flock -o`: the command and its children hold no lock
   descriptor) — no takeover can fall between the check and the mutation. A nested `maestro-lock
-  exec` is refused instead of deadlocking. A stale generation → you were superseded; stop without
+  exec` (a helper given `--gen` inside a fenced command) does not take the flock again — that
+  would deadlock — but runs directly while the enclosing flock holder is alive and the fence is
+  still current; once that holder is gone (a detached child that outlived the section) it is
+  refused. Workers and jobs never inherit the fence variables (`maestro-env`, `maestro-run`). A stale generation → you were superseded; stop without
   touching anything.
 - **Re-entrant** only for the holder of the current fence. A second `/maestro` in the same host
   session — or a second resume of the same run — is a different owner.

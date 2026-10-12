@@ -488,8 +488,26 @@ if group T8 "lock"; then
   eq "generation advanced to 2" 2 "$(L show | jq -r .generation)"
   out="$(L exec --gen "$f1" -- touch "$WORK/should-not-exist" 2>&1; echo "rc=$?")"
   if [[ ! -e "$WORK/should-not-exist" && "$out" == *"rc=4"* ]]; then ok "superseded fence: exec refused, command not run"; else bad "superseded fence refused" "$out"; fi
-  out="$(L exec --gen "$g" -- "$B/maestro-lock" exec --gen "$g" -- true 2>&1; echo "rc=$?")"
-  if [[ "$out" == *nested*refused* ]]; then ok "nested maestro-lock exec refused"; else bad "nested maestro-lock exec refused" "$out"; fi
+  out="$(L exec --gen "$g" -- "$B/maestro-lock" exec --gen "$g" -- touch "$WORK/nested-ok" 2>&1; echo "rc=$?")"
+  if [[ -e "$WORK/nested-ok" && "$out" == *"rc=0"* ]]; then ok "nested maestro-lock exec inside a live fence runs (no deadlock)"; else bad "nested exec inside a live fence runs" "$out"; fi
+  out="$(L exec --gen "$g" -- "$B/maestro-lock" exec --gen "$f1" -- touch "$WORK/nested-stale" 2>&1; echo "rc=$?")"
+  if [[ ! -e "$WORK/nested-stale" && "$out" == *"rc=4"* ]]; then ok "nested exec with a superseded fence refused"; else bad "nested exec with a superseded fence refused" "$out"; fi
+  out="$(MAESTRO_IN_FENCE=1 MAESTRO_FENCE_HOLDER="999999999:1" L exec --gen "$g" -- touch "$WORK/nested-gone" 2>&1; echo "rc=$?")"
+  if [[ ! -e "$WORK/nested-gone" && "$out" == *"section is gone"* ]]; then ok "nested exec after the fenced section ended refused"; else bad "nested exec after the section ended refused" "$out"; fi
+  out="$(MAESTRO_IN_FENCE=1 MAESTRO_FENCE_HOLDER="$$:$(st_of $$)" L exec --gen "$g" -- touch "$WORK/nested-fake" 2>&1; echo "rc=$?")"
+  if [[ ! -e "$WORK/nested-fake" && "$out" == *"section is gone"* ]]; then ok "a live holder that is not this lock's flock is refused"; else bad "fake holder refused" "$out"; fi
+  jqt "a helper given --gen inside maestro-lock exec works (maestro-state)" \
+    "$(printf '{"n":1}\n' | L exec --gen "$g" -- "$B/maestro-state" --gen "$g" append ledger.jsonl)" '.result == "written"'
+  eq "a worker launched inside the fence does not inherit it (maestro-env)" 0 \
+    "$(L exec --gen "$g" -- "$B/maestro-env" -- env | grep -c -E '^MAESTRO_(IN_FENCE|FENCE_HOLDER)=' || true)"
+  # catalog refresh --gen: sources read outside the lock, the write inside the fence.
+  jqt "catalog refresh --gen writes the catalog" \
+    "$("$B/maestro-catalog" refresh --gen "$g" --fixtures "$FX/catalogs/machine-2026-10-11")" '.slots.codex.sol[0] == "6.1"'
+  h0="$(sha256sum .maestro/catalog.json | cut -c1-64)"
+  out="$("$B/maestro-catalog" refresh --gen "$f1" --fixtures "$FX/catalogs/machine-2026-10-11" 2>&1; echo "rc=$?")"
+  if [[ "$out" == *"rc=4"* && "$(sha256sum .maestro/catalog.json | cut -c1-64)" == "$h0" ]]; then
+    ok "catalog refresh with a superseded fence leaves the catalog untouched"
+  else bad "catalog refresh with a superseded fence refused" "$out"; fi
   # During a live job: bookkeeping writable, the wrapper holds no lock fd.
   "$B/maestro-run" --gen "$g" --job lj --run r1 --role build -- sleep 6 >/dev/null; sleep 1
   w="$(jq -r .wrapper_pid .maestro/jobs/lj/meta.json)"
@@ -626,6 +644,10 @@ if group T10 "ledger rows from job output"; then
   printf '{"type":"thread.started","thread_id":"t1"}\n{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":4,"output_tokens":3,"reasoning_output_tokens":1}}\n' > .maestro/jobs/j2/out
   row="$("$B/maestro-ledger" --dry-run --job j2 --stage build --cli codex --transport codex --family openai --model gpt-6.1-sol)"
   jqt "codex row: usage, session, total" "$row" '.session_id == "t1" and .input_tokens == 10 and .reasoning_tokens == 1 and .total_tokens == 13'
+  jqt "no meta.json (interactive Claude Code job): run and host from the lock" "$row" '.run_id == "r" and .host == "test"'
+  jqt "… --run/--host override the lock" \
+    "$("$B/maestro-ledger" --dry-run --job j2 --stage build --cli codex --transport codex --family openai --model m --run r9 --host claude-code)" \
+    '.run_id == "r9" and .host == "claude-code"'
   jqt "append goes through maestro-state" "$("$B/maestro-ledger" --gen "$g" --job j2 --stage build --cli codex --transport codex --family openai --model gpt-6.1-sol)" '.result == "written"'
   jqt "ledger verifies" "$("$B/maestro-state" verify ledger.jsonl)" '.result == "ok"'
   mkdir -p .maestro/jobs/j3

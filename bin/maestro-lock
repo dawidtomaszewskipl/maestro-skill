@@ -195,12 +195,27 @@ case "$cmd" in
   release)   with_flock do_release ;;
   show)      read_lock | jq -c 'del(.fence_sha)' ;;
   exec)
-    mae_in_fence && mae_die "nested maestro-lock exec refused (already inside the fence)"
     [[ ${#rest[@]} -gt 0 ]] || mae_die "exec needs -- <command…>"
+    if mae_in_fence; then
+      # Already inside a fenced section (a helper given --gen, called from a command that runs
+      # under `maestro-lock exec`). The flock is held by the outer flock(1) process for as long as
+      # it lives, so a nested exec runs the command directly — but only while that holder is
+      # alive (a detached child that outlived the section holds nothing) and only for the current
+      # fence (checked again here, under the holder's lock). Taking the flock again would deadlock.
+      holder="${MAESTRO_FENCE_HOLDER:-}"
+      if [[ -n "$holder" ]] && mae_pid_same "${holder%%:*}" "${holder#*:}" \
+         && [[ "$(mae_pid_cmdline "${holder%%:*}")" == "flock "*" -o $LF "* ]]; then
+        check_fence_unlocked || exit 4
+        exec "${rest[@]}"
+      fi
+      mae_die "nested maestro-lock exec refused: the enclosing fenced section is gone"
+    fi
     exec flock -w "$WAIT_S" -o "$LF" env MAESTRO_IN_FENCE=1 "$0" __exec_locked --gen "${opt[gen]:-}" -- "${rest[@]}" ;;
   __exec_locked)
     check_fence_unlocked || exit 4
     [[ -f "$HB" ]] && touch "$HB"
+    # The parent is flock(1), which holds the lock until the command exits: nested calls check it.
+    MAESTRO_FENCE_HOLDER="$PPID:$(mae_pid_starttime "$PPID")"; export MAESTRO_FENCE_HOLDER
     exec "${rest[@]}" ;;
   *) mae_die "usage: maestro-lock acquire|check|exec|heartbeat|release|show …" ;;
 esac

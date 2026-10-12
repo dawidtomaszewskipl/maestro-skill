@@ -142,7 +142,7 @@ if [[ "${1:-}" == "__locked" ]]; then
     fds=()
     for fd in "/proc/$BASHPID/fd"/*; do fds+=("${fd##*/}"); done
     for n in "${fds[@]}"; do (( n > 2 )) && eval "exec $n>&-" 2>/dev/null; done
-    exec setsid "$0" __wrapper "$J" < /dev/null > /dev/null 2>&1
+    exec setsid env -u MAESTRO_IN_FENCE -u MAESTRO_FENCE_HOLDER "$0" __wrapper "$J" < /dev/null > /dev/null 2>&1
   ) &
   # Wait (<= 10 s) for the wrapper to publish the leader pid or a launch failure.
   for _ in $(seq 100); do

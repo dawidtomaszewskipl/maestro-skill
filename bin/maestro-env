@@ -17,7 +17,7 @@ fi
 [[ "${1:-}" == "--" ]] && shift
 [[ $# -gt 0 ]] || { echo "usage: maestro-env -- <command> [args…]" >&2; exit 2; }
 
-drop=(CLAUDECODE AI_AGENT)
+drop=(CLAUDECODE AI_AGENT MAESTRO_IN_FENCE MAESTRO_FENCE_HOLDER)   # a worker never inherits the fence
 while IFS='=' read -r name _; do
   case "$name" in
     CLAUDE_CONFIG_DIR) ;;                       # where Claude Code's auth lives: keep

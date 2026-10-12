@@ -6,8 +6,9 @@ CLIs publish, then freezes what it found for the run.
 
 ## Sources
 
-`"$MAESTRO/bin/maestro-catalog" refresh` reads every source **without a model turn** and writes
-`.maestro/catalog.json`:
+`"$MAESTRO/bin/maestro-catalog" refresh --gen N` reads every source **without a model turn** and
+writes `.maestro/catalog.json` (the sources are read outside the lock; only the write runs inside
+the fence):
 
 | Transport | Source | Notes (measured 2026-10-11) |
 | --- | --- | --- |

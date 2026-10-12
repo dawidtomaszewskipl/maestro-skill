@@ -4,11 +4,13 @@
 #   maestro-ledger --gen N --job <id> --stage <stage> --cli codex|agy|claude-cli|cursor-agent
 #                 --transport native|agy|cursor|codex --family <family> --model <requested>
 #                 [--effort E] [--round R] [--outcome TEXT] [--verdict V]
-#                 [--effective-config JSON|TEXT] [--service-tier TIER] [--dry-run]
+#                 [--effective-config JSON|TEXT] [--service-tier TIER] [--run ID] [--host H] [--dry-run]
 #
 # Reads .maestro/jobs/<id>/: `out` (the event stream or envelope), `answer` (codex -o), `exit`,
-# `meta.json`. Usage is taken from the CLI's own fields — codex: the last turn.completed.usage;
-# agy: the envelope's usage (cumulative per conversation: kept raw in raw_cumulative); claude-cli:
+# `meta.json`. run_id and host come from meta.json (a maestro-run job), else from --run/--host,
+# else from the lock record — an interactive Claude Code launches with the Bash tool's background
+# mode, so its job directories have no meta.json. Usage is taken from the CLI's own fields —
+# codex: the last turn.completed.usage; agy: the envelope's usage (cumulative per conversation: kept raw in raw_cumulative); claude-cli:
 # the result event's usage and modelUsage; cursor-agent: the result event's usage and init.model.
 # Codex resumes and agy conversations report CUMULATIVE usage: the raw counters go into
 # raw_cumulative and the token fields get the delta against the previous row of the same session.
@@ -19,6 +21,7 @@ set -euo pipefail
 
 SD="$(mae_state_dir)"
 gen="" job="" stage="" cli="" transport="" family="" model="" effort="" round="" outcome="" verdict="" effcfg="" tier="" dry=0
+run_opt="" host_opt=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --gen) gen="$2"; shift 2 ;;
@@ -34,6 +37,8 @@ while [[ $# -gt 0 ]]; do
     --verdict) verdict="$2"; shift 2 ;;
     --effective-config) effcfg="$2"; shift 2 ;;
     --service-tier) tier="$2"; shift 2 ;;
+    --run) run_opt="$2"; shift 2 ;;
+    --host) host_opt="$2"; shift 2 ;;
     --dry-run) dry=1; shift ;;
     *) mae_die "maestro-ledger: unknown option $1" ;;
   esac
@@ -110,6 +115,11 @@ if [[ "$cli" == codex || "$cli" == agy ]] && [[ -n "$sid" ]] \
 fi
 
 meta='{}'; [[ -f "$J/meta.json" ]] && meta="$(cat "$J/meta.json")"
+# Fill run_id and host where meta.json has none: the options first, then the lock record.
+lockinfo='{}'; [[ -f "$SD/lock" ]] && lockinfo="$(jq -c '{run_id, host}' "$SD/lock" 2>/dev/null || echo '{}')"
+meta="$(jq -c --argjson l "$lockinfo" --arg r "$run_opt" --arg h "$host_opt" '
+  def nn: if . == "" then null else . end;
+  . + {run_id: (.run_id // ($r | nn) // $l.run_id // null), host: (.host // ($h | nn) // $l.host // null)}' <<<"$meta")"
 code=null; [[ -f "$J/exit" ]] && code="$(jq -Rc . < "$J/exit")"
 row="$(jq -cn --arg ts "$(mae_now)" --argjson meta "$meta" --arg stage "$stage" --arg cli "$cli" \
   --arg transport "$transport" --arg family "$family" --arg model "$model" --argjson served "${served:-null}" \
