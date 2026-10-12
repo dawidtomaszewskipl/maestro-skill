@@ -5,6 +5,12 @@
 #                 --transport native|agy|cursor|codex --family <family> --model <requested>
 #                 [--effort E] [--round R] [--outcome TEXT] [--verdict V]
 #                 [--effective-config JSON|TEXT] [--service-tier TIER] [--run ID] [--host H] [--dry-run]
+#   maestro-ledger --gen N --cli claude-agent --stage <stage> --transport native --family claude
+#                 --model <alias> --served <model id> --agent-id <id> --total-tokens N
+#                 [--tool-uses N] [--duration-ms N] [--status success|error] [other options as above]
+#       An Agent-tool call (interactive Claude Code) has no job: its numbers come from the
+#       subagent's completion (total tokens, tool uses, duration — the harness reports no split
+#       into input and output, so those fields stay null) and job_id is null.
 #
 # Reads .maestro/jobs/<id>/: `out` (the event stream or envelope), `answer` (codex -o), `exit`,
 # `meta.json`. run_id and host come from meta.json (a maestro-run job), else from --run/--host,
@@ -21,7 +27,7 @@ set -euo pipefail
 
 SD="$(mae_state_dir)"
 gen="" job="" stage="" cli="" transport="" family="" model="" effort="" round="" outcome="" verdict="" effcfg="" tier="" dry=0
-run_opt="" host_opt=""
+run_opt="" host_opt="" served_opt="" agent_id="" total_opt="" tool_uses="" dur_ms="" status_opt=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --gen) gen="$2"; shift 2 ;;
@@ -37,16 +43,32 @@ while [[ $# -gt 0 ]]; do
     --verdict) verdict="$2"; shift 2 ;;
     --effective-config) effcfg="$2"; shift 2 ;;
     --service-tier) tier="$2"; shift 2 ;;
+    --served) served_opt="$2"; shift 2 ;;
+    --agent-id) agent_id="$2"; shift 2 ;;
+    --total-tokens) total_opt="$2"; shift 2 ;;
+    --tool-uses) tool_uses="$2"; shift 2 ;;
+    --duration-ms) dur_ms="$2"; shift 2 ;;
+    --status) status_opt="$2"; shift 2 ;;
     --run) run_opt="$2"; shift 2 ;;
     --host) host_opt="$2"; shift 2 ;;
     --dry-run) dry=1; shift ;;
     *) mae_die "maestro-ledger: unknown option $1" ;;
   esac
 done
-[[ -n "$job" && -n "$stage" && -n "$cli" && -n "$model" ]] || mae_die "maestro-ledger needs --job, --stage, --cli and --model"
-J="$SD/jobs/$job"
-[[ -d "$J" ]] || mae_die "maestro-ledger: no job $job"
-out="$J/out"; [[ -f "$out" ]] || out=/dev/null
+[[ -n "$stage" && -n "$cli" && -n "$model" ]] || mae_die "maestro-ledger needs --stage, --cli and --model"
+num() { [[ -z "$2" || "$2" =~ ^[0-9]+$ ]] || mae_die "maestro-ledger: $1 must be a whole number"; }
+num --total-tokens "$total_opt"; num --tool-uses "$tool_uses"; num --duration-ms "$dur_ms"
+if [[ "$cli" == claude-agent ]]; then
+  [[ -z "$job" ]] || mae_die "maestro-ledger: an Agent-tool call has no job (drop --job)"
+  [[ -n "$served_opt" && -n "$agent_id" && -n "$total_opt" ]] \
+    || mae_die "maestro-ledger --cli claude-agent needs --served, --agent-id and --total-tokens (from the completion)"
+  J="$SD/jobs/.none"; out=/dev/null
+else
+  [[ -n "$job" ]] || mae_die "maestro-ledger needs --job"
+  J="$SD/jobs/$job"
+  [[ -d "$J" ]] || mae_die "maestro-ledger: no job $job"
+  out="$J/out"; [[ -f "$out" ]] || out=/dev/null
+fi
 
 case "$cli" in
   codex)
@@ -88,7 +110,14 @@ case "$cli" in
     [[ -n "$served" ]] || served=null
     status="$(jq -r '.subtype // "none"' <<<"$res")"; denied=null
     dur="$(jq -c 'if .duration_ms then .duration_ms / 1000 else null end' <<<"$res")" ;;
-  *) mae_die "maestro-ledger: --cli is codex, agy, claude-cli or cursor-agent" ;;
+  claude-agent)
+    sid="$agent_id"
+    usage="$(jq -cn --argjson t "$total_opt" '{input_tokens: null, cached_input_tokens: null,
+                     cache_write_input_tokens: null, output_tokens: null, reasoning_tokens: null, total_tokens: $t}')"
+    served="$(jq -cn --arg m "$served_opt" '$m')"
+    status="${status_opt:-success}"; denied=null
+    dur="$(if [[ -n "$dur_ms" ]]; then jq -n --argjson d "$dur_ms" '$d / 1000'; else echo null; fi)" ;;
+  *) mae_die "maestro-ledger: --cli is codex, agy, claude-cli, cursor-agent or claude-agent" ;;
 esac
 
 # Cumulative counters (codex resume, agy conversation). Per COUNTER: the baseline is the last
@@ -126,18 +155,19 @@ row="$(jq -cn --arg ts "$(mae_now)" --argjson meta "$meta" --arg stage "$stage" 
   --arg effort "$effort" --arg round "$round" --arg sid "$sid" --arg job "$job" --argjson usage "$usage" \
   --argjson dur "${dur:-null}" --argjson code "$code" --arg outcome "$outcome" --arg verdict "$verdict" \
   --argjson raw "$raw" --arg status "$status" --argjson denied "${denied:-null}" --arg effcfg "$effcfg" \
-  --arg tier "$tier" --argjson reset "$counter_reset" '
+  --arg tier "$tier" --argjson reset "$counter_reset" --arg tu "$tool_uses" '
   def nn: if . == "" then null else . end;
   {ts: $ts, run_id: ($meta.run_id // null), host: ($meta.host | nn), stage: $stage,
    round: ($round | nn | if . then tonumber? // . else null end), cli: $cli, transport: ($transport | nn),
    family: ($family | nn), model_requested: $model, model_served: $served, effort: ($effort | nn),
-   session_id: ($sid | nn), job_id: $job, duration_s: $dur}
+   session_id: ($sid | nn), job_id: ($job | nn), duration_s: $dur}
   + $usage
   + {total_tokens: ($usage.total_tokens // (if $usage.input_tokens and $usage.output_tokens then $usage.input_tokens + $usage.output_tokens else null end)),
      raw_cumulative: $raw, status: ($status | nn), denied_actions: $denied,
      effective_config: ($effcfg | nn | if . == null then null else (. as $t | try ($t | fromjson) catch $t) end),
      service_tier_requested: ($tier | nn), service_tier_observed: null,
      counter_reset: (if $reset then true else null end),
+     tool_uses: ($tu | nn | if . == null then null else tonumber end),
      exit_code: $code, outcome: ($outcome | nn), verdict: ($verdict | nn)}')"
 if [[ $dry -eq 1 ]]; then printf '%s\n' "$row"; exit 0; fi
 [[ -n "$gen" ]] || mae_die "maestro-ledger needs --gen N (or --dry-run)"

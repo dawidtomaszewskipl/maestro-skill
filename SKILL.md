@@ -636,10 +636,13 @@ One line per model call in `.maestro/ledger.jsonl`, appended right after reading
 its output with `"$MAESTRO/bin/maestro-ledger" --gen N --job <job> --stage <stage>
 --cli <cli> --transport <t> --family <f> --model <requested> [--effort …]
 [--outcome …] [--verdict …]` — it reads the tokens, duration, session id and
-served model from the job's own output, so no field is left to memory; only an
-Agent-tool call (no job) is written by hand through `maestro-state --gen N append
-ledger.jsonl` (fields and sources: `docs/ledger.md`, including `transport`,
-`host` and the `transport-switch` outcome). Missing numbers are `null`, never estimated.
+served model from the job's own output, so no field is left to memory. An
+Agent-tool call has no job: `maestro-ledger --gen N --cli claude-agent --stage …
+--transport native --family claude --model <alias> --served <completion's model>
+--agent-id <id> --total-tokens N --tool-uses N --duration-ms N` with the numbers
+from the subagent's completion (fields and sources: `docs/ledger.md`, including
+`transport`, `host` and the `transport-switch` outcome). Never write a ledger row
+by hand. Missing numbers are `null`, never estimated.
 Cumulative counters (`codex exec resume`, agy conversations) keep the raw values
 in `raw_cumulative` and record the delta. Token totals are never presented as
 subscription cost.

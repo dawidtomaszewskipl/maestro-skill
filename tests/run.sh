@@ -645,6 +645,15 @@ if group T10 "ledger rows from job output"; then
   row="$("$B/maestro-ledger" --dry-run --job j2 --stage build --cli codex --transport codex --family openai --model gpt-6.1-sol)"
   jqt "codex row: usage, session, total" "$row" '.session_id == "t1" and .input_tokens == 10 and .reasoning_tokens == 1 and .total_tokens == 13'
   jqt "no meta.json (interactive Claude Code job): run and host from the lock" "$row" '.run_id == "r" and .host == "test"'
+  row="$("$B/maestro-ledger" --dry-run --cli claude-agent --stage build --round 1 --transport native --family claude \
+          --model opus --served claude-opus-5-5 --agent-id ac8f --total-tokens 327499 --tool-uses 94 --duration-ms 1521500)"
+  jqt "Agent-tool row: no job, harness totals, served model, run and host from the lock" "$row" \
+    '.cli == "claude-agent" and .job_id == null and .total_tokens == 327499 and .input_tokens == null and .tool_uses == 94
+     and .duration_s == 1521.5 and .model_served == "claude-opus-5-5" and .session_id == "ac8f" and .status == "success"
+     and .run_id == "r" and .host == "test" and .round == 1'
+  out="$("$B/maestro-ledger" --dry-run --cli claude-agent --stage build --model opus --served x --agent-id a 2>&1; echo "rc=$?")"
+  if [[ "$out" == *"needs --served, --agent-id and --total-tokens"* && "$out" == *"rc=2"* ]]; then ok "Agent-tool row without its numbers refused"; else bad "Agent-tool row without its numbers refused" "$out"; fi
+  jqt "Agent-tool row appends through maestro-state" "$("$B/maestro-ledger" --gen "$g" --cli claude-agent --stage build --transport native --family claude --model sonnet --served claude-sonnet-5-5 --agent-id ace4 --total-tokens 114960)" '.result == "written"'
   jqt "… --run/--host override the lock" \
     "$("$B/maestro-ledger" --dry-run --job j2 --stage build --cli codex --transport codex --family openai --model m --run r9 --host claude-code)" \
     '.run_id == "r9" and .host == "claude-code"'

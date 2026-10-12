@@ -6,7 +6,7 @@
 {ts, run_id, stage, host, cli, transport, family, model_requested, model_served, effort,
  service_tier_requested, service_tier_observed, effective_config, session_id, job_id, duration_s,
  input_tokens, cached_input_tokens, cache_write_input_tokens, output_tokens, reasoning_tokens,
- total_tokens, raw_cumulative, denied_actions, exit_code, status, outcome}
+ total_tokens, raw_cumulative, denied_actions, tool_uses, exit_code, status, outcome}
 ```
 
 ## Sources
@@ -15,7 +15,7 @@
 | --- | --- |
 | Codex | the last `turn.completed.usage` in the `.jsonl`: `input_tokens`, `cached_input_tokens`, `cache_write_input_tokens`, `output_tokens`, `reasoning_output_tokens` → `reasoning_tokens` |
 | agy | the envelope's `usage`: `input_tokens`, `output_tokens`, `thinking_tokens` → `reasoning_tokens`, `cache_read_tokens` → `cached_input_tokens`, `total_tokens`; plus `duration_seconds`, `denied_actions[].action` |
-| Claude subagent | the Agent tool's completion line |
+| Claude subagent | the Agent tool's completion: `total_tokens`, `tool_uses`, `duration_ms` and the model; no input/output split, so those fields are `null` — `maestro-ledger --cli claude-agent --served <model> --agent-id <id> --total-tokens N --tool-uses N --duration-ms N` (no job) |
 | `claude -p` | the `result` event: `usage.input_tokens`, `usage.cache_read_input_tokens` → `cached_input_tokens`, `usage.cache_creation_input_tokens` → `cache_write_input_tokens`, `usage.output_tokens`, `duration_ms`/1000; `model_served` = the `modelUsage` key(s) |
 | Cursor `agent -p` | the `result` event: `usage.inputTokens`, `usage.cacheReadTokens` → `cached_input_tokens`, `usage.cacheWriteTokens` → `cache_write_input_tokens`, `usage.outputTokens`, `duration_ms`/1000; `model_served` = `init.model` (a label) |
 | Codex, `effective_config` | the call's `turn_context` in the session rollout, as the effective-config check read it (`docs/commands.md`): `{model, effort, sandbox, approval_policy, approvals_reviewer, network, write_roots}`; `null` for non-Codex calls |

@@ -14,7 +14,11 @@ Fixes from the first real run (legat, interactive Claude Code):
 - **Ledger rows on an interactive Claude Code carry `run_id` and `host`.** Its job directories
   have no `meta.json` (the Bash tool's background mode, not `maestro-run`); `maestro-ledger` now
   takes both from the lock record, or from the new `--run`/`--host` options.
-- Tests 250 passing.
+- **Agent-tool rows through `maestro-ledger`.** `--cli claude-agent` (no job) takes the
+  subagent's completion — `--served`, `--agent-id`, `--total-tokens`, `--tool-uses`,
+  `--duration-ms` — and leaves the input/output split `null`, as the harness reports none. Rows
+  gain a `tool_uses` field. SKILL.md: never write a ledger row by hand.
+- Tests 253 passing.
 
 ## 1.1.0 — 2026-10-11
 
