@@ -124,6 +124,12 @@ nothing to resume.
 Measured on agy 1.1.28: same brief, same model, same effort — 37 s and no answer with the
 prohibition absent, 202 s and a full verdict with it present.
 
+maestro (agy 1.3.3, 2026-10-12) narrows the prohibition instead of forbidding every tool: file
+reads **inside** `--add-dir` are allowed and work in print mode (four critiques out of four, no
+denial, `.maestro/` in `info/exclude` included); commands, MCP and paths outside the workspace stay
+forbidden, because each of those is auto-denied and empties the answer. A denial still means a new
+conversation, now with the inline variant (`docs/workers.md`).
+
 ## agy: exit 1, `status:"ERROR"`, `error:"timeout waiting for response"`
 
 `--print-timeout` expired (5 minutes by default up to agy 1.1.x; 1.2.8 defaults to no limit, so a

@@ -64,9 +64,10 @@ cascade.
    Claude model than the drafter, marked degraded), at the critique effort. Self-contained brief with
    the plan, the diff and the test summary; read-only review; `.maestro/gate-schema.json` enforced. Transport follows the
    brief rules in SKILL.md: Codex and Claude get the diff embedded under 40 KB, otherwise its path;
-   a Gemini gate reads nothing, so everything goes into `-p`, split into parts above ~100 KB; each
-   part names the plan items its slice covers, and the parts combine as SKILL.md "Briefs" says (every
-   part accepts, `missing` = plan items no part reports done).
+   a Gemini gate reads the plan, the diff file and the code itself from paths inside `$REPO`; only
+   its inline fallback (after a denied read) puts everything into `-p`, split into parts above
+   ~100 KB, each part naming the plan items its slice covers, combined as SKILL.md "Briefs" says
+   (every part accepts, `missing` = plan items no part reports done).
 5. **Decision, mechanical.** Accept iff `verdict = accept` ∧ Gate A green ∧ no `blocking` or `major`
    finding ∧ `plan_coverage.missing = []`. Revise iff `verdict = revise` ∧ blocking + major ≤ 3 ∧ this
    is round 1. Otherwise escalate. **Two gate rounds maximum.**

@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.0 — 2026-10-12
+
+**agy critics, gates and reviewers read the repository themselves.** Their brief names absolute
+paths inside `$REPO` — the plan, the diff written to `.maestro/diff-<role>-r<N>.patch`, the
+convention files, the code — instead of the director quoting all of it; file tools are allowed
+inside `--add-dir`, commands, MCP and anything outside the repository stay forbidden. Measured with
+Gemini 3.8 Flash (medium), the same critique three times each way: both variants answered 3/3 with
+no denial and the same findings; reading took 112–145 s and 114–144 k input tokens against 58–67 s
+and 37–40 k inline — Gemini's pool, and on a large repository no quoting and no argv limit. A read
+from an excluded `.maestro/` works; a path outside `--add-dir` is denied and empties the answer, so
+a denial falls back to the inline variant (whole brief quoted, no tools) in a new conversation.
+Applies to Claude-on-agy as well.
+
 ## 1.1.1 — 2026-10-12
 
 Fixes from the first real run (legat, interactive Claude Code):

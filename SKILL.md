@@ -421,7 +421,9 @@ skipped ones.
 - Validate every verdict with `"$MAESTRO/bin/maestro-validate" <schema> <file>
   --envelope codex|agy|claude|cursor` before acting on it: one re-ask with the
   validator's error, then the role moves to the next eligible critic (a named
-  critic → halt).
+  critic → halt). An agy envelope with `denied_actions` is that one re-ask's
+  trigger too, but the re-ask is a new conversation with the inline variant
+  ("Briefs").
 
 ## Briefs
 
@@ -437,12 +439,17 @@ concrete patterns to avoid. Cursor workers answer in the user's language unless
 told: say *"Answer in English."*
 
 **Critic, gate and reviewer briefs are self-contained.** Codex, Claude and
-Cursor: plan plus diff embedded under 40 KB, else the path. **agy reads
-nothing** (Gemini and Claude-on-agy alike): its whole brief goes into `-p`, with
-the conventions it must judge against quoted inline. Above ~100 KB (argv limit
-~128 KB) split it into parts, each a full brief for its slice. Combined: approve
-only when every part approves, findings are the union; a gate or review part
-also names the plan items its slice covers, combined `done` is the union and
+Cursor: plan plus diff embedded under 40 KB, else the path. **agy (Gemini and
+Claude-on-agy alike) reads the repository itself**: its brief gives absolute
+paths inside `$REPO` — the plan, the diff written to `.maestro/diff-<role>-r<N>.patch`,
+the convention files, the code to judge — and quotes none of it; it can read
+only inside its `--add-dir` (a path outside it is denied and empties the answer,
+measured 2026-10-12, `docs/workers.md`). A denied read → a new conversation with
+the **inline variant**: the whole brief in `-p`, every fact and convention quoted,
+opening with the no-tools paragraph below; above ~100 KB (argv limit ~128 KB)
+split it into parts, each a full brief for its slice. Combined: approve only
+when every part approves, findings are the union; a gate or review part also
+names the plan items its slice covers, combined `done` is the union and
 `missing` the plan items no part reports done. Or give the role to another
 family. A Cursor or `claude -p` critic with no schema flag on its line gets the
 schema quoted in the brief and the closing line *"Your final message must be the
@@ -470,9 +477,13 @@ test commands without a `timeout` wrapper and never kill them; if your shell
 caps foreground execution, run any test that can take more than a few minutes
 in the background and wait for it."* Edits-only builders add: *"Do not execute
 shell or terminal commands; edit files only — the director runs the tests."*
-agy critics, gates and reviewers **open** with: *"This brief is self-contained.
-Do NOT call any tools: do not read files, do not run commands, do not call MCP,
-do not search the repository. Answer from the text below alone."* A worker that
+agy critics, gates and reviewers **open** with: *"You may read files inside
+<REPO> with your file tools (view a file, list a directory, search the
+repository). Do NOT run commands or terminal tools, do NOT call MCP servers, do
+NOT read anything outside <REPO>."* — and in the inline variant with: *"This
+brief is self-contained. Do NOT call any tools: do not read files, do not run
+commands, do not call MCP, do not search the repository. Answer from the text
+below alone."* A worker that
 *ends* with a question becomes a `question` blocker, answered as a new prompt to
 its thread.
 

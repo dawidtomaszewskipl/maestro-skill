@@ -125,8 +125,10 @@ transport is ineligible for that role this run. No `init` before another event i
 
 ```bash
 # --add-dir "$REPO" on every call or the worker sees no project skills/rules.
-# critique — plan mode; the WHOLE brief in -p (it reads nothing), opening with the "no tools"
-# paragraph; the verdict is JSON inside .response. Same shape for a gate or a review.
+# critique — plan mode; the brief (paths inside $REPO, nothing quoted) in -p, opening with the
+# "read inside <REPO> only" paragraph; the worker reads the plan, the diff file and the code itself.
+# A denied read → a new conversation with the inline variant (whole brief quoted, "no tools").
+# The verdict is JSON inside .response. Same shape for a gate or a review.
 agy --model gemini-<v>-flash-medium --mode plan --effort medium --add-dir "$REPO" --output-format json \
   --json-schema .maestro/critique-schema.json --print-timeout 30m -p "$(cat .maestro/brief-critique.md)"
 #   Claude on agy: --model claude-opus-<v>-medium (or claude-sonnet-…), everything else identical
@@ -139,7 +141,7 @@ agy --model <slug> --mode accept-edits --effort medium --add-dir "$REPO" --outpu
 agy --conversation <CONVERSATION_ID> --model <slug> --mode accept-edits --effort medium \
   --add-dir "$REPO" --output-format json --print-timeout 60m -p "$(cat .maestro/stub-fix1.md)"
 
-# critic / gate / reviewer continuation — keeps plan mode, its schema and the whole brief in -p
+# critic / gate / reviewer continuation — keeps plan mode, its schema and the brief in -p
 agy --conversation <CONVERSATION_ID> --model <slug> --mode plan --effort medium --add-dir "$REPO" \
   --output-format json --json-schema .maestro/critique-schema.json --print-timeout 30m \
   -p "$(cat .maestro/brief-critique-r2.md)"
@@ -158,8 +160,9 @@ conversation and looks cumulative across `--conversation` turns: keep it raw in 
 **Stubs — builders and drafters only.** Their `-p` prompt is a pointer — *"Read
 `.maestro/stub-build.md`'s brief at `.maestro/brief-build.md` in the workspace and execute it exactly.
 Your final answer is only what it asks for."* — small and free of shell quoting. Critics, gates and
-reviewers get their whole brief in `-p`; above ~100 KB, split it or give the role to another
-family.
+reviewers get their brief in `-p` — short, since it names paths and quotes nothing; only the inline
+variant (after a denied read) carries everything, and above ~100 KB it is split or the role goes to
+another family.
 
 ## Grok and Claude — Cursor `agent`
 

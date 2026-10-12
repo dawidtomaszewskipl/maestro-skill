@@ -272,10 +272,22 @@ prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in 
 
 Consequences:
 
-- A Gemini **critic, gate or reviewer** reads nothing: its brief forbids tools (reaching for an MCP
-  server empties the answer — troubleshooting), so the whole brief goes into `-p` with every fact and
-  every convention it must judge against quoted inline. Above ~100 KB, split the review or give the
-  role to another family.
+- A Gemini **critic, gate or reviewer** reads the repository itself, in plan mode: its brief gives
+  paths inside `$REPO` and allows file tools there, forbidding commands, MCP and anything outside
+  `$REPO` (reaching for an MCP server or a command empties the answer — troubleshooting). Measured
+  2026-10-12 with `gemini-3.8-flash-medium`, the same plan critique three times each way:
+
+  | Variant | Answers | Denials | Time | Input tokens | Findings |
+  | --- | --- | --- | --- | --- | --- |
+  | reads the files itself (paths only) | 3/3 | 0 | 112–145 s | 114–144 k | the locale bug, the undecided test, `set -u`, the `check` and comment conventions |
+  | inline (everything quoted, no tools) | 3/3 | 0 | 58–67 s | 37–40 k | the same |
+
+  A fourth read run with `.maestro/` in `info/exclude` (as in every real run) read the plan from
+  there without a denial. A file **outside** `--add-dir` is denied (`denied_actions: [{action:
+  "read_file"}]`, empty response). So on a small repository reading costs about twice the time and
+  three times the input (Gemini's pool, not Claude's or OpenAI's); on a large one it spares the
+  director from choosing and quoting the code and has no argv limit. A denied read → a new
+  conversation with the inline variant (whole brief quoted; above ~100 KB split, or another family).
 - A Gemini **builder** is edits-only. Its brief says so; the director runs tests and builds. One
   attempted command aborts the run with `CANCELED`, exit 0, and an empty response.
 - `denied_actions` is **absent** when nothing was denied — treat a missing key as `[]`.
@@ -304,7 +316,8 @@ A successful envelope:
 A 34 KB brief through `-p` ran fine on 1.1.27 (16.5 k input tokens). The bound is the OS argv limit
 (~128 KB per argument on Linux: `Argument list too long`). Builders and drafters get a pointer
 stub — it keeps prompts small and free of shell-quoting accidents. Critics, gates and reviewers get
-their whole brief in `-p`, because their brief forbids reading files; above ~100 KB it is split.
+their brief in `-p`; it names paths and they read the files themselves, so it stays small. Only the
+inline variant (after a denied read) quotes everything; above ~100 KB it is split.
 `-p` does not read stdin.
 
 ### Skills
@@ -381,7 +394,7 @@ read), so it cannot run on a subscription login.
 
 `agy --model claude-opus-5-5-<effort>` (and `claude-sonnet-5-5-<effort>`), efforts `low|medium|high`
 — the same lines as Gemini otherwise: headless print mode denies every command, so an agy Claude
-builder is edits-only and an agy Claude critic reads nothing (whole brief in `-p`). agy has no
+builder is edits-only and an agy Claude critic reads the repository the same way as a Gemini one. agy has no
 Fable and no Haiku. The envelope has no served-model field.
 
 ### Claude through Cursor
