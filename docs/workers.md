@@ -24,8 +24,9 @@ gpt-oss-120b-medium     GPT-OSS 120B          kimi-k3-high, glm-5.2-high, compos
 So a slot's family follows the **model** it resolves to, whatever CLI serves it: `opus@agy` and
 `opus@cursor` are Claude, exactly like `opus` through the Agent tool. maestro uses agy's and
 Cursor's Claude models as further **transports** of the Claude slots (SKILL.md, "Roster"), and
-Cursor's Grok as the xAI family. Cursor's GPT and Gemini models are older than what codex and agy
-serve and are not transports; Kimi, GLM, Composer and Muse have no slot. Every Cursor Fable model
+Cursor's Grok as the xAI family. Cursor's GPT and Gemini Flash models are older than what codex and agy
+serve and are not transports; Cursor's `gemini-<v>-argon-<effort>` is the second transport of
+`argon` (the same version agy serves, listed on both since 2026-10-16); Kimi, GLM, Composer and Muse have no slot. Every Cursor Fable model
 is marked "NO ZDR" (no zero data retention) — a repository whose policy needs ZDR denies
 `fable@cursor` (`transports.deny`).
 
@@ -271,6 +272,9 @@ prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in 
 ```
 
 Consequences:
+
+Everything below holds for both Google lines on agy, Flash (`gemini`) and Argon (`argon`); the
+measurements are Flash's — Argon has none in maestro yet (provisional).
 
 - A Gemini **critic, gate or reviewer** reads the repository itself, in plan mode: its brief gives
   paths inside `$REPO` and allows file tools there, forbidding commands, MCP and anything outside

@@ -24,6 +24,17 @@ the SDK's `maxBudgetUsd`.
   `tools: []`, `mcp_servers: []` and builtin plugins only. A paid canary and the Console check that
   the credit, not the balance, went down are still open (`docs/manual-checks_pl.md`).
 
+**Slot `argon`: Gemini Argon.** Google's frontier line (`gemini-<v>-argon-<effort>`, first
+`gemini-4-argon`) is listed by both `agy models` and `agent --list-models` since 2026-10-16. Until
+now it landed in `unmatched` and was never used. It is now its own slot, family Google, transports
+agy → cursor.
+
+- **Critic and reviewer first.** In every critic order Argon stands before Flash, and a high-stakes
+  second critic from Google is Argon when eligible. Flash (`gemini`) keeps its rubric rows, row 6
+  and `--cascade=gemini`. Argon builds only when named.
+- **Google-only degraded mode** now exists: Argon critiques a Flash build and the other way round.
+- **Provisional**, like Grok, until the ledger has measured it.
+
 ## 1.2.0 — 2026-10-12
 
 **agy critics, gates and reviewers read the repository themselves.** Their brief names absolute

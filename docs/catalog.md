@@ -15,8 +15,8 @@ the fence):
 | codex | `codex debug models` (run through `maestro-env`) | Refreshes the catalog from the server and prints `{models: [{slug, visibility, supported_reasoning_levels[].effort, default_reasoning_level, …}]}`; only `visibility: "list"` entries count. It also rewrites `$CODEX_HOME/models_cache.json`, whose `identity`, `client_version` and `fetched_at` the catalog copies (the live output has no account identity). |
 | codex, fallback | `$CODEX_HOME/models_cache.json` | Used when `debug models` fails. Older than 7 days, or `client_version` ≠ `codex --version` → `stale: true`. |
 | codex, last resort | `codex debug models --bundled` | The binary's own catalog, no refresh — `mode: bundled`. |
-| agy | `agy models` | `<slug>\t<label>` lines after a `Fetching available models...` banner. Lists Gemini (3.8/3.7/3.6 Flash, 3.1 Pro) **and Claude** (Opus 5.5, Sonnet 5.5 at low/medium/high) and GPT-OSS. |
-| cursor | `agent --list-models` | `<slug> - <label>` lines between a header and a tip. Lists Grok, Claude (current and older generations, `-thinking-` variants, `-fast` variants), GPT, Gemini, Kimi, GLM, Composer, Muse. |
+| agy | `agy models` | `<slug>\t<label>` lines after a `Fetching available models...` banner. Lists Gemini (3.8/3.7/3.6 Flash, 3.1 Pro; since 2026-10-16 also 4 Argon at low/medium/high) **and Claude** (Opus 5.5, Sonnet 5.5 at low/medium/high) and GPT-OSS. |
+| cursor | `agent --list-models` | `<slug> - <label>` lines between a header and a tip. Lists Grok, Claude (current and older generations, `-thinking-` variants, `-fast` variants), GPT, Gemini (4 Argon at low/medium/high since 2026-10-16), Kimi, GLM, Composer, Muse. |
 | native Claude | none | Claude Code's aliases (`opus`, `fable`, `sonnet`, `haiku`) follow the newest model of each line; the full id is learned by probing (below). |
 | api Claude | `maestro-sdk --resolve <slot>` | The Models API for the key (`GET /v1/models`, no model turn): the newest `claude-<line>-*` by `created_at`. Read only when `api` is eligible (`--sdk`, policy `api.fallback`). |
 
@@ -32,13 +32,14 @@ different from a line that simply has no candidates.
 | --- | --- | --- |
 | `astra` `sol` `luna` `terra` | `^gpt-<v>-(astra\|sol\|luna\|terra)$`, `<v>` = `[0-9]+(\.[0-9]+)*` | codex |
 | `gemini` | `^gemini-<v>-flash(-(low\|medium\|high))?$` | agy |
+| `argon` | `^gemini-<v>-argon(-(low\|medium\|high))?$` | agy, cursor |
 | `opus` `fable` `sonnet` `haiku` | `^claude-(opus\|fable\|sonnet\|haiku)-<v>-<effort>$`, `<v>` = `[0-9]+(-[0-9]+)*` | agy (`low…high`), cursor (`low…max`, plus `-fast`) |
 | `grok` | `^grok-<v>-<effort>(-fast)?$` | cursor |
 
 A version is parsed into a list of integers: `gpt-6.1` → [6, 1], `gpt-7` → [7],
 `claude-opus-5-5` → [5, 5], `claude-opus-5-10` → [5, 10], `grok-5` → [5]. Comparison pads the
 shorter list with zeros: [5] = [5, 0]; [6, 1] > [6]; [7] > [6, 10]; [6, 10] > [6, 9]
-(`maestro-catalog compare` and fixture T2). Integer generations (`gpt-7-sol`, `gemini-4-flash`,
+(`maestro-catalog compare` and fixture T2). Integer generations (`gpt-7-sol`, `gemini-4-flash`, `gemini-4-argon`,
 `grok-5`) are covered by the same patterns.
 
 **Excluded from automatic resolution**, listed under `transports.<t>.unmatched`: any other suffix

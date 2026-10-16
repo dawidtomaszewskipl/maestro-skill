@@ -97,6 +97,7 @@ model_line() {
     claude-haiku-*|haiku) echo haiku ;;
     gpt-*-astra) echo astra ;; gpt-*-sol) echo sol ;; gpt-*-luna) echo luna ;; gpt-*-terra) echo terra ;;
     gemini-*-flash*) echo gemini ;;
+    gemini-*-argon*) echo argon ;;
     grok-*) echo grok ;;
     *) echo "" ;;
   esac

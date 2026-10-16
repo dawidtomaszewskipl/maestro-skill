@@ -151,7 +151,8 @@ the run. **Family is decided by the model, never by the CLI.**
 | `sol` | `gpt-<v>-sol` — workhorse | OpenAI | codex |
 | `luna` | `gpt-<v>-luna` — fast, cheap | OpenAI | codex |
 | `terra` | `gpt-<v>-terra` — legacy, explicit only | OpenAI | codex |
-| `gemini` | `gemini-<v>-flash` | Google | agy |
+| `argon` | `gemini-<v>-argon` — frontier | Google | agy → cursor |
+| `gemini` | `gemini-<v>-flash` — fast, cheap | Google | agy |
 | `grok` | `grok-<v>` (Cursor's own line, not `cursor-grok-*`) — provisional | xAI | cursor |
 | `self` | you, directly | your family (stage 0 step 0) | Edit/Write |
 
@@ -195,6 +196,9 @@ so a payment feature never lands in the ordinary-feature row:
 6. Change smaller than the handoff → `self` — **only when your own family and
    model line are known** (stage 0 step 0); otherwise the first eligible of
    `sonnet`, `sol`, `gemini`, `grok`, named in the Assign line; none → halt.
+
+`argon` is in no row: it is the Google critic and reviewer, and builds only
+when the user names it (`--model=argon`).
 
 **Effort** — one vocabulary `low|medium|high|xhigh|max`, by stage (policy key
 `effort.<stage>`): critique `medium`, high-stakes critique `high`, build
@@ -246,7 +250,7 @@ yours, for integration only.
 ## The cross-family rule
 
 Four families: **Claude** (`opus`/`fable`/`sonnet`/`haiku`, and `self` when you
-are Claude), **OpenAI** (`astra`/`sol`/`luna`/`terra`), **Google** (`gemini`),
+are Claude), **OpenAI** (`astra`/`sol`/`luna`/`terra`), **Google** (`argon`/`gemini`),
 **xAI** (`grok`). Same-family models share blind spots, so **no plan critic and
 no cross reviewer shares the family of the builder whose code is committed**.
 Roles resolve over the (model, transport) pairs stage 0 found **eligible**;
@@ -255,10 +259,10 @@ name its notes in the Assign line.
 
 | Builder | Critic, first eligible | High stakes, first eligible | Second critic (high stakes): first eligible family not yet used |
 | --- | --- | --- | --- |
-| Claude | sol, astra, gemini, grok | astra, sol, gemini, grok | google, xai, openai |
-| OpenAI | opus, gemini, grok, sonnet | fable (when its budget allows), opus, gemini, grok | google, xai, claude |
+| Claude | sol, astra, argon, gemini, grok | astra, sol, argon, gemini, grok | google, xai, openai |
+| OpenAI | opus, argon, gemini, grok, sonnet | fable (when its budget allows), opus, argon, gemini, grok | google, xai, claude |
 | Google | sol, opus, grok | astra, fable, opus, grok | openai, claude, xai |
-| xAI | sol, opus, gemini | astra, fable, opus, gemini | openai, claude, google |
+| xAI | sol, opus, argon, gemini | astra, fable, opus, argon, gemini | openai, claude, google |
 
 - **Astra never critiques an OpenAI build — except in OpenAI-only degraded
   mode** (below), and the Assign line says so.
@@ -268,17 +272,18 @@ name its notes in the Assign line.
 - **With `--cascade` either the implementer or the drafter may end up the
   builder,** so every critic comes from a family other than both (the drafter's
   family is removed from every order first: Opus implements, Luna drafts →
-  `gemini`). When no eligible family can give that, `--cascade` halts with a
+  `argon`). When no eligible family can give that, `--cascade` halts with a
   question: drop the cascade or change the drafter; on a high-stakes change with
   one remedy only — drop the cascade (`--unattended`: a row 2 stop, A6).
-- Grok in any role is marked `(provisional)` until the ledger has measured it.
+- Grok and Argon in any role are marked `(provisional)` until the ledger has measured them.
 
 **Degraded modes.** Two eligible families: no high-stakes second critic, and
 the report says so. **One eligible family**: critic and reviewer are a different
 model *line* of that family than builder and drafter — Claude: Fable for a
 Sonnet or Opus build, Opus for a Fable build (a denied model is skipped: Opus
 build with Fable denied → Sonnet); OpenAI: Astra for a Sol or Luna build, Sol
-for an Astra build; Google and xAI have one line → halt with a question
+for an Astra build; Google: Argon for a Gemini build, Gemini for an Argon build;
+xAI has one line → halt with a question
 (`--unattended`: a row 2 stop, A7). Marked `families=<x> (degraded:
 same-family critique)`. Claude is not always present any more — on another host
 without a Claude transport, or switched off by policy, it is simply absent.

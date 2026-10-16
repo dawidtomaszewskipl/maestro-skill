@@ -89,7 +89,7 @@ dyrygentowi budować samodzielnie.
 | --- | --- | --- |
 | Claude | `opus`, `fable`, `sonnet`, `haiku` | natywnie (subagent albo `claude -p`) → agy → Cursor → api (`haiku`: natywnie → api, `fable` bez agy; api tylko z `--sdk` albo polityką `api.fallback`) |
 | OpenAI | `astra` (najmocniejszy), `sol` (koń roboczy), `luna` (szybki, tani), `terra` (tylko na wyraźne życzenie) | `codex exec` |
-| Google | `gemini` (Flash) | agy |
+| Google | `argon` (Gemini Argon, najmocniejszy), `gemini` (Flash, szybki) | agy (`argon`: agy → Cursor) |
 | xAI | `grok` (tymczasowy) | Cursor `agent -p` |
 
 Slot oznacza **linię modeli**, a nie konkretny model: `sol` to najnowszy `gpt-*-sol`, jaki ma Twoje

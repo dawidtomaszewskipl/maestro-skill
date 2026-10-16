@@ -91,7 +91,7 @@ conductor build.
 | --- | --- | --- |
 | Claude | `opus`, `fable`, `sonnet`, `haiku` | native (subagent or `claude -p`) → agy → Cursor → api (`haiku`: native → api, `fable` not through agy; api only with `--sdk` or policy `api.fallback`) |
 | OpenAI | `astra` (strongest), `sol` (workhorse), `luna` (fast, cheap), `terra` (explicit only) | `codex exec` |
-| Google | `gemini` (Flash) | agy |
+| Google | `argon` (Gemini Argon, strongest), `gemini` (Flash, fast) | agy (`argon`: agy → Cursor) |
 | xAI | `grok` (provisional) | Cursor `agent -p` |
 
 A slot is a **model line**, not a fixed model: `sol` is the newest `gpt-*-sol` your account has.

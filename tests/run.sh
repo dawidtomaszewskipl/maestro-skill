@@ -76,15 +76,16 @@ if group T2 "catalog"; then
   S="$WORK/syn"; mkdir -p "$S"
   jq -n '{models: ([ "gpt-6.1-sol","gpt-6.10-sol","gpt-6.9-sol","gpt-7-sol","gpt-6.2-sol-preview","gpt-6-astra","gpt-reserve" ]
                     | map({slug: ., visibility: "list", supported_reasoning_levels: [{effort: "low"},{effort: "medium"}]}))}' > "$S/codex-models.json"
-  printf 'Fetching available models...\ngemini-3.8-flash-high\tG\ngemini-4-flash-high\tG4\ngemini-4-flash-preview-high\tP\nclaude-opus-5-10-high\tO\nclaude-opus-5-5-high\tO\n' > "$S/agy-models.txt"
-  printf 'Available models\n\ngrok-4.7-high - Grok\ngrok-5-high - Grok 5\ngrok-5-high-fast - Grok 5 Fast\ngrok-6 - Grok 6 (no effort suffix)\ncursor-grok-9-high - X\n\nTip: …\n' > "$S/cursor-models.txt"
+  printf 'Fetching available models...\ngemini-3.8-flash-high\tG\ngemini-4-flash-high\tG4\ngemini-4-flash-preview-high\tP\ngemini-4-argon-low\tA\ngemini-4-argon-high\tA\ngemini-4-argon-preview-high\tAP\nclaude-opus-5-10-high\tO\nclaude-opus-5-5-high\tO\n' > "$S/agy-models.txt"
+  printf 'Available models\n\ngrok-4.7-high - Grok\ngrok-5-high - Grok 5\ngrok-5-high-fast - Grok 5 Fast\ngrok-6 - Grok 6 (no effort suffix)\ncursor-grok-9-high - X\ngemini-4-argon-medium - Gemini 4 Argon Medium\n\nTip: …\n' > "$S/cursor-models.txt"
   out="$(MAESTRO_STATE="$WORK/c2" "$B/maestro-catalog" refresh --fixtures "$S" --out "$WORK/c2/catalog.json")"
   jqt "synthetic: sol order 7, 6.10, 6.9, 6.1" "$out" '.slots.codex.sol == ["7","6.10","6.9","6.1"]'
   jqt "synthetic: gemini 4 before 3.8" "$out" '.slots.agy.gemini == ["4","3.8"]'
+  jqt "synthetic: argon is its own line, not gemini" "$out" '.slots.agy.argon == ["4"] and .slots.cursor.argon == ["4"]'
   jqt "synthetic: opus 5.10 before 5.5" "$out" '.slots.agy.opus == ["5.10","5.5"]'
   jqt "synthetic: grok 6 (no effort suffix) first, then 5, fast kept apart" "$out" '.slots.cursor.grok == ["6","5","4.7"]'
   jqt "synthetic: preview and dated slugs unmatched" "$(cat "$WORK/c2/catalog.json")" \
-    '(.transports.codex.unmatched | index("gpt-6.2-sol-preview") != null) and (.transports.agy.unmatched | index("gemini-4-flash-preview-high") != null)'
+    '(.transports.codex.unmatched | index("gpt-6.2-sol-preview") != null) and (.transports.agy.unmatched | index("gemini-4-flash-preview-high") != null) and (.transports.agy.unmatched | index("gemini-4-argon-preview-high") != null)'
   jqt "synthetic: fast slugs recorded separately" "$(cat "$WORK/c2/catalog.json")" \
     '.transports.cursor.slots.grok[1].fast_slugs.high == "grok-5-high-fast" and .transports.cursor.slots.grok[1].slugs.high == "grok-5-high" and .transports.cursor.slots.grok[0].slugs.default == "grok-6"'
   # Bundled fallback: no live catalog and no cache.
@@ -130,6 +131,10 @@ if group T2 "catalog"; then
   jqt "pick: an excluded slug of another model cannot be pinned to grok" \
     "$(MAESTRO_STATE="$P" "$B/maestro-catalog" pick grok cursor --pin-slug kimi-k3-high --catalog "$P/ck.json")" '.action == "none" and (.reason | test("not a grok model"))'
   jqt "pick: effort with no slug → none" "$(pick gemini agy --effort xhigh)" '.action == "none"'
+  jqt "pick: argon high on agy" "$(pick argon agy --effort high)" '.action == "probe" and .slug == "gemini-4-argon-high"'
+  jqt "pick: argon on cursor" "$(pick argon cursor --effort medium)" '.slug == "gemini-4-argon-medium"'
+  jqt "pick: an argon preview can be pinned to argon" "$(pick argon agy --pin-slug gemini-4-argon-preview-high)" '.excluded == true and .slug == "gemini-4-argon-preview-high"'
+  jqt "pick: an argon slug cannot be pinned to gemini" "$(pick gemini agy --pin-slug gemini-4-argon-preview-high)" '.action == "none" and (.reason | test("not a gemini model"))'
   jqt "pick: line without candidates → none + previous" \
     "$(jq '.previous = {luna: {codex: "6"}}' "$P/catalog.json" > "$P/cp.json"; MAESTRO_STATE="$P" "$B/maestro-catalog" pick luna codex --catalog "$P/cp.json")" \
     '.action == "none" and .previous == "6"'
@@ -404,17 +409,21 @@ fi
 
 # =============================================================================================
 if group T7 "role resolution"; then
-  ALL='["opus","fable","sonnet","haiku","astra","sol","luna","terra","gemini","grok","self"]'
+  ALL='["opus","fable","sonnet","haiku","astra","sol","luna","terra","argon","gemini","grok","self"]'
+  NOARGON='["opus","fable","sonnet","haiku","astra","sol","luna","terra","gemini","grok","self"]'
   roles() { "$B/maestro-roles" <<<"$1"; }
   jqt "claude build → sol" "$(roles '{"builder":"opus","eligible":'"$ALL"'}')" '.critics == ["sol"] and .reviewer == "sol"'
-  jqt "claude build, high stakes → astra + gemini" "$(roles '{"builder":"opus","high_stakes":true,"eligible":'"$ALL"'}')" '.critics == ["astra","gemini"]'
+  jqt "claude build, high stakes → astra + argon" "$(roles '{"builder":"opus","high_stakes":true,"eligible":'"$ALL"'}')" '.critics == ["astra","argon"]'
+  jqt "claude build, high stakes, argon not eligible → astra + gemini" "$(roles '{"builder":"opus","high_stakes":true,"eligible":'"$NOARGON"'}')" '.critics == ["astra","gemini"]'
   jqt "openai build → opus" "$(roles '{"builder":"sol","eligible":'"$ALL"'}')" '.critics == ["opus"]'
-  jqt "openai build, hs, fable budget → fable + gemini" "$(roles '{"builder":"sol","high_stakes":true,"fable_budget":true,"eligible":'"$ALL"'}')" '.critics == ["fable","gemini"]'
-  jqt "openai build, hs, no fable budget → opus + gemini" "$(roles '{"builder":"sol","high_stakes":true,"eligible":'"$ALL"'}')" '.critics == ["opus","gemini"]'
+  jqt "openai build, hs, fable budget → fable + argon" "$(roles '{"builder":"sol","high_stakes":true,"fable_budget":true,"eligible":'"$ALL"'}')" '.critics == ["fable","argon"]'
+  jqt "openai build, hs, no fable budget → opus + argon" "$(roles '{"builder":"sol","high_stakes":true,"eligible":'"$ALL"'}')" '.critics == ["opus","argon"]'
   jqt "google build → sol" "$(roles '{"builder":"gemini","eligible":'"$ALL"'}')" '.critics == ["sol"]'
+  jqt "argon build is google: argon and gemini never critique it" "$(roles '{"builder":"argon","high_stakes":true,"eligible":'"$ALL"'}')" '.critics == ["astra","opus"]'
   jqt "xai build → sol, hs second critic claude" "$(roles '{"builder":"grok","high_stakes":true,"eligible":'"$ALL"'}')" '.critics == ["astra","opus"]'
   jqt "grok as critic is provisional" "$(roles '{"builder":"opus","eligible":["opus","grok"]}')" '.critics == ["grok"] and (.notes | any(test("provisional")))'
-  jqt "cascade removes the drafter family" "$(roles '{"builder":"opus","drafter":"luna","eligible":'"$ALL"'}')" '.critics == ["gemini"]'
+  jqt "cascade removes the drafter family" "$(roles '{"builder":"opus","drafter":"luna","eligible":'"$ALL"'}')" '.critics == ["argon"]'
+  jqt "gemini drafter removes argon too" "$(roles '{"builder":"opus","drafter":"gemini","eligible":'"$ALL"'}')" '.critics == ["sol"]'
   jqt "cascade unsatisfiable → stop" "$(roles '{"builder":"opus","drafter":"luna","eligible":["opus","luna","sonnet"]}')" '.stop.remedy == "drop the cascade or change the drafter"'
   jqt "cascade unsatisfiable, high stakes → drop the cascade" "$(roles '{"builder":"opus","drafter":"luna","high_stakes":true,"eligible":["opus","luna","sonnet"]}')" '.stop.remedy == "drop the cascade"'
   jqt "two families, high stakes → no second critic, said" "$(roles '{"builder":"opus","high_stakes":true,"eligible":["opus","sol","astra"]}')" '.critics == ["astra"] and (.notes | any(test("no second critic")))'
@@ -423,7 +432,9 @@ if group T7 "role resolution"; then
   jqt "claude only: fable build → opus" "$(roles '{"builder":"fable","eligible":["opus","fable"]}')" '.critics == ["opus"]'
   jqt "openai only: sol build → astra (the exception, noted)" "$(roles '{"builder":"sol","eligible":["astra","sol","luna"]}')" '.critics == ["astra"] and (.notes | any(test("Astra critiques")))'
   jqt "openai only: astra build → sol" "$(roles '{"builder":"astra","eligible":["astra","sol"]}')" '.critics == ["sol"]'
-  jqt "google only → stop" "$(roles '{"builder":"gemini","eligible":["gemini"]}')" '.stop != null'
+  jqt "google only, one line → stop" "$(roles '{"builder":"gemini","eligible":["gemini"]}')" '.stop != null'
+  jqt "google only: gemini build → argon (degraded)" "$(roles '{"builder":"gemini","eligible":["argon","gemini"]}')" '.critics == ["argon"] and .degraded == "google"'
+  jqt "google only: argon build → gemini (degraded)" "$(roles '{"builder":"argon","eligible":["argon","gemini"]}')" '.critics == ["gemini"] and .degraded == "google"'
   jqt "xai only → stop" "$(roles '{"builder":"grok","eligible":["grok"]}')" '.stop != null'
   jqt "named critic from the builder family → stop" "$(roles '{"builder":"opus","named_critics":["sonnet"],"eligible":'"$ALL"'}')" '.stop != null'
   jqt "two named critics, one family, high stakes → stop" "$(roles '{"builder":"opus","high_stakes":true,"named_critics":["sol","astra"],"eligible":'"$ALL"'}')" '.stop != null'
@@ -436,6 +447,7 @@ if group T7 "role resolution"; then
   jqt "openai-only, an Astra director building as self → sol, not astra" "$(roles '{"builder":"self","director_family":"openai","director_line":"astra","eligible":["self","astra","sol"]}')" '.critics == ["sol"] and .degraded == "openai"'
   jqt "named critic not available → stop" "$(roles '{"builder":"opus","named_critics":["grok"],"eligible":["opus","sol"]}')" '.stop.reason | test("not available")'
   jqt "high stakes, one named critic → a second family added" "$(roles '{"builder":"opus","high_stakes":true,"named_critics":["sol"],"eligible":["opus","sol","gemini","grok"]}')" '.critics == ["sol","gemini"]'
+  jqt "named argon critic of a claude build" "$(roles '{"builder":"opus","named_critics":["argon"],"eligible":'"$ALL"'}')" '.critics == ["argon"] and .reviewer == "argon" and (.notes | any(test("argon is provisional")))'
   r6() { "$B/maestro-roles" --row6 <<<"$1"; }
   jqt "row 6: self when the director is known" "$(r6 '{"eligible":["self","sonnet"],"director_family":"claude","director_line":"opus"}')" '.implementer == "self"'
   jqt "row 6: director line unknown → sonnet" "$(r6 '{"eligible":["self","sonnet","sol"],"director_family":"claude"}')" '.implementer == "sonnet"'

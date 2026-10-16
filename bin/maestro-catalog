@@ -32,7 +32,7 @@
 # negative (denied): fresh < 24 hours.
 #
 # Slots and their lines: opus fable sonnet haiku (Claude: agy, cursor; native has no list),
-# astra sol luna terra (codex), gemini (agy), grok (cursor).
+# astra sol luna terra (codex), gemini (agy), argon (agy, cursor), grok (cursor).
 set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/_lib.sh"
 
@@ -53,14 +53,16 @@ def classify($transport):
       (capture("^gpt-(?<v>[0-9]+(\\.[0-9]+)*)-(?<line>astra|sol|luna|terra)$") // null)
       | if . then {slot: .line, version: (.v | vparse), effort: null, fast: false} else null end
     elif $transport == "agy" then
-      ( (capture("^gemini-(?<v>[0-9]+(\\.[0-9]+)*)-flash(-(?<e>low|medium|high))?$")
-          | {slot: "gemini", version: (.v | vparse), effort: .e, fast: false})
+      ( (capture("^gemini-(?<v>[0-9]+(\\.[0-9]+)*)-(?<line>flash|argon)(-(?<e>low|medium|high))?$")
+          | {slot: (if .line == "flash" then "gemini" else "argon" end), version: (.v | vparse), effort: .e, fast: false})
         // (capture("^claude-(?<line>opus|sonnet|fable|haiku)-(?<v>[0-9]+(-[0-9]+)*)-(?<e>low|medium|high|xhigh|max)$")
           | {slot: .line, version: (.v | vparse), effort: .e, fast: false})
         // null )
     elif $transport == "cursor" then
       ( (capture("^grok-(?<v>[0-9]+(\\.[0-9]+)*)(-(?<e>low|medium|high|xhigh|max))?(?<f>-fast)?$")
           | {slot: "grok", version: (.v | vparse), effort: .e, fast: (.f != null)})
+        // (capture("^gemini-(?<v>[0-9]+(\\.[0-9]+)*)-argon(-(?<e>low|medium|high))?$")
+          | {slot: "argon", version: (.v | vparse), effort: .e, fast: false})
         // (capture("^claude-(?<line>opus|sonnet|fable|haiku)-(?<v>[0-9]+(-[0-9]+)*)-(?<e>low|medium|high|xhigh|max)(?<f>-fast)?$")
           | {slot: .line, version: (.v | vparse), effort: .e, fast: (.f != null)})
         // null )
@@ -256,7 +258,7 @@ case "$sub" in
         # A slug excluded from automatic resolution may be pinned only if it still belongs to the
         # line of the slot (gpt-<v>-sol-preview for sol, claude-opus-… for opus) — never another model.
         def line_re: {astra: "^gpt-[0-9.]+-astra(-|$)", sol: "^gpt-[0-9.]+-sol(-|$)", luna: "^gpt-[0-9.]+-luna(-|$)",
-                      terra: "^gpt-[0-9.]+-terra(-|$)", gemini: "^gemini-[0-9.]+-flash(-|$)", grok: "^grok-[0-9.]+(-|$)",
+                      terra: "^gpt-[0-9.]+-terra(-|$)", gemini: "^gemini-[0-9.]+-flash(-|$)", argon: "^gemini-[0-9.]+-argon(-|$)", grok: "^grok-[0-9.]+(-|$)",
                       opus: "^claude-opus-[0-9]", fable: "^claude-fable-[0-9]", sonnet: "^claude-sonnet-[0-9]",
                       haiku: "^claude-haiku-[0-9]"}[$slot] // "^$";
         ((($tr.unmatched // []) | index($ps)) as $i | if $i != null and ($ps | test(line_re)) then $i else null end) as $excluded_hit

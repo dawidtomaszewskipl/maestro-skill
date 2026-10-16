@@ -4,7 +4,7 @@
 # ~/.config/maestro/policy.yml (your own defaults). Precedence:
 #   command-line flags  >  repo maestro.policy.yml  >  ~/.config/maestro/policy.yml  >  skill defaults
 # Every key is optional. Slot names are the --model values:
-#   sonnet opus fable haiku astra sol luna terra gemini grok self
+#   sonnet opus fable haiku astra sol luna terra argon gemini grok self
 # Transports: native agy cursor codex api (a slot@transport pair names one).
 # Effort values: low medium high xhigh max (ultra for OpenAI only); clamped per transport.
 
