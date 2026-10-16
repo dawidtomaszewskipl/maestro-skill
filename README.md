@@ -89,7 +89,7 @@ conductor build.
 
 | Family | Slots | Route to the model, in order |
 | --- | --- | --- |
-| Claude | `opus`, `fable`, `sonnet`, `haiku` | native (subagent or `claude -p`) → agy → Cursor (`haiku` native only, `fable` not through agy) |
+| Claude | `opus`, `fable`, `sonnet`, `haiku` | native (subagent or `claude -p`) → agy → Cursor → api (`haiku`: native → api, `fable` not through agy; api only with `--sdk` or policy `api.fallback`) |
 | OpenAI | `astra` (strongest), `sol` (workhorse), `luna` (fast, cheap), `terra` (explicit only) | `codex exec` |
 | Google | `gemini` (Flash) | agy |
 | xAI | `grok` (provisional) | Cursor `agent -p` |
@@ -126,6 +126,28 @@ Requirements: Linux, bash ≥ 5, jq ≥ 1.6, git, util-linux (`setsid`, `flock`)
 `claude`, `codex`, `agent`, `agy` you want to use, signed in. The installer never touches
 `/route`. **Do not run `/route` and `/maestro` in the same repository at once**: route cannot see
 maestro's lock.
+
+### API credit (`--sdk`)
+
+A Max plan includes a monthly API credit: $200 on Max 20x, $100 on Max 5x. It expires at the end
+of each billing cycle. It covers the Claude API and the Claude Agent SDK, **not Claude Code**.
+maestro can run its Claude workers on it once the subscription's 5-hour or weekly limit is spent:
+
+1. claude.ai → Settings → Billing: link a Console organisation (one-way; the credit appears only
+   after that). New subscriptions wait 7 days.
+2. In that Console organisation create a workspace and an API key **inside it** (an organisation-level key is refused: "not scoped to a workspace"). Set the workspace spend limit as a hard stop.
+3. In your own terminal: `mkdir -p ~/.config/maestro && install -m 600 /dev/stdin ~/.config/maestro/anthropic-api-key`, paste the key, then Ctrl-D.
+4. `./install.sh --sdk` (Node ≥ 18): installs the pinned Agent SDK next to the skill.
+5. `~/.agents/skills/maestro/bin/maestro-sdk --check` should say `"available": true`.
+
+Then `/maestro --sdk <task>` runs every Claude worker through the SDK on that key. With
+`api: {fallback: true}` in `~/.config/maestro/policy.yml`, maestro also switches to it on its own
+when the limit runs out mid-run. `api.max_usd_per_run` (default $20) caps a run. The report shows
+what the run spent.
+
+When the limit is spent, your Claude Code session stops too. Direct from Codex, Cursor or agy and
+let only the Claude workers use the credit. Claude Code started with an API key is Claude Code
+usage and does not draw on the credit.
 
 ## Examples
 
@@ -165,6 +187,8 @@ for yourself. You can:
   cannot be simulated; it was checked with a `claude -p` conductor.
 - **A process that detaches within the first second** of a job can go unnoticed. maestro then
   reports suspicious processes and never kills anything it cannot attribute.
+- **The API credit** is shown only in the Console. `cost_usd` in the ledger is the SDK's estimate,
+  and whether a call drew on the credit or on prepaid balance has been checked only by hand.
 
 Cases worth checking by hand are described step by step (in Polish) in
 [docs/manual-checks_pl.md](docs/manual-checks_pl.md).

@@ -80,6 +80,13 @@ back silently to `self`, to no review, or to a different worker. Under
   "hand over" everywhere under this flag). A property of the invocation, not
   of the run. **A headless director (`claude -p`, `codex exec`, `agent -p`)
   requires it** — nobody can answer there.
+- `--sdk` — every Claude slot runs on the `api` transport: the Claude Agent SDK
+  on an API key (`bin/maestro-sdk`), billed to the Console organisation the Max
+  plan's monthly API credit is linked to — for when the subscription's 5-hour
+  or weekly limit is spent. An explicit `@transport` on a slot still wins. Spend
+  is capped per run (policy `api.max_usd_per_run`). Without it, policy
+  `api: {fallback: true}` makes `api` the last transport a Claude slot switches
+  to on quota (`docs/workers.md`, "Claude through the Agent SDK").
 - `--host=<claude-code|codex|agy|cursor>` — override the detected host *name*
   when detection says `unknown` (`docs/hosts.md`); it never adds a capability
   the host does not have.
@@ -88,7 +95,8 @@ back silently to `self`, to no review, or to a different worker. Under
 `--reviewer`; `--reviewer` with `--review=self`; `--tests` with two scopes or
 with `--skip-tests`; `--cascade` with `--model=luna|haiku`, with drafter ==
 implementer, or with `--skip-tests`; `--setup` with `--unattended`; `--host`
-with `--resume`; `--resume` with any other flag except `--unattended` — to
+with `--resume`; `--sdk` with a forced `@native`; `--resume` with any other
+flag except `--unattended` — to
 change the configuration, discard the checkpoint and start again, or answer a
 recorded decision whose option changes it. Text after the flags of a `--resume`
 is that answer (`docs/unattended.md`).
@@ -96,8 +104,9 @@ is that answer (`docs/unattended.md`).
 **Plain words are flags too.** "Krytykuj astrą", "krytykuj grokiem", "review
 gemini", "bez fable", "astra implementuje", "grok buduje", "opus przez agy",
 "więcej rund krytyki", "bez testów przeglądarkowych", "zbuduj tylko plan",
-"zapytaj o konfigurację" map to `--critic`, `--reviewer`, a per-run deny,
-`--model[@t]`, `--rounds`, `--tests`, `--plan-only`, `--setup`. Echo the
+"zapytaj o konfigurację", "claude przez api", "na kredycie API" map to
+`--critic`, `--reviewer`, a per-run deny, `--model[@t]`, `--rounds`, `--tests`,
+`--plan-only`, `--setup`, `--sdk`. Echo the
 mapping in the assignment line (`critic=grok (user: "krytykuj grokiem")`); ask
 only when the words are ambiguous or break a rule (`--unattended`: a validation
 stop, `docs/unattended.md` A2).
@@ -134,10 +143,10 @@ the run. **Family is decided by the model, never by the CLI.**
 
 | Slot | Line | Family | Transports, in order |
 | --- | --- | --- | --- |
-| `opus` | Claude Opus | Claude | native → agy → cursor |
-| `fable` | Claude Fable | Claude | native → cursor |
-| `sonnet` | Claude Sonnet | Claude | native → agy → cursor |
-| `haiku` | Claude Haiku | Claude | native |
+| `opus` | Claude Opus | Claude | native → agy → cursor → api |
+| `fable` | Claude Fable | Claude | native → cursor → api |
+| `sonnet` | Claude Sonnet | Claude | native → agy → cursor → api |
+| `haiku` | Claude Haiku | Claude | native → api |
 | `astra` | `gpt-<v>-astra` — frontier | OpenAI | codex |
 | `sol` | `gpt-<v>-sol` — workhorse | OpenAI | codex |
 | `luna` | `gpt-<v>-luna` — fast, cheap | OpenAI | codex |
@@ -148,9 +157,12 @@ the run. **Family is decided by the model, never by the CLI.**
 
 **Transports.** `native` = the `Agent` tool when you run in an interactive
 Claude Code, otherwise `claude -p`. `agy` = `agy --model <slug>`. `cursor` =
-`agent -p --model <slug>`. `codex` = `codex exec -m <slug>`. What a transport
-lets a worker do differs (`docs/workers.md`): **an agy worker (Gemini or Claude)
-and a `claude -p` worker are edits-only — you run the tests**; a Cursor worker
+`agent -p --model <slug>`. `codex` = `codex exec -m <slug>`. `api` =
+`maestro-sdk --model <full id>` (the Agent SDK on an API key; eligible only
+with `--sdk` or policy `api.fallback: true`, and only when `maestro-sdk --check`
+is `available`). What a transport
+lets a worker do differs (`docs/workers.md`): **an agy worker (Gemini or Claude),
+a `claude -p` and an `api` worker are edits-only — you run the tests**; a Cursor worker
 runs commands only inside Cursor's sandbox (no network, no `$HOME`), so it runs
 tests only when its reach probe passed. A brief always matches the transport's
 capabilities.
@@ -191,7 +203,7 @@ the critique effort. Mapped per transport and clamped with `(clamped)`: codex
 `-c model_reasoning_effort` (the model's catalog range); agy slug suffix plus
 `--effort` (`low|medium|high`); cursor slug suffix (Grok `low…xhigh`, Claude
 `low…max`; `-fast` variants only with policy `cursor_fast: true`); `claude -p
---effort`; the Agent tool takes none (the model is the dial). Always pass effort
+--effort` and `maestro-sdk --effort`; the Agent tool takes none (the model is the dial). Always pass effort
 explicitly — catalog defaults differ per model.
 
 This rubric is the whole routing logic — a written rule you apply and name, not
@@ -310,7 +322,8 @@ the session reports serving (`docs/commands.md`, "Effective identity").
    this checkout — the two skills must not run here at once).
 3. **Families and transports, without model calls**, each check run from your
    own shell: Claude native (interactive Claude Code: always; elsewhere `command
-   -v claude` + `claude auth status`), OpenAI (`command -v codex`, `codex login
+   -v claude` + `claude auth status`), Claude api (only with `--sdk` or policy
+   `api.fallback: true`: `"$MAESTRO/bin/maestro-sdk" --check`), OpenAI (`command -v codex`, `codex login
    status`, `codex doctor --summary`; then the **Codex config mode** —
    `isolated` unless `$CODEX_HOME/config.toml` sets a connection or auth key →
    `pinned`, naming the key, `docs/workers.md`), agy (`command -v agy`, `agy
@@ -336,7 +349,11 @@ the session reports serving (`docs/commands.md`, "Effective identity").
    the next older candidate (announced: "gpt-6.2-sol listed, denied for this
    account"); quota and network failures do not walk down (§ "Routing
    precedence"). Native Claude is probed through `claude -p --model <alias>`,
-   which reports the full model id that becomes the slot's frozen identity. A
+   which reports the full model id that becomes the slot's frozen identity. The
+   `api` transport takes full ids only (the SDK's bundled CLI resolves aliases
+   from an older table): `maestro-sdk --resolve <slot>` names the newest id this
+   key can use (Models API, no model turn) unless the slot is already frozen;
+   its probe is the builder line with `--tools ""` and a budget of 0.05 USD. A
    failed slot halts with a question naming the slot and the error — with an
    upgrade instruction when the error says the client does not know the model;
    never substitute another line silently (`--unattended`: row 2, A5). Freeze
@@ -385,14 +402,20 @@ skipped ones.
   `model` and the default `subagent_type` (`fork` **ignores** `model`);
   anywhere else, and for a pinned native id — `claude -p` with the exclusive
   tool set of its role (`docs/commands.md`). agy and Cursor serve Claude models
-  as transports of the same slot.
+  as transports of the same slot, and so does `api` (`maestro-sdk`, the same
+  role tool sets and stream-json events as `claude -p`). **Before every `api`
+  launch** pass `--max-budget-usd` = policy `api.max_usd_per_run` minus
+  `"$MAESTRO/bin/maestro-ledger" cost --run <run_id> --transport api`; a result
+  `error_max_budget_usd` is quota on that transport.
 - Briefs are files; stdin closed with `< /dev/null`; model and effort pinned;
   every Codex line carries `--ignore-user-config` (`isolated`) or the pins
   (`pinned`) — never both.
 - **Effective identity** after every launch and resume, before anything the
   worker did is accepted: Codex — the effective-config check against the
-  rollout's `turn_context`; `claude -p` and Cursor — the `init` event of their
-  `stream-json` output (model, tools, MCP servers, plugins, permission mode);
+  rollout's `turn_context`; `claude -p`, `api` and Cursor — the `init` event of
+  their `stream-json` output (model, tools, MCP servers, plugins, permission
+  mode; `apiKeySource` is `none` on native — a subscription — and
+  `ANTHROPIC_API_KEY` on `api`, which `maestro-sdk` itself enforces);
   the Agent tool — the completion's model against the frozen id; agy — no
   served-model field, the requested slug is recorded. A mismatch stops the
   worker; a writer's output is discarded through the dirty-exit protocol.
@@ -405,7 +428,8 @@ skipped ones.
 - **Continuing a worker** (fix rounds, after a stop): Codex `codex exec resume
   <thread UUID>` from the worker's own directory; agy `--conversation <id>` only
   after a `SUCCESS` turn; `claude -p --resume <session_id>` and `agent -p
-  --resume <session_id>` with **every flag of the role repeated**; the Agent
+  --resume <session_id>` and `maestro-sdk --resume <session_id>` with **every
+  flag of the role repeated**; the Agent
   tool `SendMessage` (a deferred tool: load it with `ToolSearch` first). Never
   `--last` or `--continue`.
 - **Transport switch** — a Claude slot whose transport hits quota or becomes
@@ -419,7 +443,8 @@ skipped ones.
   stand. A different version, or no transport left, is a swap ("Time and the
   watchdog").
 - Validate every verdict with `"$MAESTRO/bin/maestro-validate" <schema> <file>
-  --envelope codex|agy|claude|cursor` before acting on it: one re-ask with the
+  --envelope codex|agy|claude|cursor` (`claude` for `api` too) before acting on
+  it: one re-ask with the
   validator's error, then the role moves to the next eligible critic (a named
   critic → halt). An agy envelope with `denied_actions` is that one re-ask's
   trigger too, but the re-ask is a new conversation with the inline variant
@@ -652,8 +677,11 @@ Agent-tool call has no job: `maestro-ledger --gen N --cli claude-agent --stage �
 --transport native --family claude --model <alias> --served <completion's model>
 --agent-id <id> --total-tokens N --tool-uses N --duration-ms N` with the numbers
 from the subagent's completion (fields and sources: `docs/ledger.md`, including
-`transport`, `host` and the `transport-switch` outcome). Never write a ledger row
-by hand. Missing numbers are `null`, never estimated.
+`transport`, `host` and the `transport-switch` outcome). An `api` call is
+`--cli claude-sdk --transport api`; its row carries `cost_usd` (the SDK's own
+estimate, not an invoice), and the report shows the run's `api` spend in USD
+next to the token table. Never write a ledger row by hand. Missing numbers are
+`null`, never estimated.
 Cumulative counters (`codex exec resume`, agy conversations) keep the raw values
 in `raw_cumulative` and record the delta. Token totals are never presented as
 subscription cost.

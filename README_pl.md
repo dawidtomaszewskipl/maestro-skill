@@ -87,7 +87,7 @@ dyrygentowi budować samodzielnie.
 
 | Rodzina | Sloty | Droga do modelu (po kolei) |
 | --- | --- | --- |
-| Claude | `opus`, `fable`, `sonnet`, `haiku` | natywnie (subagent albo `claude -p`) → agy → Cursor (`haiku` tylko natywnie, `fable` bez agy) |
+| Claude | `opus`, `fable`, `sonnet`, `haiku` | natywnie (subagent albo `claude -p`) → agy → Cursor → api (`haiku`: natywnie → api, `fable` bez agy; api tylko z `--sdk` albo polityką `api.fallback`) |
 | OpenAI | `astra` (najmocniejszy), `sol` (koń roboczy), `luna` (szybki, tani), `terra` (tylko na wyraźne życzenie) | `codex exec` |
 | Google | `gemini` (Flash) | agy |
 | xAI | `grok` (tymczasowy) | Cursor `agent -p` |
@@ -125,6 +125,29 @@ Wymagania: Linux, bash ≥ 5, jq ≥ 1.6, git, util-linux (`setsid`, `flock`) or
 `codex`, `agent`, `agy`, których chcesz używać, zalogowane. Instalator nie rusza `/route`.
 **Nie uruchamiaj `/route` i `/maestro` jednocześnie w tym samym repozytorium**: route nie widzi
 blokady maestro.
+
+### Kredyt API (`--sdk`)
+
+Plan Max daje co miesiąc kredyt API: $200 na Max 20x, $100 na Max 5x. Kredyt przepada z końcem
+okresu rozliczeniowego. Obejmuje Claude API i Claude Agent SDK, **ale nie Claude Code**. maestro
+może puszczać na nim Claude-workery, gdy skończy się limit 5-godzinny albo tygodniowy subskrypcji:
+
+1. claude.ai → Settings → Billing: podłącz organizację Console. To jednorazowe, kredyt pojawia
+   się dopiero potem. Nowa subskrypcja czeka 7 dni.
+2. W tej organizacji Console utwórz workspace i klucz API **w nim** (klucz na poziomie organizacji jest odrzucany: „not scoped to a workspace”). Ustaw limit wydatków workspace'u jako twardy
+   bezpiecznik.
+3. We własnym terminalu: `mkdir -p ~/.config/maestro && install -m 600 /dev/stdin ~/.config/maestro/anthropic-api-key`, wklej klucz, potem Ctrl-D.
+4. `./install.sh --sdk` (Node ≥ 18) instaluje przypiętą wersję Agent SDK obok skilla.
+5. `~/.agents/skills/maestro/bin/maestro-sdk --check` powinno zwrócić `"available": true`.
+
+Potem `/maestro --sdk <zadanie>` puszcza wszystkie Claude-workery przez SDK na tym kluczu. Z
+`api: {fallback: true}` w `~/.config/maestro/policy.yml` maestro przełącza się na nie samo, gdy
+limit skończy się w trakcie przebiegu. `api.max_usd_per_run` (domyślnie $20) ogranicza jeden
+przebieg. Raport pokazuje, ile przebieg wydał.
+
+Gdy limit się skończy, staje też Twoja sesja Claude Code. Dyryguj wtedy z Codexa, Cursora albo
+agy, a z kredytu niech korzystają tylko Claude-workery. Claude Code uruchomiony na kluczu API to
+użycie Claude Code i nie pobiera kredytu.
 
 ## Przykłady
 
@@ -164,6 +187,8 @@ Stałe preferencje zapisujesz w `maestro.policy.yml` w repozytorium albo w
   subagenty i tej ścieżki nie da się zasymulować. Sprawdzone było z dyrygentem `claude -p`.
 - **Proces, który odłączy się w pierwszej sekundzie** od zadania, może zostać niezauważony.
   maestro zgłasza wtedy podejrzane procesy i nie zabija niczego, czego nie umie przypisać.
+- **Kredyt API** widać tylko w Console. `cost_usd` w ledgerze to szacunek SDK. To, czy wywołanie
+  zeszło z kredytu, czy z przedpłaconego salda, sprawdzono dotąd tylko ręcznie.
 
 Przypadki, które warto sprawdzić ręcznie, są opisane krok po kroku w
 [docs/manual-checks_pl.md](docs/manual-checks_pl.md).

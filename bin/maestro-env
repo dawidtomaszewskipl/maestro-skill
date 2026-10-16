@@ -7,8 +7,10 @@
 # Removed: every variable that marks the director's host (so the worker's own detection and the
 # director's ancestry checks are not confused) and every variable that injects plugins, hooks or
 # session plumbing into a child CLI. Measured: an inherited CLAUDE_CODE_PLUGIN_DIRS loaded a
-# hook-carrying plugin into a `claude -p` critic until it was removed. Auth is untouched (it lives
-# in files under $HOME / $CODEX_HOME, not in these variables).
+# hook-carrying plugin into a `claude -p` critic until it was removed. File-based auth is untouched
+# (it lives under $HOME / $CODEX_HOME); ANTHROPIC_* is removed: in `claude -p` an inherited
+# ANTHROPIC_API_KEY outranks the subscription login and would bill the API silently. Only the `api`
+# transport (maestro-sdk) bills a key, and it reads its own key file.
 set -euo pipefail
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
@@ -26,6 +28,7 @@ while IFS='=' read -r name _; do
     CURSOR_AGENT|CURSOR_CONVERSATION_ID|CURSOR_INVOKED_AS|CURSOR_REQUEST_ID|CURSOR_SANDBOX) drop+=("$name") ;;
     __CURSOR_SANDBOX_ENV_RESTORE|AGENT_TRANSCRIPTS) drop+=("$name") ;;
     ANTIGRAVITY_*) drop+=("$name") ;;           # agy's session plumbing (measured 2026-10-11)
+    ANTHROPIC_*) drop+=("$name") ;;             # API key, token, base URL: billing stays explicit
   esac
 done < <(env)
 

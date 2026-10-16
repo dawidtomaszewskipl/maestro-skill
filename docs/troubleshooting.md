@@ -279,3 +279,33 @@ stops there.
 During maestro's own build a cleanup `pkill -f "maestro-tests"` matched the very shell running it —
 its command line contained the pattern. route's rule stands: never `pkill -f`; find the PIDs (`ps -eo
 pid,args`, then `kill <pid>`) or let `maestro-kill` signal recorded members one by one.
+
+## maestro: an `api` worker answered as an older Claude than the slot
+
+`maestro-sdk --model haiku` served `claude-haiku-4-5-20251001` (SDK 0.3.286, 2026-10-15) while
+native `claude -p --model haiku` served `claude-haiku-5-5`: the SDK's bundled Claude Code resolves
+aliases from its own table. `maestro-sdk` now refuses aliases; the full id comes from the frozen
+identity or from `maestro-sdk --resolve <slot>` (the Models API for the key).
+
+## maestro: `api` probe fails with `Invalid API key`
+
+`result.subtype: "success"` with `is_error: true` and `"Invalid API key · Fix external API key"`, or
+`--resolve` exiting 3 with HTTP 401. The key file holds a revoked or mistyped key: create a new one
+in the Console organisation linked to the Max plan and write it to
+`~/.config/maestro/anthropic-api-key` (mode 600). An unavailability, not quota: no transport switch
+onto it this run.
+
+## maestro: the API credit did not go down, the prepaid balance did
+
+The credit covers the Claude API and the Agent SDK, not Claude Code, and only in the Console
+organisation linked under claude.ai → Settings → Billing. Check that the key belongs to that
+organisation, and that the worker ran on `api` (ledger `cli: claude-sdk`), not as a director in
+Claude Code started with an API key — that is Claude Code usage.
+
+## maestro: `This API key is not scoped to a workspace`
+
+HTTP 400 from `maestro-sdk --resolve` (measured 2026-10-15): an organisation-level key is accepted,
+but each request must then name a workspace in an `anthropic-workspace-id` header, which neither
+maestro nor Claude Code sends. Create the key inside a Console workspace instead. That also lets
+you set the workspace's spend limit, maestro's hard stop beside `api.max_usd_per_run`.
+

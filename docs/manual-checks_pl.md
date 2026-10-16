@@ -253,6 +253,40 @@ budowane ani commitowane.
 **Odeślij:** czy uwagi krytyków były trafne, czy coś było szumem, ile to trwało. Na tej podstawie
 dostroję domyślnych krytyków i liczbę rund.
 
+### 12. Claude-workery na kredycie API (`--sdk`, płatne: centy)
+
+**Cel:** potwierdzić, że wywołania przez Agent SDK zdejmują **kredyt** z planu Max, a nie
+przedpłacone saldo. W dokumentacji nie ma na to dowodu, widać to tylko w Console.
+
+**Gdzie:** repozytorium z `tests/canary/mkcanary.sh`, dyrygent w Codexie albo w Claude Code.
+
+**Przed:** README → „API credit”, kroki 1–5. Zanotuj w Console (Billing) stan kredytu i salda.
+
+**Kroki:**
+```text
+~/.agents/skills/maestro/bin/maestro-sdk --resolve haiku
+/maestro --sdk --plan-only --critic=sol dodaj funkcję slugify z testami
+```
+
+**Oczekuję:** linia przydziału z `transport=api` dla slotów Claude. W `.maestro/ledger.jsonl`
+wiersze `cli: claude-sdk` z `cost_usd`, raport z kwotą w USD. Po kilku minutach Console pokazuje
+ubytek kredytu, a saldo stoi w miejscu.
+
+**Odeślij:** wynik `--resolve`, linię przydziału, sumę `cost_usd` z raportu i to, co pokazała
+Console (kredyt czy saldo, ile).
+
+### 13. Przełączenie native → api po wyczerpaniu limitu
+
+**Cel:** transport-switch na `api` w trakcie przebiegu.
+
+**Gdzie:** jak w 12, z `api: {fallback: true}` w `~/.config/maestro/policy.yml`. Shim `claude` z
+`tests/canary/shim/claude` udaje wyczerpany limit.
+
+**Oczekuję:** `transport: sonnet native→api (quota; …)`, wiersz ledgera `transport-switch`,
+dokończony build na `api`, testy uruchomione przez dyrygenta.
+
+**Odeślij:** linię przełączenia i wiersze ledgera.
+
 ## Sprzątanie
 
 ```bash

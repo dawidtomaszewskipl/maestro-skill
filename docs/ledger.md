@@ -6,7 +6,7 @@
 {ts, run_id, stage, host, cli, transport, family, model_requested, model_served, effort,
  service_tier_requested, service_tier_observed, effective_config, session_id, job_id, duration_s,
  input_tokens, cached_input_tokens, cache_write_input_tokens, output_tokens, reasoning_tokens,
- total_tokens, raw_cumulative, denied_actions, tool_uses, exit_code, status, outcome}
+ total_tokens, raw_cumulative, denied_actions, tool_uses, cost_usd, exit_code, status, outcome}
 ```
 
 ## Sources
@@ -17,11 +17,13 @@
 | agy | the envelope's `usage`: `input_tokens`, `output_tokens`, `thinking_tokens` → `reasoning_tokens`, `cache_read_tokens` → `cached_input_tokens`, `total_tokens`; plus `duration_seconds`, `denied_actions[].action` |
 | Claude subagent | the Agent tool's completion: `total_tokens`, `tool_uses`, `duration_ms` and the model; no input/output split, so those fields are `null` — `maestro-ledger --cli claude-agent --served <model> --agent-id <id> --total-tokens N --tool-uses N --duration-ms N` (no job) |
 | `claude -p` | the `result` event: `usage.input_tokens`, `usage.cache_read_input_tokens` → `cached_input_tokens`, `usage.cache_creation_input_tokens` → `cache_write_input_tokens`, `usage.output_tokens`, `duration_ms`/1000; `model_served` = the `modelUsage` key(s) |
+| `api` (`maestro-sdk`) | as `claude -p` (the same event stream), plus `cost_usd` = `result.total_cost_usd` — the SDK's estimate from its bundled price table, not an invoice; `null` on every other CLI |
 | Cursor `agent -p` | the `result` event: `usage.inputTokens`, `usage.cacheReadTokens` → `cached_input_tokens`, `usage.cacheWriteTokens` → `cache_write_input_tokens`, `usage.outputTokens`, `duration_ms`/1000; `model_served` = `init.model` (a label) |
 | Codex, `effective_config` | the call's `turn_context` in the session rollout, as the effective-config check read it (`docs/commands.md`): `{model, effort, sandbox, approval_policy, approvals_reviewer, network, write_roots}`; `null` for non-Codex calls |
 
-`cli` is one of `codex`, `agy`, `cursor-agent`, `claude-cli` (`claude -p`), `claude-agent` (the
-Agent tool); `transport` the slot's transport (`native`, `agy`, `cursor`, `codex`); `host` the
+`cli` is one of `codex`, `agy`, `cursor-agent`, `claude-cli` (`claude -p`), `claude-sdk`
+(`maestro-sdk`), `claude-agent` (the Agent tool); `transport` the slot's transport (`native`, `agy`,
+`cursor`, `codex`, `api`); `host` the
 director's host; `job_id` the maestro job (null for an Agent-tool call). `run_id` and `host` come
 from the job's `meta.json`; an interactive Claude Code launches with the Bash tool's background mode,
 so its job directories have none, and `maestro-ledger` takes both from the lock record (or from
@@ -60,3 +62,10 @@ edited by anything else stop the next write).
 `Stage | Who (model@effort) | Wall | In | Out | Result`, totals per family, the cascade line when it
 ran (`cascade: accepted at round N | escalated after N — draft+gate cost vs escalation cost`), and
 the guarantees line (review mode, tests, sandbox rung, what was skipped or degraded).
+
+## API spend
+
+`maestro-ledger cost --run <run_id> --transport api` → `{run_id, transport, cost_usd, rows}`, the
+sum of the run's `cost_usd`. Before every `api` launch the director passes `--max-budget-usd` =
+policy `api.max_usd_per_run` minus that sum. The report shows the `api` spend in USD; token totals
+of the other transports are still never presented as subscription cost.

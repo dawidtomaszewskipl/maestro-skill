@@ -39,6 +39,7 @@ All optional. Slot names are the `--model` values; effort values are the CLI voc
 | `transports: {deny: [<slot>@<transport>, …]}` | Transports the director never picks on its own, e.g. `fable@cursor` (Cursor's Fable is "NO ZDR"), `opus@agy`. A denied transport is skipped in the slot's order and never switched onto; an explicit `@transport` naming it still wins, with a warning. |
 | `pin: {<slot>: "<version>" \| {<transport>: "<slug>"}}` | Fix a line instead of following the newest model (`docs/catalog.md`, "Pins"): `pin: {sol: "6.1"}` (every transport must serve 6.1), `pin: {sol: {codex: "gpt-6.1-sol"}}` (that slug, other transports off), `pin: {opus: {native: "claude-opus-5"}}`. A pin missing from the catalog halts. |
 | `cursor_fast: true\|false` | Allow Cursor's `-fast` variants (default `false`). |
+| `api: {fallback: true\|false, max_usd_per_run: <n>}` | The `api` transport (Claude through the Agent SDK on an API key, `docs/workers.md`). `fallback: true` makes it the last transport a Claude slot switches to on quota (default `false`: only `--sdk` uses it). `max_usd_per_run` caps the USD a run spends on it (default `20`), summed from the ledger's `cost_usd`; spent → quota on `api`. Usually a user-policy key: it is your credit. |
 
 The example with comments: [`examples/maestro.policy.yml`](examples/maestro.policy.yml).
 

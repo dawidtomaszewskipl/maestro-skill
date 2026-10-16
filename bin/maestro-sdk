@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# maestro-sdk — the `api` transport: one Claude worker turn through the Claude Agent SDK, billed to
+# an API key (the Max plan's monthly API credit covers the Agent SDK, not Claude Code; docs/workers.md).
+#
+#   maestro-sdk --model <id> --effort low|medium|high|xhigh|max --tools "<list>"
+#               --permission-mode dontAsk|acceptEdits|plan --max-budget-usd <n> --prompt-file <f>
+#               [--allowed-tools "<list>"] [--json-schema <file>] [--resume <session_id>]
+#               [--cwd <dir>] [--key-file <f>] [--dry-run]
+#       The flags mirror the role's `claude -p` line (docs/commands.md). stdout is the SDK's event
+#       stream as JSON lines (system/init first, result last — the `claude -p` stream-json shape).
+#       Exit 0 = result success; 1 = an error result (error_max_budget_usd = the run's api budget
+#       is spent: quota on this transport); 2 = usage; 3 = key file missing, unsafe, or init did
+#       not report apiKeySource ANTHROPIC_API_KEY (fail closed). --dry-run prints the resolved
+#       options (no key, no model turn).
+#   maestro-sdk --resolve opus|fable|sonnet|haiku [--key-file <f>]
+#       {slot, id, candidates}: the newest model of the line this key can use, from the Models API
+#       (no model turn, no cost). The api transport takes full ids only — the SDK's bundled CLI
+#       resolves aliases from its own, older table (measured: haiku → claude-haiku-4-5-20251001).
+#       Exit 3 = key refused (401/403), 4 = API unreachable.
+#   maestro-sdk --check
+#       Is the transport available here? {available, node, sdk_installed, key_file, key_ok, reasons}.
+#       No model turn — stage 0 step 3.
+#
+# The key: ~/.config/maestro/anthropic-api-key (mode 600), or $MAESTRO_API_KEY_FILE / --key-file.
+# The SDK: installed by `install.sh --sdk` into <skill>/sdk/node_modules.
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+
+SDK="$MAESTRO_ROOT/sdk"
+key_file="${MAESTRO_API_KEY_FILE:-$HOME/.config/maestro/anthropic-api-key}"
+
+if [[ "${1:-}" == "--check" ]]; then
+  reasons=() node_v="" installed=false key_ok=false
+  if command -v node >/dev/null 2>&1; then
+    node_v="$(node --version)"
+    [[ "${node_v#v}" =~ ^([0-9]+) ]] && (( BASH_REMATCH[1] >= 18 )) || reasons+=("node $node_v is older than 18")
+  else
+    reasons+=("node not found")
+  fi
+  if [[ -f "$SDK/node_modules/@anthropic-ai/claude-agent-sdk/package.json" ]]; then installed=true
+  else reasons+=("Agent SDK not installed: run install.sh --sdk"); fi
+  if [[ ! -f "$key_file" ]]; then reasons+=("no key file $key_file")
+  elif [[ "$(stat -c '%a' "$key_file")" != 600 && "$(stat -c '%a' "$key_file")" != 400 ]]; then
+    reasons+=("key file mode $(stat -c '%a' "$key_file"), want 600")
+  elif [[ ! -s "$key_file" ]]; then reasons+=("key file is empty")
+  else key_ok=true; fi
+  jq -cn --arg node "$node_v" --argjson inst "$installed" --arg kf "$key_file" --argjson kok "$key_ok" \
+    --args '{available: ($ARGS.positional | length == 0), node: ($node | if . == "" then null else . end),
+             sdk_installed: $inst, key_file: $kf, key_ok: $kok, reasons: $ARGS.positional}' "${reasons[@]}"
+  exit 0
+fi
+
+command -v node >/dev/null 2>&1 || mae_die "maestro-sdk: node not found (the api transport needs Node ≥ 18)"
+exec node "$SDK/runner.mjs" "$@"

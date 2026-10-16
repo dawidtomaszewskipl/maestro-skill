@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.3.0 — 2026-10-15
+
+**`--sdk` and the `api` transport: Claude workers on the Max plan's API credit.** A Max plan
+includes a monthly API credit ($200 on Max 20x) that covers the Claude API and the Agent SDK but
+not Claude Code. `bin/maestro-sdk` runs one worker turn through the Claude Agent SDK (pinned
+0.3.286, `install.sh --sdk`) on a key read from `~/.config/maestro/anthropic-api-key` (mode 600).
+It emits the `claude -p` stream-json shape, so jobs, validation and the ledger work unchanged.
+`--sdk` puts every Claude slot on `api`. Policy `api: {fallback: true}` makes `api` the last
+transport a Claude slot switches to on quota. `api.max_usd_per_run` (default 20) caps a run through
+the SDK's `maxBudgetUsd`.
+
+- **Fail closed on billing.** `maestro-sdk` aborts unless `init.apiKeySource` is
+  `ANTHROPIC_API_KEY`. `maestro-env` now drops every `ANTHROPIC_*` variable, so a key left in the
+  director's shell can no longer bill native `claude -p` workers silently (in `-p` mode a key
+  outranks the subscription login).
+- **Full ids only on `api`.** The SDK's bundled CLI resolved `haiku` to `claude-haiku-4-5-20251001`
+  (measured), so aliases are refused. `maestro-sdk --resolve <slot>` reads the newest id from the
+  Models API (no model turn).
+- **Ledger**: `--cli claude-sdk`, a `cost_usd` field (the SDK's estimate) and `maestro-ledger cost
+  --run <id> --transport api`.
+- Measured without spending: a run with an invalid key reported `apiKeySource: "ANTHROPIC_API_KEY"`,
+  `tools: []`, `mcp_servers: []` and builtin plugins only. A paid canary and the Console check that
+  the credit, not the balance, went down are still open (`docs/manual-checks_pl.md`).
+
 ## 1.2.0 — 2026-10-12
 
 **agy critics, gates and reviewers read the repository themselves.** Their brief names absolute

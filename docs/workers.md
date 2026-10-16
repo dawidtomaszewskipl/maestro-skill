@@ -331,9 +331,9 @@ whole `SKILL.md` in input tokens).
 
 ## Claude
 
-Four transports serve the Claude lines (SKILL.md, "Roster"): the `Agent` tool (only in an
-interactive Claude Code), `claude -p` (everywhere else, and for an exact native id), agy, and
-Cursor.
+Five transports serve the Claude lines (SKILL.md, "Roster"): the `Agent` tool (only in an
+interactive Claude Code), `claude -p` (everywhere else, and for an exact native id), agy, Cursor,
+and `api` (the Agent SDK on an API key, below).
 
 ### The Agent tool
 
@@ -388,7 +388,57 @@ edits-only builder is expected. Writes under `~/.claude/` are refused as "sensit
 mode (measured), so scratch repositories for tests live elsewhere.
 
 **`--bare` is not used**: it reads only `ANTHROPIC_API_KEY` (OAuth and the keychain are never
-read), so it cannot run on a subscription login.
+read), so it cannot run on a subscription login. For API-key billing maestro uses the `api`
+transport instead (below).
+
+**No inherited key.** In `-p` mode an `ANTHROPIC_API_KEY` in the environment outranks the
+subscription login (documented precedence: cloud provider → `ANTHROPIC_AUTH_TOKEN` →
+`ANTHROPIC_API_KEY` → `apiKeyHelper` → `CLAUDE_CODE_OAUTH_TOKEN` → `/login`), so a key left in the
+director's shell would bill every native worker to the API without a word. `maestro-env` removes
+every `ANTHROPIC_*` variable, and the `init` check requires `apiKeySource: "none"` on native.
+
+### Claude through the Agent SDK (`api`)
+
+**Why it exists.** A Max plan includes a monthly API credit (Max 20x: $200, Max 5x: $100; documented
+at platform.claude.com, "API credits for Max and Team plans"). It is granted only after the plan is
+linked to a Console organisation (claude.ai → Settings → Billing), it expires at the end of each
+billing cycle, and it covers **the Claude API and the Claude Agent SDK — not Claude Code**. When
+the subscription's 5-hour or weekly limit is spent, `api` lets Claude workers go on, paid from that
+credit.
+
+**Why the SDK and not `claude -p --bare`.** Technically the SDK starts the same Claude Code
+process, with the same events, tool restriction and resume. But the credit's terms name the Agent
+SDK and exclude Claude Code, and an SDK session identifies itself as one (its own entrypoint and
+`CLAUDE_AGENT_SDK_CLIENT_APP=maestro/<version>` in the User-Agent). Billing is the reason. A native
+`maxBudgetUsd` comes with it. (Until 1.3.0 this file listed the SDK under "Not used" as cost without
+gain. That holds for subscription billing, not for this.)
+
+`bin/maestro-sdk` runs `sdk/runner.mjs` (Node ≥ 18, `@anthropic-ai/claude-agent-sdk` pinned in
+`sdk/package-lock.json`, installed by `install.sh --sdk`). Measured with SDK 0.3.286 (bundled
+Claude Code 2.1.286), 2026-10-15:
+
+| Flag / behaviour | What it does for maestro |
+| --- | --- |
+| `--model <full id>` | Required, a full id only. **Aliases are refused**: the bundled CLI resolves them from its own table, which lags (measured: `haiku` → `claude-haiku-4-5-20251001` while native `claude` resolved `claude-haiku-5-5`). |
+| `--resolve <slot>` | The newest id of the line this key can use, from the Models API (`GET /v1/models`, no model turn, no cost). 401/403 → exit 3: the key is refused. |
+| `--tools`, `--allowed-tools`, `--permission-mode` | The role's sets, as on `claude -p` (`tools` exclusive; `""` = none). `dontAsk`, `acceptEdits` and `plan` only; `bypassPermissions` and `auto` are refused. |
+| isolation | Always `settingSources: []` (no settings, hooks or CLAUDE.md), `mcpServers: {}` with `strictMcpConfig: true`. Measured `init`: `tools: []`, `mcp_servers: []`, only `@builtin` plugins. |
+| `--json-schema <file>` | `outputFormat: {type: "json_schema"}`; the verdict arrives as `result.structured_output`, as on `claude -p`. |
+| `--max-budget-usd <n>` | Required. The SDK stops with `result.subtype: error_max_budget_usd`. `0` returns that result at once with no model turn. |
+| `--resume <session_id>` | Continues the session; every flag of the role repeated. |
+| key | `~/.config/maestro/anthropic-api-key` (or `$MAESTRO_API_KEY_FILE`), refused unless a regular file of yours with mode 600; given only to the SDK's child process — never argv, stdout or `.maestro/`. Inherited `ANTHROPIC_*`, `CLAUDE_CODE_OAUTH_TOKEN` and `CLAUDE_CODE_USE_*` are dropped first. |
+| `init.apiKeySource` | Measured `"ANTHROPIC_API_KEY"`. Anything else and the runner aborts at once (exit 3): an `api` worker never falls back to a login. |
+| output | Every SDK message as one JSON line: `system/init` … `result {subtype, is_error, result, structured_output?, permission_denials, usage, modelUsage, total_cost_usd, session_id}`. `maestro-validate --envelope claude` and `maestro-ledger --cli claude-sdk` read it. |
+| bad key | `result.subtype: "success"` with `is_error: true` and `result: "Invalid API key …"` (measured): exit 1, the envelope check fails. Classify it as unavailability, not quota. |
+
+**Capabilities**: the same as `claude -p` — a builder is edits-only (`Read,Edit,Write,Glob,Grep`),
+the director runs the tests; critics get `Read,Grep,Glob`.
+
+**Cost.** `total_cost_usd` is the SDK's estimate from its bundled price table, not an invoice; the
+ledger keeps it as `cost_usd` and `maestro-ledger cost --run <id> --transport api` sums it. Policy
+`api.max_usd_per_run` (default 20) caps a run; set a spend limit on the Console workspace of the
+key as the hard stop. Whether a call actually drew on the credit rather than on prepaid balance
+shows only in the Console (Usage / Billing).
 
 ### Claude through agy
 
@@ -437,8 +487,8 @@ policy `cursor_fast: true`.
 | Option | Why maestro leaves it out |
 | --- | --- |
 | **Codex SDK** (`@openai/codex-sdk`) | It spawns the `codex` binary with `--experimental-json` (documented, `sdk/typescript/src/exec.ts`) — the same thread, events and resume as `codex exec --json`, plus a Node dependency the skill does not otherwise need. |
-| **Claude Agent SDK** | It starts a Claude Code process (documented: `spawnClaudeCodeProcess`); `claude -p` with `stream-json` gives the same session id, events, tools restriction, permission mode and resume. A Python or Node runtime for the same thing is cost without gain. |
-| `claude --bare` | API-key-only authentication (above). |
+| **Claude Agent SDK on a subscription login** | For subscription billing `claude -p` gives the same session, events and resume without a Node runtime; and the SDK's terms ask for API-key authentication. On an API key it is the `api` transport (above). |
+| `claude --bare` | API-key-only authentication; for API billing the `api` transport is used (above). |
 | Cursor `--force`, `--yolo`, `--worktree`, `--auto-review`, `--approve-mcps` | Above. |
 | agy `--dangerously-skip-permissions` | route uses `--mode` settings; the flag approves everything. |
 

@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # Install the maestro skill for Claude Code, Codex, Cursor and agy.
 #
-#   ./install.sh [--hosts=claude-code,codex,cursor,agy] [<project>]
+#   ./install.sh [--hosts=claude-code,codex,cursor,agy] [--sdk] [<project>]
 #   ./install.sh --check[=live] [<project>]
 #
-# Global (default): copies SKILL.md, docs/ and bin/ into ~/.agents/skills/maestro — read by Codex
+# --sdk also installs the Claude Agent SDK (pinned in sdk/package-lock.json) for the `api`
+# transport: `npm ci` in the installed sdk/ — needs Node >= 18 and network. Without it the
+# transport stays unavailable and stage 0 says so (README, "API credit").
+#
+# Global (default): copies SKILL.md, docs/, bin/ and sdk/ into ~/.agents/skills/maestro — read by Codex
 # and Cursor — and links ~/.claude/skills/maestro (Claude Code) and the agy skill directory to it.
 # With <project>: the same under <project>/.agents/skills/maestro and <project>/.claude/skills/maestro.
 # Never touches the older /route skill (…/skills/route).
@@ -15,13 +19,14 @@ set -euo pipefail
 
 src="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 hosts="claude-code,codex,cursor,agy"
-check="" project=""
+check="" project="" sdk=0
 for a in "$@"; do
   case "$a" in
     --hosts=*) hosts="${a#--hosts=}" ;;
+    --sdk) sdk=1 ;;
     --check) check=files ;;
     --check=live) check=live ;;
-    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
     -*) echo "install.sh: unknown option $a" >&2; exit 2 ;;
     *) project="$(cd "$a" 2>/dev/null && pwd)" || { echo "install.sh: no such directory: $a" >&2; exit 2; } ;;
   esac
@@ -83,7 +88,18 @@ rm -rf "${canon:?}/docs" "${canon:?}/bin"
 cp -R "$src/docs" "$canon/docs"
 cp -R "$src/bin" "$canon/bin"
 chmod +x "$canon"/bin/maestro-*
+mkdir -p "$canon/sdk"   # node_modules survives a reinstall; the lock file decides whether it is current
+cp "$src/sdk/package.json" "$src/sdk/package-lock.json" "$src/sdk/runner.mjs" "$canon/sdk/"
 echo "Installed maestro -> $canon"
+if [[ $sdk -eq 1 ]]; then
+  command -v npm >/dev/null 2>&1 || { echo "install.sh: --sdk needs npm (Node >= 18)" >&2; exit 1; }
+  npm ci --prefix "$canon/sdk" --omit=dev --ignore-scripts --no-audit --no-fund >/dev/null
+  echo "Installed Agent SDK -> $canon/sdk/node_modules ($(jq -r '.packages["node_modules/@anthropic-ai/claude-agent-sdk"].version' "$canon/sdk/package-lock.json"))"
+elif [[ -d "$canon/sdk/node_modules" ]]; then
+  want="$(jq -r '.packages["node_modules/@anthropic-ai/claude-agent-sdk"].version' "$canon/sdk/package-lock.json")"
+  have="$(jq -r .version "$canon/sdk/node_modules/@anthropic-ai/claude-agent-sdk/package.json" 2>/dev/null || echo none)"
+  [[ "$want" == "$have" ]] || echo "install.sh: installed Agent SDK $have, the lock pins $want — rerun with --sdk" >&2
+fi
 
 link() {  # link <path> : symlink <path> -> $canon, refusing anything that is not ours
   local p="$1"

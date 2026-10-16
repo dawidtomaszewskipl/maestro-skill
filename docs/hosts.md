@@ -305,14 +305,18 @@ authority question, a decline or a bad verdict) and the slot has another eligibl
 4. Resolve the same model id on the next eligible transport of the slot's order (skipping denied
    and unavailable ones); probe it if no fresh probe exists. A transport without that version is not
    a switch target — the event is a swap.
-5. A new session there with a brief **rewritten for its capabilities** (agy and `claude -p`:
+5. A new session there with a brief **rewritten for its capabilities** (agy, `claude -p` and `api`:
    edits-only, you run the tests; Cursor: sandboxed), the goal, the current diff (tracked and
    untracked), the open findings, the effort re-mapped and marked `(clamped)` where needed.
 6. Announce `transport: opus native→agy (quota; edits-only, director runs tests)`; ledger row with
    `outcome: "transport-switch"` on the abandoned call.
 
 The family does not change, so critics, reviewer and gate stand. A forced `@transport` never
-switches. With no transport left, or a different version, it is a swap (SKILL.md). Under
+switches. **`api` is the last transport** of every Claude slot and a switch target only with
+`--sdk` or policy `api: {fallback: true}`: native quota → agy → cursor → `api`, announced as
+`transport: opus native→api (quota; API credit, budget $<left>; edits-only, director runs tests)`.
+Under `--sdk` the slot starts on `api` (a forced transport), so an `api` failure never falls back to
+the subscription. With no transport left, or a different version, it is a swap (SKILL.md). Under
 `--unattended` the switch is automatic too (`docs/unattended.md` A16a, A17).
 
 The `claude -p`-native path of this transaction is exercised by a canary with a `claude` shim that

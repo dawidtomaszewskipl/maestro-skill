@@ -115,6 +115,39 @@ claude -p --resume <SESSION_ID> --model <full id> --effort medium <the role's --
 
 A parallel `claude -p` writer runs with its cwd in the worktree (maestro-run `--cwd`).
 
+## Claude — `api` (`maestro-sdk`, the Agent SDK on an API key)
+
+Through `maestro-env` like every worker; it drops the director's `ANTHROPIC_*` and `maestro-sdk`
+sets the key from its own file. Full ids only. `B` = `--max-budget-usd`: policy
+`api.max_usd_per_run` minus `maestro-ledger cost --run <run_id> --transport api`.
+
+```bash
+"$MAESTRO/bin/maestro-sdk" --check                    # stage 0 step 3: available? (no model turn)
+"$MAESTRO/bin/maestro-sdk" --resolve opus              # newest id for the key (Models API, free)
+
+# probe (stage 0 step 5)
+"$MAESTRO/bin/maestro-sdk" --model <full id> --effort low --tools "" --permission-mode dontAsk \
+  --max-budget-usd 0.05 --prompt-file .maestro/probe.md        # probe.md: "Reply with exactly: OK"
+
+# critic / gate / reviewer
+"$MAESTRO/bin/maestro-sdk" --model <full id> --effort medium --tools "Read,Grep,Glob" \
+  --allowed-tools "Read,Grep,Glob" --permission-mode dontAsk --json-schema .maestro/critique-schema.json \
+  --max-budget-usd "$B" --prompt-file .maestro/brief-critique.md
+
+# builder — edits-only (the director runs the tests); a worktree writer adds --cwd <worktree>
+"$MAESTRO/bin/maestro-sdk" --model <full id> --effort medium --tools "Read,Edit,Write,Glob,Grep" \
+  --permission-mode acceptEdits --max-budget-usd "$B" --prompt-file .maestro/stub-build.md
+
+# continuation — every flag of the role repeated
+"$MAESTRO/bin/maestro-sdk" --resume <SESSION_ID> --model <full id> <the role's flags> \
+  --max-budget-usd "$B" --prompt-file .maestro/brief-fix1.md
+```
+
+The `init` checks are those of `claude -p` below, plus `apiKeySource == "ANTHROPIC_API_KEY"`
+(`maestro-sdk` aborts on anything else itself). `result.subtype == "error_max_budget_usd"` = the
+run's api budget is spent: quota on this transport. The ledger row is `--cli claude-sdk --transport
+api`.
+
 **`init` checks — fail closed**, as soon as the first event is in `out` (`maestro-wait` returns
 while the job runs; the first line may take a few seconds): `tools` equals the requested set,
 `mcp_servers` is empty, every `plugins[].source` ends in `@builtin`, `permissionMode` is the

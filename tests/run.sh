@@ -381,6 +381,8 @@ if group T5 "verdict validation"; then
   jqt "claude structured_output → valid" "$(v claude-structured.jsonl claude)" '.valid'
   jqt "claude read-only role with a permission denial → envelope failure" "$(v claude-denied.jsonl claude read-only)" '.valid == false and .stage == "envelope"'
   jqt "claude error result → envelope failure" "$(v claude-error.jsonl claude)" '.valid == false and .stage == "envelope"'
+  jqt "api transport (Agent SDK) structured_output → valid" "$(v sdk-structured.jsonl claude read-only)" '.valid'
+  jqt "api budget spent → envelope failure" "$(v sdk-budget.jsonl claude)" '.valid == false and .stage == "envelope"'
 fi
 
 # =============================================================================================
@@ -457,6 +459,15 @@ if group T7 "role resolution"; then
   jqt "transports: explicit --model, all transports denied → first available" "$(tr_ '{"slot":"fable","order":["native","cursor"],"available":{"native":true,"cursor":true},"denied":["native","cursor"],"explicit":true}')" '.action == "use" and .transport == "native"'
   jqt "transports: nothing eligible → halt row 2" "$(tr_ '{"slot":"haiku","order":["native"],"available":{"native":false}}')" '.action == "halt" and .row == 2'
   jqt "transports: @transport the slot does not have → halt" "$(tr_ '{"slot":"haiku","order":["native"],"available":{},"forced":"agy"}')" '.action == "halt"'
+  OA='"order":["native","agy","cursor","api"]'
+  jqt "transports: api fallback — native quota at run time, agy and cursor out → switch to api" \
+    "$(tr_ '{"slot":"opus",'"$OA"',"available":{"native":true,"agy":false,"cursor":false,"api":true},"event":"runtime-failure","failed":"native","frozen_version":"5.5","versions":{"api":"5.5"}}')" \
+    '.action == "switch" and .transport == "api"'
+  jqt "transports: api last — never chosen while native is available" "$(tr_ '{"slot":"opus",'"$OA"',"available":{"native":true,"agy":true,"cursor":true,"api":true}}')" '.transport == "native"'
+  jqt "transports: --sdk (forced api) failing at run time never falls back to the subscription" \
+    "$(tr_ '{"slot":"opus",'"$OA"',"available":{"native":true,"api":true},"forced":"api","event":"runtime-failure","failed":"api"}')" '.action == "halt" and .row == 5'
+  jqt "transports: haiku with api fallback → api after native" \
+    "$(tr_ '{"slot":"haiku","order":["native","api"],"available":{"native":false,"api":true}}')" '.action == "use" and .transport == "api"'
 fi
 
 # =============================================================================================
@@ -500,6 +511,8 @@ if group T8 "lock"; then
     "$(printf '{"n":1}\n' | L exec --gen "$g" -- "$B/maestro-state" --gen "$g" append ledger.jsonl)" '.result == "written"'
   eq "a worker launched inside the fence does not inherit it (maestro-env)" 0 \
     "$(L exec --gen "$g" -- "$B/maestro-env" -- env | grep -c -E '^MAESTRO_(IN_FENCE|FENCE_HOLDER)=' || true)"
+  eq "a worker never inherits an API key, token or base URL (maestro-env)" 0 \
+    "$(ANTHROPIC_API_KEY=k ANTHROPIC_AUTH_TOKEN=t ANTHROPIC_BASE_URL=u "$B/maestro-env" -- env | grep -c '^ANTHROPIC_' || true)"
   # catalog refresh --gen: sources read outside the lock, the write inside the fence.
   jqt "catalog refresh --gen writes the catalog" \
     "$("$B/maestro-catalog" refresh --gen "$g" --fixtures "$FX/catalogs/machine-2026-10-11")" '.slots.codex.sol[0] == "6.1"'
@@ -698,7 +711,56 @@ if group T10 "ledger rows from job output"; then
   mkdir -p .maestro/jobs/j4; cp "$FX/verdicts/agy-denied.json" .maestro/jobs/j4/out
   row="$("$B/maestro-ledger" --dry-run --job j4 --stage critique --cli agy --transport agy --family google --model gemini-3.8-flash-medium)"
   jqt "agy row: status and denied actions recorded" "$row" '.status == "SUCCESS" and .denied_actions == ["mcp"]'
+  mkdir -p .maestro/jobs/k1 .maestro/jobs/k2
+  cp "$FX/verdicts/sdk-structured.jsonl" .maestro/jobs/k1/out; cp "$FX/verdicts/sdk-budget.jsonl" .maestro/jobs/k2/out
+  row="$("$B/maestro-ledger" --dry-run --job k1 --stage critique --cli claude-sdk --transport api --family claude --model claude-opus-5-5)"
+  jqt "api row: usage, served model, cost_usd from total_cost_usd" "$row" \
+    '.cli == "claude-sdk" and .transport == "api" and .input_tokens == 12000 and .cached_input_tokens == 30000
+     and .model_served == "claude-opus-5-5" and .cost_usd == 0.4125 and .session_id == "sdk1" and .duration_s == 42'
+  jqt "non-api rows carry cost_usd null" "$("$B/maestro-ledger" --dry-run --job j1 --stage critique --cli cursor-agent --transport cursor --family xai --model m)" '.cost_usd == null'
+  "$B/maestro-ledger" --gen "$g" --job k1 --stage critique --cli claude-sdk --transport api --family claude --model claude-opus-5-5 >/dev/null
+  "$B/maestro-ledger" --gen "$g" --job k1 --stage build --cli claude-sdk --transport api --family claude --model claude-opus-5-5 >/dev/null
+  "$B/maestro-ledger" --gen "$g" --job k2 --stage build --cli claude-sdk --transport api --family claude --model claude-opus-5-5 >/dev/null
+  jqt "cost: the run's api spend summed" "$("$B/maestro-ledger" cost --run r --transport api)" '.cost_usd == 0.825 and .rows == 3'
+  jqt "cost: another run spent nothing" "$("$B/maestro-ledger" cost --run other --transport api)" '.cost_usd == 0 and .rows == 0'
   cd "$ROOT" || exit 2
+fi
+
+# =============================================================================================
+if group T11 "api transport runner (maestro-sdk, no model turn)"; then
+  if ! command -v node >/dev/null 2>&1; then
+    bad "node available" "the api transport needs Node ≥ 18"
+  else
+    K="$WORK/key"; printf 'sk-test\n' > "$K"; chmod 600 "$K"; printf 'brief\n' > "$WORK/brief.md"
+    sdk() { MAESTRO_API_KEY_FILE="$K" "$B/maestro-sdk" "$@" 2>&1; }
+    base=(--model claude-opus-5-5 --effort medium --permission-mode dontAsk --max-budget-usd 2 --prompt-file "$WORK/brief.md")
+    row="$(sdk "${base[@]}" --tools "Read,Grep,Glob" --allowed-tools "Read,Grep,Glob" --json-schema "$ROOT/docs/schemas/critique-schema.json" --dry-run)"
+    jqt "dry run: role flags map onto SDK options, isolation on" "$row" \
+      '.options.tools == ["Read","Grep","Glob"] and .options.allowedTools == ["Read","Grep","Glob"] and .options.permissionMode == "dontAsk"
+       and .options.settingSources == [] and .options.mcpServers == {} and .options.strictMcpConfig == true
+       and .options.maxBudgetUsd == 2 and .options.outputFormat == "json_schema" and .options.model == "claude-opus-5-5"'
+    jqt "dry run: no key in the output" "$row" '(tostring | test("sk-test")) | not'
+    jqt "empty --tools disables every tool" "$(sdk "${base[@]}" --tools "" --dry-run)" '.options.tools == []'
+    jqt "inherited auth variables are dropped, the key set" "$(ANTHROPIC_AUTH_TOKEN=t CLAUDE_CODE_OAUTH_TOKEN=o sdk "${base[@]}" --tools "" --dry-run)" \
+      '(.env_dropped | index("ANTHROPIC_AUTH_TOKEN") != null and index("CLAUDE_CODE_OAUTH_TOKEN") != null) and (.env_set | index("ANTHROPIC_API_KEY") != null)'
+    out="$(sdk --model opus --effort medium --tools "" --permission-mode dontAsk --max-budget-usd 1 --prompt-file "$WORK/brief.md" --dry-run; echo "rc=$?")"
+    if [[ "$out" == *"must be a full id"* && "$out" == *"rc=2"* ]]; then ok "an alias is refused (the bundled CLI's alias table lags)"; else bad "an alias is refused" "$out"; fi
+    out="$(sdk --model claude-opus-5-5 --effort medium --permission-mode bypassPermissions --max-budget-usd 2 --prompt-file "$WORK/brief.md" --tools "" --dry-run; echo "rc=$?")"
+    if [[ "$out" == *"rc=2"* ]]; then ok "bypassPermissions is refused"; else bad "bypassPermissions is refused" "$out"; fi
+    out="$(sdk --model claude-opus-5-5 --effort medium --tools "" --permission-mode dontAsk --prompt-file "$WORK/brief.md" --dry-run; echo "rc=$?")"
+    if [[ "$out" == *"--max-budget-usd is required"* ]]; then ok "a launch without a budget is refused"; else bad "a launch without a budget is refused" "$out"; fi
+    chmod 644 "$K"
+    out="$(sdk "${base[@]}" --tools "" --dry-run; echo "rc=$?")"
+    if [[ "$out" == *"chmod 600"* && "$out" == *"rc=3"* ]]; then ok "a key file readable by others is refused"; else bad "a key file readable by others is refused" "$out"; fi
+    chmod 600 "$K"
+    out="$(MAESTRO_API_KEY_FILE="$WORK/none" "$B/maestro-sdk" "${base[@]}" --tools "" --dry-run 2>&1; echo "rc=$?")"
+    if [[ "$out" == *"no API key file"* && "$out" == *"rc=3"* ]]; then ok "a missing key file is refused"; else bad "a missing key file is refused" "$out"; fi
+    out="$(sdk --model claude-opus-5-5 --effort medium --permission-mode dontAsk --max-budget-usd 0 --prompt-file "$WORK/brief.md" --tools ""; echo "rc=$?")"
+    jqt "budget 0 → error_max_budget_usd without a model turn" "$(head -1 <<<"$out")" '.subtype == "error_max_budget_usd" and .is_error == true'
+    if [[ "$out" == *"rc=1"* ]]; then ok "… exit 1"; else bad "… exit 1" "$out"; fi
+    jqt "check: availability reported with reasons" "$(MAESTRO_API_KEY_FILE="$WORK/none" "$B/maestro-sdk" --check)" \
+      '.available == false and (.reasons | any(test("no key file")))'
+  fi
 fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

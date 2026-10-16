@@ -5,7 +5,7 @@
 #   command-line flags  >  repo maestro.policy.yml  >  ~/.config/maestro/policy.yml  >  skill defaults
 # Every key is optional. Slot names are the --model values:
 #   sonnet opus fable haiku astra sol luna terra gemini grok self
-# Transports: native agy cursor codex (a slot@transport pair names one).
+# Transports: native agy cursor codex api (a slot@transport pair names one).
 # Effort values: low medium high xhigh max (ultra for OpenAI only); clamped per transport.
 
 # Slots the director never picks on its own. An explicit --model still wins,
@@ -61,3 +61,10 @@ pin:
 
 # Allow Cursor's -fast variants (default false).
 cursor_fast: false
+
+# Claude through the Agent SDK on an API key (the Max plan's monthly API credit; docs/workers.md).
+# --sdk uses it for every Claude slot; fallback: true also makes it the last transport a Claude
+# slot switches to when the subscription's limit is spent. Usually set in ~/.config/maestro/policy.yml.
+api:
+  fallback: true
+  max_usd_per_run: 20      # USD per run, summed from the ledger's cost_usd (an SDK estimate)

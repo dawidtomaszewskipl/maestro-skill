@@ -18,6 +18,7 @@ the fence):
 | agy | `agy models` | `<slug>\t<label>` lines after a `Fetching available models...` banner. Lists Gemini (3.8/3.7/3.6 Flash, 3.1 Pro) **and Claude** (Opus 5.5, Sonnet 5.5 at low/medium/high) and GPT-OSS. |
 | cursor | `agent --list-models` | `<slug> - <label>` lines between a header and a tip. Lists Grok, Claude (current and older generations, `-thinking-` variants, `-fast` variants), GPT, Gemini, Kimi, GLM, Composer, Muse. |
 | native Claude | none | Claude Code's aliases (`opus`, `fable`, `sonnet`, `haiku`) follow the newest model of each line; the full id is learned by probing (below). |
+| api Claude | `maestro-sdk --resolve <slot>` | The Models API for the key (`GET /v1/models`, no model turn): the newest `claude-<line>-*` by `created_at`. Read only when `api` is eligible (`--sdk`, policy `api.fallback`). |
 
 **Stale and bundled data are degraded discovery**: a successful probe proves the chosen model is
 usable, not that it is the newest live one. The Assign line says `catalog codex: degraded
@@ -84,7 +85,10 @@ rejoins later only if a probe of the matching full id (`claude-<line>-<version j
 returns exactly that id.
 
 **Same model across transports.** agy and Cursor slugs match the frozen `{line, version}`; a
-transport without that version is not a switch target — moving there is a swap (SKILL.md).
+transport without that version is not a switch target — moving there is a swap (SKILL.md). `api`
+takes the frozen full id itself (`claude-opus-5-5`); it is a switch target only when the key's
+Models API lists that id. Under `--sdk` with no identity frozen yet, `--resolve` names it and the
+`api` probe freezes it (`init.model` must equal it).
 
 ## Pins
 
@@ -109,13 +113,13 @@ access outside its workspace), one record per `<transport>:<slug>`: `{result: ok
 at, at_epoch, detail}`. A record counts only when its **scope** equals the caller's and it is
 fresh — successful probes for 7 days, denials for 24 hours. The scope:
 
-| Field | codex | agy | cursor | native |
-| --- | --- | --- | --- | --- |
-| CLI version | `codex --version` | `agy --version` | `agent --version` | `claude --version` |
-| account | catalog `identity` | none known | `agent status` account | `claude auth status` account |
-| config | Codex config mode | — | — | — |
-| context | host and its sandbox profile | same | same | same |
-| session | — | the host session key (no account identity → never reused across sessions) | — | — |
+| Field | codex | agy | cursor | native | api |
+| --- | --- | --- | --- | --- | --- |
+| CLI version | `codex --version` | `agy --version` | `agent --version` | `claude --version` | the SDK version in `sdk/package-lock.json` |
+| account | catalog `identity` | none known | `agent status` account | `claude auth status` account | sha256 of the key file (never the key) |
+| config | Codex config mode | — | — | — | — |
+| context | host and its sandbox profile | same | same | same | same |
+| session | — | the host session key (no account identity → never reused across sessions) | — | — | — |
 
 The probe lines (lowest effort of the transport, *"Reply with exactly: OK"*, through `maestro-env`)
 are in `docs/commands.md`.
