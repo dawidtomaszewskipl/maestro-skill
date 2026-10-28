@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.4.0 — 2026-10-28
+
+**Documentation for people, not only for the author; the skill caught up with four CLI updates.**
+
+- **New documentation.** README.md and README_pl.md explain in plain words what maestro does, why it
+  uses models from several companies, what a run looks like and how to start. A new `docs/guide/`
+  (how it works, models and roles, costs and limits, setup and hosts, glossary) sits in front of
+  the technical pages, which stay in `docs/` with a short "what this page is for" note each.
+  `docs/README.md` is the map.
+- **No more `/route`.** Every reference to the older skill is gone outside this changelog. Stage 0
+  no longer looks for an unfinished `.route/CHECKPOINT.md`; the cascade's stash is now
+  `maestro-draft-<run_id>` and a worktree's integration commit `maestro-integrated`.
+  `docs/release-1.0.0.md` and `docs/evidence/1.0.0/` were removed (they remain in tag v1.0.0).
+- **Codex 0.165:** `terra` now resolves to `gpt-6.1-terra` (probe passed); unknown models fail
+  fast, so a denied model walks down in seconds; token numbers across Codex versions are not
+  comparable (0.163/0.164 accounting changes).
+- **agy 1.4.8:** every agy call writes its own log (`--log-file "$J/agy.log"`) for
+  `maestro-wait --also`, instead of guessing the newest global log; `maestro-validate --envelope
+  agy` reads `structured_output` first. A denied command now comes back as `SUCCESS` with
+  `denied_actions` — the validator already rejects it. `--mode auto` was measured: not available
+  on this account, so agy builders stay edits-only. Gemini 3.7/3.6 Flash and 3.1 Pro left agy's
+  catalog.
+- **Cursor 2026.10.22:** stage 0 reads `agent status --format json` and `agent about --format json`
+  (version, update status). Critic briefs forbid searching outside the repository, since Grep and
+  Glob now can. A per-repository `.cursor/sandbox.json` network allowlist was measured to work
+  with the sandbox's containment intact — documented as a setup step that lets a Cursor builder
+  run tests needing a registry; maestro never writes that file. Cursor's `slug[effort=…]` model
+  syntax is refused.
+- **Agent SDK 0.3.312** (bundled Claude Code 2.1.312) for the `api` transport; one paid probe
+  confirmed `apiKeySource`, the full model id and the bundled version (estimated $0.00004).
+- **Fix:** `maestro-wait` could report a job that ended at the wrong instant as `lost` instead of
+  `exited`; it now reads the exit code again after its liveness checks (test T4 was flaky).
+- shellcheck now runs in the suite here; 293 tests pass.
+
 ## 1.3.0 — 2026-10-15
 
 **`--sdk` and the `api` transport: Claude workers on the Max plan's API credit.** A Max plan
