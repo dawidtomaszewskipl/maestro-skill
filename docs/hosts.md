@@ -163,8 +163,8 @@ finishes, so maestro brings its own:
 
   Progress = new bytes on stdout (the `--json`/`stream-json` event streams of codex, `claude -p`
   and Cursor, thinking deltas included), or new stderr/`--also` bytes whose last line differs from
-  the previous one (a repeated identical error line is not progress). `--also` is agy's newest CLI
-  log (`~/.gemini/antigravity-cli/log/cli-*.log`), since agy writes its envelope only at exit.
+  the previous one (a repeated identical error line is not progress). `--also` is the agy run's own
+  log (`--log-file "$J/agy.log"`, `docs/commands.md`), since agy writes its envelope only at exit.
   `unowned` lists processes in the job's directory whose **full command line** equals the job's
   recorded command or a recorded test command but that were never members — reported, never
   signalled; for a writer you do not integrate or relaunch until they are settled.

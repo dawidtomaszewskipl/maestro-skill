@@ -332,7 +332,9 @@ the session reports serving (`docs/commands.md`, "Effective identity").
    status`, `codex doctor --summary`; then the **Codex config mode** —
    `isolated` unless `$CODEX_HOME/config.toml` sets a connection or auth key →
    `pinned`, naming the key, `docs/workers.md`), agy (`command -v agy`, `agy
-   models`, `agy --version`), Cursor (`command -v agent`, `agent status`).
+   models`, `agy --version`), Cursor (`command -v agent`, `agent status --format json` →
+   `isAuthenticated`, `agent about --format json` → `cliVersion` and `latestStatus`; not
+   `up_to_date` → a warning in the Assign line, not a stop).
 3a. **Your own capabilities** (`docs/hosts.md`, "Capability checks"): state
    writes, git object/index/ref writes, model reach from this shell, the tests'
    cheap check (not under `--skip-tests`), the visual tooling when the run
@@ -466,7 +468,9 @@ project skills by name** (Codex discovers `.agents/skills`; agy only with
 Block-structured, not prose. For Opus and Fable workers state goal, boundaries
 and proof of done — not step-by-step instructions; for frontend work name the
 concrete patterns to avoid. Cursor workers answer in the user's language unless
-told: say *"Answer in English."*
+told: say *"Answer in English."* Cursor's Grep and Glob can search outside the
+workspace (since 2026.10.15), so a Cursor critic, gate or reviewer brief also says
+*"Do not read or search anything outside <REPO>."*
 
 **Critic, gate and reviewer briefs are self-contained.** Codex, Claude and
 Cursor: plan plus diff embedded under 40 KB, else the path. **agy (Gemini and

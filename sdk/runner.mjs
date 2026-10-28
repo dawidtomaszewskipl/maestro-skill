@@ -120,7 +120,7 @@ for (const [k, v] of Object.entries(process.env)) {
   if (DROP.test(k)) dropped.push(k); else env[k] = v;
 }
 env.ANTHROPIC_API_KEY = key;
-env.CLAUDE_AGENT_SDK_CLIENT_APP = "maestro/1.3.0";
+env.CLAUDE_AGENT_SDK_CLIENT_APP = "maestro/1.4.0";
 
 const options = {
   model: o.model,

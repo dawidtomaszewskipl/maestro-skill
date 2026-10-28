@@ -1,0 +1,1 @@
+{"conversation_id": "c", "status": "SUCCESS", "response": "{\"verdict\": \"approve\", \"blocking_findings\": [], \"major_findings\": [], \"non_blocking_notes\": [\"n\"], \"assumptions\": []}", "structured_output": null, "usage": {}}

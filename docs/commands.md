@@ -157,36 +157,43 @@ transport is ineligible for that role this run. No `init` before another event i
 ## Claude and Gemini — `agy`
 
 ```bash
+J="$REPO/.maestro/jobs/<job>"      # the job directory (maestro-run creates it)
 # --add-dir "$REPO" on every call or the worker sees no project skills/rules.
+# --log-file "$J/agy.log" on every call: this run's own log, for maestro-wait --also.
 # critique — plan mode; the brief (paths inside $REPO, nothing quoted) in -p, opening with the
 # "read inside <REPO> only" paragraph; the worker reads the plan, the diff file and the code itself.
 # A denied read → a new conversation with the inline variant (whole brief quoted, "no tools").
-# The verdict is JSON inside .response. Same shape for a gate or a review.
+# The verdict is the envelope's .structured_output (else JSON inside .response). Same shape for a
+# gate or a review.
 agy --model gemini-<v>-flash-medium --mode plan --effort medium --add-dir "$REPO" --output-format json \
-  --json-schema .maestro/critique-schema.json --print-timeout 30m -p "$(cat .maestro/brief-critique.md)"
-#   Claude on agy: --model claude-opus-<v>-medium (or claude-sonnet-…), everything else identical
+  --json-schema .maestro/critique-schema.json --log-file "$J/agy.log" --print-timeout 30m \
+  -p "$(cat .maestro/brief-critique.md)"
+#   Argon: --model gemini-<v>-argon-medium; Claude on agy: --model claude-opus-<v>-medium (or
+#   claude-sonnet-…); everything else identical
 
 # build — accept-edits, EDITS ONLY: one denied command cancels the whole run
 agy --model <slug> --mode accept-edits --effort medium --add-dir "$REPO" --output-format json \
-  --print-timeout 60m -p "$(cat .maestro/stub-build.md)"
+  --log-file "$J/agy.log" --print-timeout 60m -p "$(cat .maestro/stub-build.md)"
 
 # builder resume — by id, never -c/--continue; only after a SUCCESS turn
 agy --conversation <CONVERSATION_ID> --model <slug> --mode accept-edits --effort medium \
-  --add-dir "$REPO" --output-format json --print-timeout 60m -p "$(cat .maestro/stub-fix1.md)"
+  --add-dir "$REPO" --output-format json --log-file "$J/agy.log" --print-timeout 60m \
+  -p "$(cat .maestro/stub-fix1.md)"
 
 # critic / gate / reviewer continuation — keeps plan mode, its schema and the brief in -p
 agy --conversation <CONVERSATION_ID> --model <slug> --mode plan --effort medium --add-dir "$REPO" \
-  --output-format json --json-schema .maestro/critique-schema.json --print-timeout 30m \
-  -p "$(cat .maestro/brief-critique-r2.md)"
+  --output-format json --json-schema .maestro/critique-schema.json --log-file "$J/agy.log" \
+  --print-timeout 30m -p "$(cat .maestro/brief-critique-r2.md)"
 
 # probe
 agy --model <slug at its lowest effort> --mode plan --effort low --add-dir "$REPO" --output-format json \
-  --print-timeout 2m -p "Reply with exactly: OK"
+  --log-file "$J/agy.log" --print-timeout 2m -p "Reply with exactly: OK"
 ```
 
-The slug suffix and `--effort` always agree. Progress for an agy job: pass `--also <newest
-~/.gemini/antigravity-cli/log/cli-*.log>` to `maestro-wait` (note the newest log before launching,
-poll until a newer one exists); the envelope is written whole at exit. agy usage is reported per
+The slug suffix and `--effort` always agree. Progress for an agy job: `maestro-wait <job> --also
+"$J/agy.log"` — the run's own log, written while it runs (agy 1.4.8 `--log-file`, measured
+2026-10-28); the envelope is written whole at exit. (Before `--log-file`, maestro had to guess the
+newest `~/.gemini/antigravity-cli/log/cli-*.log`, which races when two agy runs start together.) agy usage is reported per
 conversation and looks cumulative across `--conversation` turns: keep it raw in the ledger's
 `raw_cumulative`.
 
@@ -203,8 +210,9 @@ another family.
 # critic / gate / reviewer / probe — plan mode INSIDE the sandbox, never --force
 agent -p --mode plan --sandbox enabled --trust --model grok-<v>-medium --output-format stream-json \
   --workspace "$REPO" "$(cat .maestro/brief-critique.md)"
-#   the brief quotes the schema and ends: "Your final message must be the JSON object only.
-#   Answer in English."
+#   the brief quotes the schema, forbids reading or searching outside $REPO (since 2026.10.15
+#   Cursor's Grep and Glob can search folders outside the workspace) and ends: "Your final message
+#   must be the JSON object only. Answer in English."
 
 # builder — rung 1: Cursor's sandbox (workspace and /tmp writable, no network, no $HOME)
 agent -p --sandbox enabled --trust --model <slug> --output-format stream-json \
@@ -240,11 +248,13 @@ grep -E '"turn.failed"' "$J/out" | tail -3                # codex: failure, if a
 jq -c 'select(.type == "system" and .subtype == "init")' "$J/out" | head -1      # claude -p / cursor: init
 jq -c 'select(.type == "result") | del(.result)' "$J/out" | tail -1              # claude -p / cursor: result
 jq -c '{status, conversation_id, denied_actions, usage}' "$J/out"                # agy envelope
+jq -c '.structured_output' "$J/out"                                               # agy verdict (schema calls)
 ```
 
 - **Codex:** the `-o` file (`$J/answer`) is the answer; a reconnect `error` event is Codex
   retrying, a failure is `turn.failed` or an exit without `turn.completed`.
-- **agy:** check `status == "SUCCESS"`, `response != ""`, `(denied_actions ?? []) == []`. Any
+- **agy:** check `status == "SUCCESS"`, `(denied_actions ?? []) == []`, and a non-empty answer —
+  `structured_output` when present (schema calls), else `response`. Any
   other status invalidates the `conversation_id` — follow up in a new conversation with the
   current diff.
 - **`claude -p`, Cursor:** the `result` event; `subtype == "success"` and `is_error == false`, and

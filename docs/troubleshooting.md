@@ -111,7 +111,10 @@ prompt for, so it was auto-denied.
 
 Usage still shows thousands of output and thinking tokens — the model did the work and then threw
 it away reaching for a tool. This is why the envelope check is three conditions, not one:
-`status == "SUCCESS"` **and** `response != ""` **and** `denied_actions == []`.
+`status == "SUCCESS"` **and** a non-empty answer (`structured_output`, else `response`) **and**
+`denied_actions == []`. On agy 1.4.8 a denied command came back with `status: "SUCCESS"`, an empty
+`response` and `denied_actions: [{action: "command"}]` (measured 2026-10-28) — the status alone would
+have passed it.
 
 Fix in the brief, not in the user's global config: open a critic brief with an explicit
 prohibition — *"This brief is self-contained. Do NOT call any tools: do not read files, do not run
@@ -153,8 +156,10 @@ worker sees only the built-in skills and none of the project's `.agents/skills`.
 ## The schema verdict will not parse
 
 Three layers: agy's envelope wraps the verdict in the `response` *string*; the model may wrap the
-JSON in Markdown fences; agy adds `toolAction`/`toolSummary` keys the schema does not declare. Strip
-fences, drop those two keys, parse, validate — then act. Codex's `-o` file is the bare verdict.
+JSON in Markdown fences; agy up to 1.3.x added `toolAction`/`toolSummary` keys the schema does not
+declare. Strip fences, drop those two keys, parse, validate — then act. With `--json-schema` the
+envelope also carries the parsed object as `structured_output`, which `maestro-validate` prefers, so
+the layers only matter when it is missing. Codex's `-o` file is the bare verdict.
 
 ## The progress monitor raised an alarm on a healthy Codex run
 

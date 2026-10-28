@@ -3,30 +3,38 @@
 The OpenAI and agy facts below were first checked against **Codex CLI 0.153.4** and **Antigravity
 CLI 1.1.27** on 2026-09-06 and re-checked up to Codex 0.159.2 (2026-09-30) for route 3.x. maestro
 re-checked the parts it changes on **2026-10-11** with **Codex CLI 0.162.1**, **agy 1.3.3**,
-**Cursor agent 2026.10.01** and **Claude Code 2.1.296**; those statements say so. Catalogs and flag
+**Cursor agent 2026.10.01** and **Claude Code 2.1.296**; those statements say so. On **2026-10-28**
+the parts that changed were re-checked against **Codex 0.165.0**, **agy 1.4.8**, **Cursor agent
+2026.10.22** and **Claude Code 2.1.312** (help diffs of old and new binaries, release notes, probes
+and the measurements named below). Catalogs and flag
 sets move: maestro reads the catalogs live (`docs/catalog.md`) and re-checks a flag with `--help`
 rather than trusting a table that has aged.
 
 ## Family is decided by the model, not by the CLI
 
-Two catalogs host other vendors' models next to their own (measured 2026-10-11):
+Two catalogs host other vendors' models next to their own (measured 2026-10-28):
 
 ```
 $ agy models                                  $ agent --list-models (excerpt)
-gemini-3.8-flash-high   Gemini 3.8 Flash      grok-4.7-high - Grok 4.7  High
-gemini-3.7-flash-high   …                     claude-opus-5-5-high - Claude Opus 5.5 1M High
-gemini-3.1-pro-high     Gemini 3.1 Pro        claude-fable-5-1-high - Claude Fable 5.1 1M (NO ZDR)
-claude-opus-5-5-high    Claude Opus 5.5       gpt-5.6-sol-high - GPT-5.6 Sol 1M High
-claude-sonnet-5-5-high  Claude Sonnet 5.5     gemini-3.7-flash-high - Gemini 3.7 Flash
-gpt-oss-120b-medium     GPT-OSS 120B          kimi-k3-high, glm-5.2-high, composer-2.5, …
+gemini-4-argon-high     Gemini 4 Argon        grok-4.7-high - Grok 4.7  High
+gemini-3.8-flash-high   Gemini 3.8 Flash      claude-opus-5-5-high - Claude Opus 5.5 1M High
+claude-opus-5-5-high    Claude Opus 5.5       claude-fable-5-1-high - Claude Fable 5.1 1M (NO ZDR)
+claude-sonnet-5-5-high  Claude Sonnet 5.5     gemini-4-argon-high - Gemini 4 Argon High
+gpt-oss-120b-medium     GPT-OSS 120B          gpt-5.6-sol-high, kimi-k3-high, deepseek-v41-flash-…, …
 ```
+
+(agy listed Gemini 3.7 and 3.6 Flash and 3.1 Pro on 2026-10-11; by 2026-10-28 they are gone.)
 
 So a slot's family follows the **model** it resolves to, whatever CLI serves it: `opus@agy` and
 `opus@cursor` are Claude, exactly like `opus` through the Agent tool. maestro uses agy's and
 Cursor's Claude models as further **transports** of the Claude slots (SKILL.md, "Roster"), and
 Cursor's Grok as the xAI family. Cursor's GPT and Gemini Flash models are older than what codex and agy
 serve and are not transports; Cursor's `gemini-<v>-argon-<effort>` is the second transport of
-`argon` (the same version agy serves, listed on both since 2026-10-16); Kimi, GLM, Composer and Muse have no slot. Every Cursor Fable model
+`argon` (the same version agy serves, listed on both since 2026-10-16); Kimi, GLM, Composer, Muse
+(including `muse-wonder-1.0-*`) and DeepSeek (`deepseek-v41-flash-1017-*`, new by 2026-10-28) have
+no slot. Cursor's `--model` takes catalog slugs only: the bracket form `grok-4.7[effort=low]` that
+the 2026.10.22 bundle mentions is refused (`Cannot use this model`, measured 2026-10-28 for Grok and
+Claude; evidence: maestro run docs-20261028-0134, `M3-cursor-bracket.txt`). Every Cursor Fable model
 is marked "NO ZDR" (no zero data retention) — a repository whose policy needs ZDR denies
 `fable@cursor` (`transports.deny`).
 
@@ -37,7 +45,8 @@ was Claude critiquing Claude, and nothing in the output says so.
 **Availability is detected, not assumed.** Stage 0 checks three different things, all free of model
 turns: installation (`command -v codex|agy|agent|claude`), sign-in (`codex login status` — prints
 `Logged in using ChatGPT` and exits 0; `agy models` succeeding, since it fetches the catalog;
-`agent status` — `✓ Logged in as …`; `claude auth status`) and
+`agent status --format json` — `isAuthenticated: true`, the account in `userInfo.email`; `claude auth
+status`) and
 health (`codex doctor --summary`, exit 0 with `0 fail`, **run where the worker will run** — the same
 signed-in install fails doctor inside a sandbox with unreachable endpoints). A health failure makes the
 worker unavailable in that environment, not signed out; none of the checks proves entitlement to a
@@ -58,7 +67,10 @@ maestro resolves the OpenAI lines live (`docs/catalog.md`); the table below is t
 3.3 measured it on 0.159.2, kept for its per-model notes. On 2026-10-11 `codex debug models`
 (0.162.1) listed the same `visibility: list` slugs except that `gpt-5.5` is now hidden; `sol`
 resolved to `gpt-6.1-sol`, `astra` to `gpt-6-astra`, `luna` to `gpt-6-luna`, `terra` to
-`gpt-5.6-terra`.
+`gpt-5.6-terra`. On 2026-10-28 (0.165.0) the live catalog also lists **`gpt-6.1-terra`** ("GPT-6.1
+Terra Codex model", efforts `low … ultra`, catalog default `low`; no announcement found), so `terra`
+now resolves to 6.1 — its probe passed the same day (evidence: maestro run docs-20261028-0134, `1.1-terra-probe.txt`). `gpt-5.5` is gone from the live catalog (it
+retired on 2026-10-14) but stays in `--bundled`.
 
 Catalog of Codex CLI **0.159.2**, read from `~/.codex/models_cache.json` on 2026-09-30 (entries
 with `visibility: list`, in catalog priority order):
@@ -70,7 +82,8 @@ with `visibility: list`, in catalog priority order):
 | `gpt-6-sol` | — (previous Sol, "previous generation workhorse model") | `low … ultra` | `medium` |
 | `gpt-6-luna` | `luna` | `low … max` | `medium` |
 | `gpt-5.6-sol` | — (older Sol) | `low … ultra` | `low` |
-| `gpt-5.6-terra` | `terra` — legacy, explicit `--model` only | `low … ultra` | `medium` |
+| `gpt-5.6-terra` | `terra` until 2026-10-27 — legacy, explicit `--model` only | `low … ultra` | `medium` |
+| `gpt-6.1-terra` | `terra` since it appeared (seen 2026-10-28, 0.165.0; not in the 0.159.2 catalog this table is) | `low … ultra` | **`low`** |
 | `gpt-5.6-luna` | — (older Luna) | `low … max` | `medium` |
 | `gpt-5.5` | — (the catalog says it retires on 2026-10-14) | `low … xhigh` | `medium` |
 
@@ -83,11 +96,12 @@ effort; API prices $2 input, $0.10 cached input, $10 output per million tokens. 
 vendor's figures, not route's: route has measured GPT-6 Sol only as a critic so far, and the rubric
 does not move until the ledger shows Sol builds. A "GPT-6.1 Sol Ultrafast" was announced for the
 following days; it is not in the 0.159.2 catalog. Its catalog default effort is `low` where GPT-6
-Sol's was `medium` — route pins effort on every line, and a line without the pin runs at whatever
+Sol's was `medium` — maestro pins effort on every line, and a line without the pin runs at whatever
 the user config says (`xhigh` on the author's machine) or, isolated, at that catalog default.
 The read-only probe cost 18 585 input tokens (12 288 cached) and 8 s on 2026-09-30. GPT-6 Luna
-keeps its slot; its strengths relative to Astra are not yet measured either. There is no GPT-6
-Terra; the `terra` slot stays on 5.6 and leaves the rubric.
+keeps its slot; its strengths relative to Astra are not yet measured either. `terra` stays out of
+the rubric (explicit `--model` only) — on 5.6 until 2026-10-27, on `gpt-6.1-terra` since it
+appeared in the catalog; nothing announced makes it more than a legacy line.
 
 **The catalog is a candidate list, not proof.** A listed model can still be refused for the account,
 so the proof is a probe, remembered in `.maestro/model-probes.json` with its scope (CLI version,
@@ -251,8 +265,10 @@ reads it back from the session's rollout file (`docs/commands.md`, "Effective-co
 | `--mode accept-edits` | Auto-approves edits, keeps other prompts — the build setting. |
 | `--add-dir <repo>` | **Required for project skills and rules.** Print mode does not treat cwd as the workspace: without `--add-dir` the worker sees only the 5 built-in skills. |
 | `--print-timeout` | **Always set it.** It defaulted to 5 minutes up to 1.1.x; 1.2.8 defaults to `0`, which waits until the turn completes. Expiry returns `status:"ERROR"`, `error:"timeout waiting for response"`, exit 1 (there is no `TIMEOUT` status). |
-| `--output-format json` | One envelope written whole at exit: `{conversation_id, status, response, duration_seconds, num_turns, usage, denied_actions?, json_schema?}`. |
-| `--json-schema <schema-or-path>` | Schema enforced on the `response` string. agy adds `toolAction` and `toolSummary` keys to the object — drop them before validating. |
+| `--output-format json` | One envelope written whole at exit: `{conversation_id, status, response, duration_seconds, num_turns, usage, denied_actions?, json_schema?, structured_output?}`. |
+| `--json-schema <schema-or-path>` | Schema enforced on the answer; the parsed object also arrives as `structured_output` (documented on Antigravity's headless page, present in every schema envelope maestro has kept since 1.3.x). `maestro-validate --envelope agy` reads `structured_output` first, `response` otherwise. Up to 1.3.x agy added `toolAction` and `toolSummary` keys to the object in `response`; since 1.4.0 it does not (the validator still drops them). |
+| `--log-file <path>` | Writes this run's CLI log to `<path>` while it runs (measured on 1.4.8: the file appeared and grew before the envelope was written). maestro puts it in the job directory and hands it to `maestro-wait --also`, instead of guessing the newest `~/.gemini/antigravity-cli/log/cli-*.log` (evidence: maestro run docs-20261028-0134, `2.2-log-midrun.txt`). |
+| `--mode auto` | Preview: edits auto-approved and commands run in agy's terminal sandbox (workspace and temp only, no network). **Not available on this account** (measured 2026-10-28 on 1.4.8, `-p`: stderr `warning: --mode auto is not available for this account; continuing in the default mode`, the log says the rollout flag is off; the command was then denied and nothing ran; evidence: maestro run docs-20261028-0134, `M1-agy-auto.txt`). Not offered on Business/Enterprise accounts at all. maestro does not use it; agy builders stay edits-only. |
 | `--input-format stream-json` | NDJSON prompts on stdin; **requires `--output-format stream-json`**. Observed on 1.1.27: stdout is `{"event":"init","conversation_id":…,"init":{"model","cwd","tools":[…]}}` followed by `{"event":"result","result":{…the same envelope as `--output-format json`…}}`; input lines must carry an `"event"` field (a `{"type":"user",…}` message is rejected with `stream input message is missing the "event" field`). A different mode with a different parser; not used by route. |
 | `--conversation <id>` | Resume by id. `-c`/`--continue` means "most recent conversation" — a race as soon as two runs exist. |
 | `--dangerously-skip-permissions` | Approves everything. Was blocked once by Claude Code's own auto-mode classifier; `--mode` settings are what route uses. |
@@ -273,8 +289,10 @@ prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in 
 
 Consequences:
 
-Everything below holds for both Google lines on agy, Flash (`gemini`) and Argon (`argon`); the
-measurements are Flash's — Argon has none in maestro yet (provisional).
+Everything below holds for both Google lines on agy, Flash (`gemini`) and Argon (`argon`). The
+measurements in the table are Flash's; Argon has since run as a plan critic (2026-10-16, 2026-10-28:
+reads the repository itself, no denial, a valid verdict first time) and stays provisional until the
+ledger has more than critiques.
 
 - A Gemini **critic, gate or reviewer** reads the repository itself, in plan mode: its brief gives
   paths inside `$REPO` and allows file tools there, forbidding commands, MCP and anything outside
@@ -293,7 +311,9 @@ measurements are Flash's — Argon has none in maestro yet (provisional).
   director from choosing and quoting the code and has no argv limit. A denied read → a new
   conversation with the inline variant (whole brief quoted; above ~100 KB split, or another family).
 - A Gemini **builder** is edits-only. Its brief says so; the director runs tests and builds. One
-  attempted command aborts the run with `CANCELED`, exit 0, and an empty response.
+  attempted command ends the turn with an empty response and `denied_actions: [{action:
+  "command"}]`, exit 0 — status `CANCELED` up to 1.3.x, `SUCCESS` on 1.4.8 (measured 2026-10-28), so
+  the `denied_actions` check, not the status, is what catches it.
 - `denied_actions` is **absent** when nothing was denied — treat a missing key as `[]`.
 - To let a Gemini worker run specific commands, `permissions.allow` rules (`command(<target>)`) in
   `~/.gemini/antigravity-cli/settings.json` are the documented mechanism — unverified in route, and
@@ -419,7 +439,11 @@ gain. That holds for subscription billing, not for this.)
 
 `bin/maestro-sdk` runs `sdk/runner.mjs` (Node ≥ 18, `@anthropic-ai/claude-agent-sdk` pinned in
 `sdk/package-lock.json`, installed by `install.sh --sdk`). Measured with SDK 0.3.286 (bundled
-Claude Code 2.1.286), 2026-10-15:
+Claude Code 2.1.286) on 2026-10-15, and re-measured after the bump to **SDK 0.3.312** (bundled
+Claude Code **2.1.312**, the version the SDK's `init.claude_code_version` reports) on 2026-10-28:
+one tool-less probe on `claude-haiku-5-5` returned `OK` with `apiKeySource: "ANTHROPIC_API_KEY"`,
+`tools: []`, `mcp_servers: []`, 403 input and 4 output tokens, estimated `total_cost_usd`
+0.0000423 (evidence: maestro run docs-20261028-0134, `2.1-sdk-probe.txt`):
 
 | Flag / behaviour | What it does for maestro |
 | --- | --- |

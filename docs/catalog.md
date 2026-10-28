@@ -12,10 +12,10 @@ the fence):
 
 | Transport | Source | Notes (measured 2026-10-11) |
 | --- | --- | --- |
-| codex | `codex debug models` (run through `maestro-env`) | Refreshes the catalog from the server and prints `{models: [{slug, visibility, supported_reasoning_levels[].effort, default_reasoning_level, …}]}`; only `visibility: "list"` entries count. It also rewrites `$CODEX_HOME/models_cache.json`, whose `identity`, `client_version` and `fetched_at` the catalog copies (the live output has no account identity). |
+| codex | `codex debug models` (run through `maestro-env`) | Refreshes the catalog from the server and prints `{models: [{slug, visibility, supported_reasoning_levels[].effort, default_reasoning_level, …}]}`; only `visibility: "list"` entries count. It also rewrites `$CODEX_HOME/models_cache.json`, whose `identity`, `client_version` and `fetched_at` the catalog copies (the live output has no account identity). Re-checked on 0.165.0 (2026-10-28): same file, same keys, `fetched_at` advanced by each refresh and the same `identity` across them (evidence: maestro run docs-20261028-0134, `1.4-codex-cache.txt`). A changed identity (an upgrade or another account) only means older probe records no longer count. |
 | codex, fallback | `$CODEX_HOME/models_cache.json` | Used when `debug models` fails. Older than 7 days, or `client_version` ≠ `codex --version` → `stale: true`. |
 | codex, last resort | `codex debug models --bundled` | The binary's own catalog, no refresh — `mode: bundled`. |
-| agy | `agy models` | `<slug>\t<label>` lines after a `Fetching available models...` banner. Lists Gemini (3.8/3.7/3.6 Flash, 3.1 Pro; since 2026-10-16 also 4 Argon at low/medium/high) **and Claude** (Opus 5.5, Sonnet 5.5 at low/medium/high) and GPT-OSS. |
+| agy | `agy models` | `<slug>\t<label>` lines after a `Fetching available models...` banner. Lists Gemini (4 Argon since 2026-10-16 and 3.8 Flash, each at low/medium/high; 3.7/3.6 Flash and 3.1 Pro were listed on 2026-10-11 and are gone by 2026-10-28) **and Claude** (Opus 5.5, Sonnet 5.5 at low/medium/high) and GPT-OSS. |
 | cursor | `agent --list-models` | `<slug> - <label>` lines between a header and a tip. Lists Grok, Claude (current and older generations, `-thinking-` variants, `-fast` variants), GPT, Gemini (4 Argon at low/medium/high since 2026-10-16), Kimi, GLM, Composer, Muse. |
 | native Claude | none | Claude Code's aliases (`opus`, `fable`, `sonnet`, `haiku`) follow the newest model of each line; the full id is learned by probing (below). |
 | api Claude | `maestro-sdk --resolve <slot>` | The Models API for the key (`GET /v1/models`, no model turn): the newest `claude-<line>-*` by `created_at`. Read only when `api` is eligible (`--sdk`, policy `api.fallback`). |
@@ -39,12 +39,15 @@ different from a line that simply has no candidates.
 A version is parsed into a list of integers: `gpt-6.1` → [6, 1], `gpt-7` → [7],
 `claude-opus-5-5` → [5, 5], `claude-opus-5-10` → [5, 10], `grok-5` → [5]. Comparison pads the
 shorter list with zeros: [5] = [5, 0]; [6, 1] > [6]; [7] > [6, 10]; [6, 10] > [6, 9]
-(`maestro-catalog compare` and fixture T2). Integer generations (`gpt-7-sol`, `gemini-4-flash`, `gemini-4-argon`,
+(`maestro-catalog compare` and fixture T2). On 2026-10-28 the live Codex catalog resolves `terra` to
+`gpt-6.1-terra` (6.1, then 5.6), probe passed (evidence: maestro run docs-20261028-0134, `1.1-terra-probe.txt`); the slot
+stays explicit-only. Integer generations (`gpt-7-sol`, `gemini-4-flash`, `gemini-4-argon`,
 `grok-5`) are covered by the same patterns.
 
 **Excluded from automatic resolution**, listed under `transports.<t>.unmatched`: any other suffix
 (`-preview`, dates, `-mini`, `-nano`), Cursor's `-thinking-` naming of older Claude generations,
-Cursor's own `cursor-grok-*` builds, and every model of a line maestro has no slot for. An unmatched
+Cursor's own `cursor-grok-*` builds, and every model of a line maestro has no slot for (on
+2026-10-28 that includes Cursor's `muse-wonder-1.0-*` and `deepseek-v41-flash-1017-*`). An unmatched
 slug can still be pinned exactly (below) — a preview never becomes a worker unannounced.
 
 ## Resolution
@@ -63,6 +66,8 @@ entitlement, "not available for your plan") is recorded as `denied` and the next
 is tried; the highest passing version wins and the Assign line says so — `sol=gpt-6.1-sol
 (gpt-6.2-sol listed, denied for this account)`. **Quota and network failures do not walk down**:
 they are transport problems (SKILL.md, "Routing precedence"; `docs/hosts.md`, "Transport switch").
+Since Codex 0.165 an unknown or unavailable model ends `codex exec` at once instead of retrying, so a
+denial comes back in seconds.
 No candidate passes → halt (unattended: row 2).
 
 **A renamed line** (no candidates at all): `previous` — the version this repository resolved last
@@ -116,8 +121,8 @@ fresh — successful probes for 7 days, denials for 24 hours. The scope:
 
 | Field | codex | agy | cursor | native | api |
 | --- | --- | --- | --- | --- | --- |
-| CLI version | `codex --version` | `agy --version` | `agent --version` | `claude --version` | the SDK version in `sdk/package-lock.json` |
-| account | catalog `identity` | none known | `agent status` account | `claude auth status` account | sha256 of the key file (never the key) |
+| CLI version | `codex --version` | `agy --version` | `agent about --format json` → `cliVersion` | `claude --version` | the SDK version in `sdk/package-lock.json` |
+| account | catalog `identity` | none known | `agent status --format json` → `userInfo.email` | `claude auth status` account | sha256 of the key file (never the key) |
 | config | Codex config mode | — | — | — | — |
 | context | host and its sandbox profile | same | same | same | same |
 | session | — | the host session key (no account identity → never reused across sessions) | — | — | — |

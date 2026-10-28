@@ -170,6 +170,22 @@ networked check (Sail, a database) fails inside rung 1. Failed → the builder i
 director runs the tests. `/tmp` is writable at rung 1 but outside every brief's boundaries; the
 brief says so.
 
+**Rung 1 with the project's own network allowlist.** Cursor reads a per-repository
+`<repo>/.cursor/sandbox.json`; with `{"networkPolicy": {"default": "deny", "allow": ["<host>", …]}}`
+the sandboxed worker reaches exactly the listed hosts, and the rest of rung 1 holds (measured
+2026-10-28, agent 2026.10.22, `--sandbox enabled --trust`, no `--force`: `example.com` listed → HTTP
+200; `www.iana.org` not listed → `curl: (56) CONNECT tunnel failed, response 403`; both reachable from
+the director's shell before and after; a write to a disposable directory outside the workspace and
+outside `/tmp` — in `/dev/shm`, writable from the director's shell — failed, the path does not exist
+inside the sandbox; a write into `/tmp` succeeds, as rung 1 always allowed) (evidence: maestro run docs-20261028-0134, `M2b-cursor-allowlist-containment.txt`). So a project whose tests need a package registry or an API can list those hosts and
+let a Cursor builder run its tests at rung 1. This is a **user setup step**: maestro never writes
+`.cursor/sandbox.json` (nor `~/.cursor/sandbox.json`); the existing reach probe measures whatever
+the project has, judged by effect, and its result decides as before. Two cautions from Cursor's
+documentation and forum, not measured here: with `sandbox.networkAccess:
+user_config_with_defaults` (the default) Cursor adds its own default allowlist, and a tool call
+asking for `required_permissions: ["network"]` may be approved past the file — an unattended run
+cannot approve anything, but an interactive one could.
+
 ## `claude -p` — no sandbox rung (maestro)
 
 A `claude -p` builder is **edits-only** (`--tools "Read,Edit,Write,Glob,Grep"`): there is no Bash in

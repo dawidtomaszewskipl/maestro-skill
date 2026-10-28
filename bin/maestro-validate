@@ -6,14 +6,15 @@
 #
 # 1. Envelope (envelope failure is not an invalid verdict):
 #    codex   the -o file is the answer text
-#    agy     {status: "SUCCESS", response: non-empty, denied_actions: absent or []} → response
+#    agy     {status: "SUCCESS", denied_actions: absent or []} → structured_output if present and not
+#            null (agy fills it when --json-schema is given), else response; the chosen text non-empty
 #    claude  stream-json/json: the `result` event with subtype "success", is_error false, and for
 #            read-only roles permission_denials == [] → structured_output if present, else result
 #    cursor  stream-json/json: the `result` event with subtype "success", is_error false → result
 #    raw     the file itself
 # 2. Extraction: strip one surrounding Markdown fence; exactly ONE top-level JSON object must
-#    parse; leading prose is allowed, trailing non-whitespace is not. agy's toolAction/toolSummary
-#    keys are dropped.
+#    parse; leading prose is allowed, trailing non-whitespace is not. toolAction/toolSummary keys
+#    (agy before 1.4.0 put them into response) are dropped.
 # 3. Schema: type, enum, required, properties, additionalProperties:false, items — recursively.
 # Prints {valid, stage, errors, verdict}; exit 0 iff valid.
 set -euo pipefail
@@ -42,7 +43,11 @@ case "$envelope" in
     jq -e . "$file" >/dev/null 2>&1 || fail envelope "agy envelope is not JSON"
     [[ "$(jq -r .status "$file")" == SUCCESS ]] || fail envelope "agy status $(jq -r .status "$file")"
     [[ "$(jq '(.denied_actions // []) | length' "$file")" == 0 ]] || fail envelope "agy denied_actions: $(jq -c .denied_actions "$file")"
-    text="$(jq -r '.response // ""' "$file")"
+    if [[ "$(jq 'has("structured_output") and .structured_output != null' "$file")" == true ]]; then
+      text="$(jq -c .structured_output "$file")"
+    else
+      text="$(jq -r '.response // ""' "$file")"
+    fi
     [[ -n "$text" ]] || fail envelope "agy response is empty" ;;
   claude|cursor)
     res="$(last_result)"

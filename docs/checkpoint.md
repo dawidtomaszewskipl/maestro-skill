@@ -74,7 +74,7 @@ tree: {branch: feature/tags-crud, head: 3704e20…, fingerprint: 9f2c41…}
 tests: {cmd: "vendor/bin/sail artisan test --compact", last_result: "1104/1104", duration_s: 412, T_slow_s: 417}
 runtime: {codex_version: 0.162.1, agy_version: 1.3.3, agent_version: 2026.10.01, claude_version: 2.1.296,
           doctor_ok: true, probed_at: 2026-10-11T10:31:00+02:00}
-agy_log: {path: ~/.gemini/antigravity-cli/log/cli-20260906_103105.log, baseline_bytes: 4120}
+agy_log: {path: .maestro/jobs/<job>/agy.log, baseline_bytes: 4120}
 blockers: []               # [{kind: quota|api|safety-pause|question, who, at, detail}]
 decisions:                 # answer-required decisions (docs/unattended.md), apart from `blockers`;
   current: null            # one decision record (shape below) or null;

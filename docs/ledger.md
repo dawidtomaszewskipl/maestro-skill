@@ -31,6 +31,11 @@ so its job directories have none, and `maestro-ledger` takes both from the lock 
 estimated. `codex exec review` (a manual extra, not the cross reviewer)
 reports zero usage, so its token fields are `null`.
 
+**Codex token numbers are not comparable across CLI versions.** 0.163 started counting usage for
+incomplete responses, and 0.164 stopped counting retained reasoning twice (release notes), so the
+same work reports fewer reasoning tokens from 0.164 on. Compare rows of one CLI version (the probe
+scope records it), not across an upgrade.
+
 **`codex exec resume` reports usage cumulatively per thread.** Keep the thread's raw counters as
 reported in `raw_cumulative` (`null` for a non-Codex call), and put the delta into the token
 fields: `delta[n] = raw[n] − raw[n−1]`, both taken from `raw_cumulative`, never from the previous
