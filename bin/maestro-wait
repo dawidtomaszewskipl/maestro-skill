@@ -97,6 +97,12 @@ snapshot() {
     done
   fi
 
+  # The wrapper records the last members and writes exit before it quits. A job that ended between
+  # the first read of exit and the liveness checks would otherwise look dead without a code (lost):
+  # read it again — but only when the wrapper was already gone at its check, so its final member
+  # scan happened before members.jsonl was read above. A wrapper seen alive keeps the job running.
+  [[ -z "$code" && "$wrapper_alive" != true && -f "$J/exit" ]] && code="$(cat "$J/exit")"
+
   # An unreadable leader or member outranks everything, a live leader included: the live set is
   # incomplete, and maestro-kill must never classify (or signal) an incomplete set.
   if (( unreadable || leader_unreadable )); then state=uncertain
