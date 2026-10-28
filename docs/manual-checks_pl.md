@@ -1,5 +1,7 @@
 # Ręczne sprawdzenia maestro
 
+> **Do czego służy ta strona.** Lista sprawdzeń, których nie da się zautomatyzować — wymagają sesji interaktywnej, prawdziwego limitu albo oceny człowieka. Opis maestro po polsku: [README_pl.md](../README_pl.md); mapa dokumentacji: [docs/README.md](README.md).
+
 Automatyczne testy i pomiary z 11.10.2026 pokryły wszystkie cztery hosty, ale kilku rzeczy nie dało
 się sprawdzić bez Ciebie. Część wymaga sesji interaktywnej, część limitów, których nie da się
 zasymulować, a część to po prostu ocena, jak się z tym pracuje. Poniżej każdy przypadek krok po
@@ -260,7 +262,7 @@ przedpłacone saldo. W dokumentacji nie ma na to dowodu, widać to tylko w Conso
 
 **Gdzie:** repozytorium z `tests/canary/mkcanary.sh`, dyrygent w Codexie albo w Claude Code.
 
-**Przed:** README → „API credit”, kroki 1–5. Zanotuj w Console (Billing) stan kredytu i salda.
+**Przed:** README.md → „API credit” (po polsku: README_pl.md → „Kredyt API”), kroki 1–5. Zanotuj w Console (Billing) stan kredytu i salda.
 
 **Kroki:**
 ```text

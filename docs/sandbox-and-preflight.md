@@ -1,5 +1,7 @@
 # Sandbox and pre-flight
 
+> **What this page is for.** What a worker can and cannot reach inside each CLI's sandbox, how the director checks that before a build, and the escalation ladder. The plain overview is in [the guide](guide/setup-and-hosts.md#safety-defaults).
+
 A handoff to an external worker fails in a specific, avoidable way: the worker accepts the brief,
 works for a while, then reports that it could not run the project's verification command — because
 it never had access to it. Your shell had access. The sandbox the worker runs in does not.
@@ -87,9 +89,8 @@ reachability (expired logins, quota walls), installed vs. latest version, and a 
 
 ## Project-level config can neutralise your flags
 
-A project's `.codex/config.toml` was loaded by every `codex exec` in that directory in the runs
-before 3.3, which all read the user config (whether isolated mode still loads it is unverified —
-see below). Two things seen in practice:
+A project's `.codex/config.toml` is loaded by a `codex exec` that reads the user config (pinned
+mode; whether isolated mode still loads it is unverified — see below). Two things seen in practice:
 
 - `default_permissions = "<profile>"` with a read-only filesystem section — a leftover from an older
   workflow — made the workspace read-only regardless of `-s workspace-write`.
@@ -135,10 +136,10 @@ assignment line.
 `--dangerously-bypass-approvals-and-sandbox` is not a rung: it also drops approvals and is meant for
 hosts that are already sandboxed externally.
 
-## route does not use agy's sandbox — permissions decide
+## maestro does not use agy's sandbox — permissions decide
 
-agy 1.2.8 has a `--sandbox` flag ("terminal restrictions"); route does not use it, because its agy
-workers run no commands at all and the permission model below is what bounds them.
+agy (since 1.2.8) has a `--sandbox` flag ("terminal restrictions"); maestro does not use it, because
+its agy workers run no commands at all and the permission model below is what bounds them.
 
 Antigravity's headless mode denies any tool action that would need a prompt and cancels the turn
 (`status:"CANCELED"`, `denied_actions`, exit 0). `--mode plan` for critics, `--mode accept-edits`
@@ -151,9 +152,9 @@ for edits-only builders, `--add-dir "$REPO"` so the worker sees the project at a
 A clean working tree — commit or stash first. A write-mode worker that times out, crashes, hits a
 quota or is cancelled leaves valid-looking half-implementations behind, and without a baseline you
 cannot tell its work from yours. `.maestro/` is excluded via the repo's exclude file (`git rev-parse --git-path info/exclude`), so it never dirties
-the tree and `git stash -u` leaves it alone; never `git clean -x` in a route checkout.
+the tree and `git stash -u` leaves it alone; never `git clean -x` in a maestro checkout.
 
-## Cursor — rungs and the reach probe (maestro)
+## Cursor — rungs and the reach probe
 
 Measured on agent 2026.10.01 (2026-10-11; `docs/workers.md`, "xAI — Cursor `agent`"):
 
@@ -172,13 +173,16 @@ brief says so.
 
 **Rung 1 with the project's own network allowlist.** Cursor reads a per-repository
 `<repo>/.cursor/sandbox.json`; with `{"networkPolicy": {"default": "deny", "allow": ["<host>", …]}}`
-the sandboxed worker reaches exactly the listed hosts, and the rest of rung 1 holds (measured
-2026-10-28, agent 2026.10.22, `--sandbox enabled --trust`, no `--force`: `example.com` listed → HTTP
-200; `www.iana.org` not listed → `curl: (56) CONNECT tunnel failed, response 403`; both reachable from
-the director's shell before and after; a write to a disposable directory outside the workspace and
-outside `/tmp` — in `/dev/shm`, writable from the director's shell — failed, the path does not exist
-inside the sandbox; a write into `/tmp` succeeds, as rung 1 always allowed) (evidence: maestro run docs-20261028-0134, `M2b-cursor-allowlist-containment.txt`). So a project whose tests need a package registry or an API can list those hosts and
-let a Cursor builder run its tests at rung 1. This is a **user setup step**: maestro never writes
+the sandboxed worker reached the one listed host that was tried and was refused the one unlisted
+host that was tried, and the rest of rung 1 held (measured 2026-10-28, agent 2026.10.22, `--sandbox
+enabled --trust`, no `--force`: `example.com` listed → HTTP 200; `www.iana.org` not listed → `curl:
+(56) CONNECT tunnel failed, response 403`; both reachable from the director's shell before and after;
+a write to a disposable directory outside the workspace and outside `/tmp` — in `/dev/shm`, writable
+from the director's shell — failed, the path does not exist inside the sandbox; a write into `/tmp`
+succeeds, as rung 1 always allowed) (evidence: maestro run docs-20261028-0134,
+`M2b-cursor-allowlist-containment.txt`). A two-host measurement, not a proof that the allowlist is
+exact. So a project whose tests need a package registry or an API can list those hosts; the reach
+probe then shows whether a Cursor builder can run its tests at rung 1. This is a **user setup step**: maestro never writes
 `.cursor/sandbox.json` (nor `~/.cursor/sandbox.json`); the existing reach probe measures whatever
 the project has, judged by effect, and its result decides as before. Two cautions from Cursor's
 documentation and forum, not measured here: with `sandbox.networkAccess:
@@ -186,16 +190,16 @@ user_config_with_defaults` (the default) Cursor adds its own default allowlist, 
 asking for `required_permissions: ["network"]` may be approved past the file — an unattended run
 cannot approve anything, but an interactive one could.
 
-## `claude -p` — no sandbox rung (maestro)
+## `claude -p` — no sandbox rung
 
 A `claude -p` builder is **edits-only** (`--tools "Read,Edit,Write,Glob,Grep"`): there is no Bash in
 its tool set, so there is nothing to sandbox, and the director runs the tests. Claude Code's own
-Bash sandbox (`--settings '{"sandbox":{…}}'`) was considered as a rung and **not adopted** in 1.0.0:
+Bash sandbox (`--settings '{"sandbox":{…}}'`) was considered as a rung and **not adopted**:
 it would add Bash to a headless worker whose settings sources are deliberately empty, and it has
 not been measured to keep writes and network inside the workspace from outside. The rung can be
 added once a gate shows it.
 
-## The director's own shell (maestro)
+## The director's own shell
 
 On every host but Claude Code the **director's** commands run under that host's own rules
 (`docs/hosts.md`, "Supported configuration"): Codex's default sandbox has no network, so a Codex

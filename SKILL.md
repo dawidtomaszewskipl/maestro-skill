@@ -8,8 +8,7 @@ description: >-
   tests, commits and reports. Models are resolved from the live catalogs.
   Trigger ONLY when the user types /maestro (in Codex: $maestro), says "maestro
   this", "run the maestro loop", or explicitly asks for maestro. Do NOT use for
-  ordinary single-model coding, planning, refactors, or chat — and not for
-  /route (the older skill).
+  ordinary single-model coding, planning, refactors, or chat.
 ---
 
 # Maestro: director + selectable workers, any host
@@ -25,8 +24,7 @@ what and what it cost: the user is directing a team, not watching a black box.
 anything else set `MAESTRO` to the directory of this SKILL.md, resolved through
 symlinks — `MAESTRO="$(dirname "$(readlink -f "<path you read this file from>")")"` —
 and call every helper as `"$MAESTRO/bin/<name>"` (`--help` prints a helper's usage). The working state of a run lives in
-`.maestro/` at the repository top (never `.route/`, which belongs to the older
-`/route` skill; never `/tmp`).
+`.maestro/` at the repository top (never `/tmp`).
 
 Read `docs/` files when a section points at them, not up front:
 `docs/hosts.md` (**read it in stage 0** — the host you run in decides how you
@@ -237,7 +235,7 @@ integrate each worktree's result into the checkout yourself, one at a time —
 --binary`, applied in the checkout with `git apply` (inside the fence,
 `"$MAESTRO/bin/maestro-lock" exec --gen N -- …`) — and then mark the integrated state
 with a commit **inside the worktree** (`git -C <worktree> commit -m
-route-integrated`, never merged) whose SHA becomes its `baseline`: the next
+maestro-integrated`, never merged) whose SHA becomes its `baseline`: the next
 integration after a fix round first checks `HEAD == baseline` and then takes
 only what changed since. All this happens before your diff read, the tests
 (covering the integrated result) and the review; until integrated, the
@@ -322,9 +320,7 @@ the session reports serving (`docs/commands.md`, "Effective identity").
 2. Workspace: `REPO="$(git rev-parse --show-toplevel)"`; `mkdir -p .maestro`;
    add `.maestro/` to the file `git rev-parse --git-path info/exclude` names
    (never `.gitignore`); copy this skill's `docs/schemas/*.json` into `.maestro/`.
-   Clean tree required; warn about leftover `route-draft-*` stashes, and about a
-   `.route/CHECKPOINT.md` with `stage ≠ report` (an unfinished `/route` run in
-   this checkout — the two skills must not run here at once).
+   Clean tree required; warn about leftover `maestro-draft-*` stashes.
 3. **Families and transports, without model calls**, each check run from your
    own shell: Claude native (interactive Claude Code: always; elsewhere `command
    -v claude` + `claude auth status`), Claude api (only with `--sdk` or policy
@@ -670,7 +666,7 @@ model line → ask; unattended: row 2) → reconcile every recorded job
 the tree with the checkpoint's `tree` record and every worktree's `baseline`;
 any difference → dirty-exit first → continue at `stage` with `next_action`.
 
-**Building a `--plan-only` plan** works as in route 3.4: the approval stands
+**Building a `--plan-only` plan.** The approval stands
 only while the plan is unchanged (`plan_sha256`) and no approving critic shares
 the family of a possible builder; otherwise one critique round by the critics
 the build roster requires (A20 under `--unattended`).

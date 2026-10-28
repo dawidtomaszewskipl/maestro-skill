@@ -1,5 +1,7 @@
 # Hosts
 
+> **What this page is for.** How maestro behaves in each of the four hosts it runs in — how it detects the host, launches and waits for long jobs, asks you, and locks the repository. The plain overview is in [the guide](guide/setup-and-hosts.md).
+
 maestro runs as the director inside four agent hosts. They differ in four things the loop depends
 on: how the director starts a Claude worker, how it waits for a long command, how it asks the
 user, and what its own shell may do. Stage 0 detects the host and every later step uses the row of
@@ -135,8 +137,8 @@ the "Supported configuration" row:
 
 ## Jobs (every host except an interactive Claude Code)
 
-An interactive Claude Code keeps route 3.4's mechanism: the Bash tool's background mode and its
-completion notification. No other host has a notification that wakes the director when a command
+An interactive Claude Code uses the Bash tool's background mode and its completion notification.
+No other host has a notification that wakes the director when a command
 finishes, so maestro brings its own:
 
 - `bin/maestro-run --gen N --job <id> --run <run_id> --role <role> [--kind test]
@@ -288,7 +290,6 @@ liveness}` and is changed only under `flock -w 30` on `.maestro/lock.flock`.
 - A **different run** takes over a stale lock only when no job of the old run is `running`,
   `lingering`, `orphaned` or `uncertain` — otherwise `blocked`.
 - Released at the report and at every stop; **kept** on `blocked`.
-- A concurrent `/route` (the older skill) cannot see this lock; do not run both in one checkout.
 
 ## Transport switch
 

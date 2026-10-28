@@ -1,5 +1,7 @@
 # Setup
 
+> **What this page is for.** The questionnaire behind `--setup`: what the director reads, which questions it asks and in what order. The plain overview is in [the guide](guide/how-it-works.md#what-you-are-asked-and-when).
+
 `--setup` replaces remembering flags with a short questionnaire. The director reads the prompt,
 recommends a configuration from what the task is, and asks. The answer is a flag line the user can
 reuse next time.

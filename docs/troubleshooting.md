@@ -1,6 +1,9 @@
 # Troubleshooting
 
-Every entry below happened in a real route run between 2026-08-16 and 2026-09-30.
+> **What this page is for.** Real incidents, each with its diagnosis and the rule that came out of it. The plain description of what happens when something fails is in [the guide](guide/how-it-works.md#when-something-goes-wrong).
+
+Every entry below happened in a real run; the date is given where it matters. The rules in
+SKILL.md exist because of these incidents.
 
 ## Codex sits at `Reading additional input from stdin...` for an hour
 
@@ -29,7 +32,7 @@ carry no MCP overrides — the servers are already gone; the overrides belong to
 
 ## `--worktree cannot be combined with --ignore-user-config`
 
-Codex's managed worktrees refuse isolated mode (0.159.2, 2026-09-30). Route creates the worktree
+Codex's managed worktrees refuse isolated mode (0.159.2, 2026-09-30). maestro creates the worktree
 itself (`git worktree add --detach`) and passes it with `-C`; `docs/commands.md`, "Parallel Codex
 workers".
 
@@ -136,7 +139,7 @@ conversation, now with the inline variant (`docs/workers.md`).
 ## agy: exit 1, `status:"ERROR"`, `error:"timeout waiting for response"`
 
 `--print-timeout` expired (5 minutes by default up to agy 1.1.x; 1.2.8 defaults to no limit, so a
-missing value hangs instead — route always sets it). There is no `TIMEOUT` status. Start a new
+missing value hangs instead — maestro always sets it). There is no `TIMEOUT` status. Start a new
 conversation with a larger timeout and the current `git diff` embedded; do not `--conversation`
 into the expired one.
 
@@ -179,7 +182,7 @@ the second resume: 100, 150, 180 becomes 100, 50, 130). `docs/ledger.md` has the
 ## Tests failed with missing tables in the middle of a run
 
 Another Claude Code session on the same machine ran its own tests against the shared `testing`
-database and dropped tables under the route run — false reds with no relation to the diff
+database and dropped tables under the maestro run — false reds with no relation to the diff
 (2026-09-09 in one project, 2026-09-20 in another). Before diagnosing a red that makes no sense,
 check for another live test run (`ps -eo pid,etime,cmd | grep '[a]rtisan test'`); wait for it to end
 rather than killing it. Never start a second run of the same suite while one is live.
@@ -224,16 +227,16 @@ That is a red test that looks like a hang. Fix the selector; do not treat it as 
 ## Two projects served each other's assets
 
 One project's Vite died; the other project's dev server took port 5173; the first silently loaded
-the wrong CSS/JS for an hour and a half. Stale `public/hot` was the tell. Not route's fault — but
+the wrong CSS/JS for an hour and a half. Stale `public/hot` was the tell. Not maestro's fault — but
 it is the kind of thing a browser check surfaces and a test suite does not.
 
 ## Leftover processes from an interrupted run
 
 `until [ -s file ]` loops and dev servers from a run the director itself had interrupted survived
 for hours. The checkpoint's `sessions` and the harness task ids are the inventory to clean up after
-any interruption; `git stash list` shows leftover `route-draft-*` stashes from escalated cascades.
+any interruption; `git stash list` shows leftover `maestro-draft-*` stashes from escalated cascades.
 
-## maestro: a Cursor worker wrote outside the workspace and reached the network
+## a Cursor worker wrote outside the workspace and reached the network
 
 `agent -p --force --sandbox enabled` (2026-10-11): the worker wrote into another directory under
 `$HOME`, into `$HOME` itself, and fetched `https://example.com` — **`--force` turns Cursor's sandbox
@@ -241,7 +244,7 @@ off**, whatever `--sandbox` says. Without `--force` the same commands were denie
 `Permission denied`) and the network got `CONNECT tunnel failed, response 403`. maestro's Cursor lines
 never carry `--force`; rung 4 is a per-run user approval (`docs/sandbox-and-preflight.md`).
 
-## maestro: `maestro-host` said `claude-code` inside a Cursor run
+## `maestro-host` said `claude-code` inside a Cursor run
 
 A director check run by `agent -p --sandbox enabled` launched from a Claude Code session reported
 `claude-code`: Cursor's sandbox hid the Cursor process, and the nearest visible host was the Claude
@@ -251,7 +254,7 @@ and the markers-only rule decides — two hosts' markers → `unknown`. Launch n
 `maestro-env` (it strips the outer markers), and expect `unknown` from a `codex exec` read-only
 sandbox started inside another host: Codex hides the whole ancestry there.
 
-## maestro: a "read-only" `claude -p` critic loaded a plugin with hooks
+## a "read-only" `claude -p` critic loaded a plugin with hooks
 
 `claude -p --setting-sources ""` still loaded a non-builtin plugin (with `hooks.json`): the
 director's environment carried `CLAUDE_CODE_PLUGIN_DIRS`, inherited by the child. `maestro-env`
@@ -259,40 +262,40 @@ removes every `CLAUDE_*` variable except `CLAUDE_CONFIG_DIR` (it also removes `C
 would override `--effort`), and the `init` check kills a session whose `plugins` hold anything not
 `@builtin`.
 
-## maestro: `claude -p` refused to write in a scratch repository
+## `claude -p` refused to write in a scratch repository
 
 `"Claude requested permissions to edit … which is a sensitive file"` for a file under
 `~/.claude/jobs/…`: Claude Code treats everything under `~/.claude/` as sensitive, in any permission
 mode. Scratch repositories for tests and canaries live outside `~/.claude`.
 
-## maestro: a Grok verdict "would not parse"
+## a Grok verdict "would not parse"
 
 Grok opened two of seven critiques with a sentence before the JSON (`Porównam plan … {"verdict":…`),
 in the user's language although the brief was English. `maestro-validate` allows leading prose and
 still requires exactly one top-level object with nothing after it; briefs to Cursor say *"Answer in
 English"* and *"Your final message must be the JSON object only."*
 
-## maestro: agy cannot be the director in print mode
+## agy cannot be the director in print mode
 
 `agy -p` auto-denies every shell command (`docs/workers.md`), so a print-mode agy cannot run
 `maestro-host`, the lock, git or the tests. agy directs only interactively, approving the commands
 or with `permissions.allow` rules. `maestro-host` reports `interactive: false` for `agy -p` and stage 0
 stops there.
 
-## maestro: my own `pkill -f` killed my shell (exit 144)
+## my own `pkill -f` killed my shell (exit 144)
 
 During maestro's own build a cleanup `pkill -f "maestro-tests"` matched the very shell running it —
-its command line contained the pattern. route's rule stands: never `pkill -f`; find the PIDs (`ps -eo
+its command line contained the pattern. The rule stands: never `pkill -f`; find the PIDs (`ps -eo
 pid,args`, then `kill <pid>`) or let `maestro-kill` signal recorded members one by one.
 
-## maestro: an `api` worker answered as an older Claude than the slot
+## an `api` worker answered as an older Claude than the slot
 
 `maestro-sdk --model haiku` served `claude-haiku-4-5-20251001` (SDK 0.3.286, 2026-10-15) while
 native `claude -p --model haiku` served `claude-haiku-5-5`: the SDK's bundled Claude Code resolves
 aliases from its own table. `maestro-sdk` now refuses aliases; the full id comes from the frozen
 identity or from `maestro-sdk --resolve <slot>` (the Models API for the key).
 
-## maestro: `api` probe fails with `Invalid API key`
+## `api` probe fails with `Invalid API key`
 
 `result.subtype: "success"` with `is_error: true` and `"Invalid API key · Fix external API key"`, or
 `--resolve` exiting 3 with HTTP 401. The key file holds a revoked or mistyped key: create a new one
@@ -300,14 +303,14 @@ in the Console organisation linked to the Max plan and write it to
 `~/.config/maestro/anthropic-api-key` (mode 600). An unavailability, not quota: no transport switch
 onto it this run.
 
-## maestro: the API credit did not go down, the prepaid balance did
+## the API credit did not go down, the prepaid balance did
 
 The credit covers the Claude API and the Agent SDK, not Claude Code, and only in the Console
 organisation linked under claude.ai → Settings → Billing. Check that the key belongs to that
 organisation, and that the worker ran on `api` (ledger `cli: claude-sdk`), not as a director in
 Claude Code started with an API key — that is Claude Code usage.
 
-## maestro: `This API key is not scoped to a workspace`
+## `This API key is not scoped to a workspace`
 
 HTTP 400 from `maestro-sdk --resolve` (measured 2026-10-15): an organisation-level key is accepted,
 but each request must then name a workspace in an `anthropic-workspace-id` header, which neither

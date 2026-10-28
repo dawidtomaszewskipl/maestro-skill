@@ -1,8 +1,10 @@
 # Live catalog
 
-route used fixed slugs (`gpt-6.1-sol`, `gemini-3.8-flash`): a new Sol or Opus meant editing the
-skill. maestro treats a slot as a **model line** and resolves it at stage 0 from the catalogs the
-CLIs publish, then freezes what it found for the run.
+> **What this page is for.** How maestro finds the newest model of each line in the CLIs' model lists, checks it with a cheap probe and freezes it for the run. The plain overview is in [the guide](guide/models-and-roles.md).
+
+A slot is a **model line**, not a fixed slug (`gpt-6.1-sol`, `gemini-3.8-flash`): maestro resolves
+it at stage 0 from the catalogs the CLIs publish, then freezes what it found for the run. A new Sol
+or Opus therefore needs no edit of the skill.
 
 ## Sources
 

@@ -1,12 +1,14 @@
 # Unattended runs
 
-`--unattended` lets a route run finish with nobody to answer — headless under `claude -p`, as a
-benchmark contestant, overnight. Every point where route would ask the user to fill a **gap**
+> **What this page is for.** The binding rules of `--unattended`: which gaps become assumptions, which stop the run, and how a stop is recorded and answered. The plain overview is in [the guide](guide/how-it-works.md#running-without-you).
+
+`--unattended` lets a maestro run finish with nobody to answer — headless under `claude -p`, as a
+benchmark contestant, overnight. Every point where maestro would ask the user to fill a **gap**
 becomes a recorded assumption; every point that needs the user's **authority** stops the run cleanly
 with the result `needs-decision`, recorded so that a later `--resume` can answer it. The flag never
 turns a stop that protects safety, budget, scope or authority into a silent decision.
 
-Opt-in only: without the flag route behaves as before. **Under the flag this file is
+Opt-in only: without the flag the director asks, as SKILL.md says. **Under the flag this file is
 authoritative.** Its outcomes override the attended wording — "ask", "halt with a question", "hand
 over", "the user's call", "offered for building" — wherever it appears in SKILL.md or `docs/`,
 English or Polish.
@@ -95,12 +97,12 @@ Every gap is classified **before** it is resolved, and only row 1 becomes an ass
 
 ## Ask-point inventory
 
-The coverage baseline, built by searching SKILL.md and every `docs/*.md` (English; each Polish copy
-in `docs/pl/` mirrors these at its own lines) for ask, question, halt, confirm, "hand … over",
-"user's call" and "user picks" — the command is under "Reproducing the search". Every reachable
-point has one outcome. Line numbers in A1–A21 are those of route 3.4.0, kept as a trace; in maestro
-the **section names are the reference** (A16a, A17 and A22–A31 cite sections only). Every `--unattended` pointer sentence in SKILL.md names its entry
-here.
+The coverage baseline, built by searching SKILL.md and every `docs/*.md` for ask, question, halt,
+confirm, "hand … over", "user's call" and "user picks" — the command is under "Reproducing the
+search". Every reachable point has one outcome. The line numbers in A1–A21 refer to an older
+revision of SKILL.md and are kept only as a trace; the **section names are the reference** (A16a,
+A17 and A22–A32 cite sections only). Every `--unattended` pointer sentence in SKILL.md names its
+entry here.
 
 | # | Source | Ask point today | `--unattended` outcome |
 | --- | --- | --- | --- |
@@ -145,8 +147,8 @@ grep -n -i -E "\bask|question|halt|confirm|hand(s|ed)? .{0,40}over|user's call|u
   SKILL.md $(ls docs/*.md | grep -v '/unattended.md$')    # from the repository root
 ```
 
-maestro re-ran the search over its own SKILL.md, `docs/hosts.md` and `docs/catalog.md`
-(2026-10-11): every new ask point is A22–A32; the remaining hits are "confirm" in director checks
+The search was re-run over SKILL.md, `docs/hosts.md` and `docs/catalog.md` on 2026-10-11: the ask
+points added then are A22–A32; the remaining hits are "confirm" in director checks
 (`docs/hosts.md`, "Marker confirmation", transport switch step 1), "how it asks the user" (the
 adapter table) and the routing-precedence table's halts (A8, A9, A16a).
 
@@ -222,7 +224,7 @@ task_text, flags, current: <decision>, history: [...]}` (`docs/checkpoint.md`, "
 
   All of them are row 2 — a validation stop (`source` A1, A2), a collision or a candidates
   decision (A19, A20) because which work runs, and with which flags, is the user's to say, and
-  route never guesses a flag line.
+  maestro never guesses a flag line.
 - A validation stop creates only `.maestro/`, its exclude entry (SKILL.md, "Stage 0" step 2) and this
   file: no schemas, no checkpoint, no model call. An existing checkpoint is **never touched**.
 - The pending actions are:
@@ -377,12 +379,12 @@ and continues as SKILL.md "The loop" step 9 describes.
 
 ```
 result: needs-decision
-decision: d-2026-10-03T14-02-route-c3d4-3 (row 3, A13)
+decision: d-2026-10-03T14-02-maestro-c3d4-3 (row 3, A13)
 question: Critique cap (2) reached; Sol still reports one major finding: the bulk job has no retry.
 options:
-  d-2026-10-03T14-02-route-c3d4-3.a  one more critique round (cap 2 → 3)   [recommended]
-  d-2026-10-03T14-02-route-c3d4-3.b  stop here; hand the plan over
-answer: /maestro --resume --unattended d-2026-10-03T14-02-route-c3d4-3.a
+  d-2026-10-03T14-02-maestro-c3d4-3.a  one more critique round (cap 2 → 3)   [recommended]
+  d-2026-10-03T14-02-maestro-c3d4-3.b  stop here; hand the plan over
+answer: /maestro --resume --unattended d-2026-10-03T14-02-maestro-c3d4-3.a
 assumptions:
   - batch size 500, like the existing reindex job (easy to reverse)
 ```
@@ -427,7 +429,7 @@ audit log page` (`.a continue`, `.b archive-and-start`, `refers_to` R).
 | 25 | checkpoint of 24 (quota blocker and `d-R-4`) · `/maestro --resume --unattended`, no answer, limits recovered · authorized: nothing new | the quota is re-probed only (a check, reported, not written); `d-R-4` is unanswered → stop again, `result: needs-decision`, nothing written, no model call | A16a, A11 |
 | 26 | `/maestro --unattended --model=sol add a CSV import of products` · none · `stage: build`; the host running the Codex worker crashed · the import | A16b recovery, no stop: dirty-exit (changes inspected, kept or reset, recorded), then the thread continues by UUID or the worker is swapped for the crashed host as today (A17), a plan critic now in the builder's family replaced by one critique round of an eligible cross-family critic | A16b, A17 |
 | 27 | run `R` at `stage: review` · none · `config/app.php` changed and no recorded worker session touched it; `/maestro --resume --unattended` · the task | the tree differs from `tree` → dirty-exit; the change cannot be attributed to a known worker → row 2, A16b: `d-R-6` in the checkpoint (`.a` keep it and continue, `.b` reset that file and continue, `.c` stop); no review is dispatched | A16b |
-| 28 | `/maestro --unattended --cascade --model=sonnet add CRUD screens for the tags dictionary` · none; three families · `stage: draft` · the screens; Luna ends with `DRAFT_ABORT: authority: may deleting a tag detach it from existing posts?` | row 2, A21, no escalation: `draft.diff` kept, the draft stashed as `route-draft-R` (step 7's tree handling), `d-R-2` in the checkpoint at `stage: draft` | A21 |
+| 28 | `/maestro --unattended --cascade --model=sonnet add CRUD screens for the tags dictionary` · none; three families · `stage: draft` · the screens; Luna ends with `DRAFT_ABORT: authority: may deleting a tag detach it from existing posts?` | row 2, A21, no escalation: `draft.diff` kept, the draft stashed as `maestro-draft-R` (step 7's tree handling), `d-R-2` in the checkpoint at `stage: draft` | A21 |
 | 29 | as 28 · Luna ends with `DRAFT_ABORT: context_limit` | capability or context → escalation to `sonnet` as `docs/cascade.md` step 7 says; no stop | A21 |
 | 30 | checkpoint of 17 · `/maestro --resume --unattended`, no answer | the same stop again: nothing written, no model call; the report repeats `d-R-3` with its options | A13 |
 | 31 | checkpoint of 17 · `/maestro --resume` (attended) | the director asks `d-R-3` with its recorded options (`AskUserQuestion`); the reply is handled as in 32; `modes` gains an attended session | A13 |
@@ -467,4 +469,5 @@ The cross-family reviewer checks three things:
 - every scenario resolves to exactly one outcome under the precedence rule;
 - no source line in the inventory search is missing from the table.
 
-The route-bench F3 route canary is the behavioural test. This repository has no harness.
+This repository has no automated harness for the matrix; the end-to-end canaries (`tests/canary/`,
+`docs/hosts.md` "End-to-end canaries") exercise some of its stops on real runs.

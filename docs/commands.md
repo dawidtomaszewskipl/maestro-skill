@@ -1,5 +1,7 @@
 # Launch commands
 
+> **What this page is for.** The exact command lines the director runs for every worker, critic and probe, and how it reads their output. The plain overview of what runs where is in [the guide](guide/setup-and-hosts.md).
+
 Read this before the first external launch of a run. `SKILL.md` keeps the invariants,
 `docs/hosts.md` how this host launches and waits; this file keeps the exact lines.
 

@@ -11,7 +11,6 @@
 # Global (default): copies SKILL.md, docs/, bin/ and sdk/ into ~/.agents/skills/maestro — read by Codex
 # and Cursor — and links ~/.claude/skills/maestro (Claude Code) and the agy skill directory to it.
 # With <project>: the same under <project>/.agents/skills/maestro and <project>/.claude/skills/maestro.
-# Never touches the older /route skill (…/skills/route).
 #
 # --check lists where maestro is installed; --check=live also asks each host to list its skills
 # (one cheap headless call per host: agy needs no model turn, the others do).
@@ -26,7 +25,7 @@ for a in "$@"; do
     --sdk) sdk=1 ;;
     --check) check=files ;;
     --check=live) check=live ;;
-    -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
     -*) echo "install.sh: unknown option $a" >&2; exit 2 ;;
     *) project="$(cd "$a" 2>/dev/null && pwd)" || { echo "install.sh: no such directory: $a" >&2; exit 2; } ;;
   esac

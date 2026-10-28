@@ -1,5 +1,7 @@
 # Checkpoint
 
+> **What this page is for.** The exact shape of the checkpoint file that lets an interrupted run be resumed, and the resume procedure. The plain overview is in [the guide](guide/how-it-works.md#when-something-goes-wrong).
+
 `.maestro/CHECKPOINT.md` is what makes a maestro run resumable after a quota wall, an API failure, a
 safety stop, a closed laptop or a host that ended its session. It is rewritten in place — never
 appended — after every stage transition, at every worker launch (with the session id and the job
@@ -11,7 +13,7 @@ by anything else (`docs/hosts.md`, "Read-only proof" in `docs/commands.md`).
 ## Front matter
 
 ```yaml
-skill: maestro              # a checkpoint without it is not maestro's (route's lives in .route/)
+skill: maestro              # a checkpoint without it is not maestro's
 run_id: 2026-09-06T10-31-maestro-a1b2
 host: {name: codex, interactive: true, session_key: 01a1283f-…, host_pid: 102147, host_pid_starttime: "14828171"}
 director: {family: openai, model_line: sol, model_id: gpt-6.1-sol, source: "rollout turn_context"}
@@ -55,7 +57,7 @@ sessions:
        worktree: "", baseline: "", fingerprint: ""}
                          # rollout_offset = the rollout's line count before the latest resume;
                          # a parallel worker: worktree: .maestro/worktrees/<part>, baseline: <SHA of its start
-                         # commit or latest route-integrated commit>, fingerprint as for `tree`, run inside it
+                         # commit or latest maestro-integrated commit>, fingerprint as for `tree`, run inside it
   agy:   [{id: b538f8bb-9a0e-4978-bc3d-988ccef298eb, role: critic, slug: gemini-3.8-flash-medium, job: …}]
   cursor: [{id: 65d9d73d-c2af-4e49-8102-08ee4bccb856, role: critic, slug: grok-4.7-medium, job: …,
             init_model: "Grok 4.7 256K Medium"}]
@@ -67,7 +69,7 @@ artifacts:
   plan: .maestro/tasks/1/PLAN.md    # the run's PLAN.md (.maestro/PLAN.md without a queue)
   briefs: [.maestro/brief-critique.md, .maestro/brief-build.md]
   jobs: [.maestro/jobs/2026-09-06T10-31-maestro-a1b2.critique.r1.a1, …]   # every call's out/err/answer
-tree_state: dirty-worker   # clean | dirty-worker | dirty-draft | stashed:route-draft-<run_id>
+tree_state: dirty-worker   # clean | dirty-worker | dirty-draft | stashed:maestro-draft-<run_id>
 tree: {branch: feature/tags-crud, head: 3704e20…, fingerprint: 9f2c41…}
                            # rewritten with every checkpoint; fingerprint = sha256 of `git diff HEAD --binary`
                            # followed by each untracked file's path and sha256, in sorted order
@@ -109,7 +111,7 @@ the user's answer (`--unattended`, `docs/unattended.md`) is a **decision**, kept
 A decision record:
 
 ```yaml
-decision_id: d-2026-09-06T10-31-route-a1b2-3   # d-<run_id or attempt_id>-<n>; unique
+decision_id: d-2026-09-06T10-31-maestro-a1b2-3   # d-<run_id or attempt_id>-<n>; unique
 kind: needs-decision
 row: 3                     # highest stop-matrix row that applies; the others in also_rows
 also_rows: []
@@ -119,11 +121,11 @@ refers_to: {run_id: "", stage: "", written_at: "", tree_head: ""}
                            # pending decisions about a run only
 question: "Critique cap (2) reached; Sol still reports one major finding: …"
 options:                   # option id = <decision_id>.<letter>, each bound to an action
-  - {id: d-2026-09-06T10-31-route-a1b2-3.a, text: "one more critique round (cap 2 → 3)",
+  - {id: d-2026-09-06T10-31-maestro-a1b2-3.a, text: "one more critique round (cap 2 → 3)",
      action: "continue: critique round 3 of the current plan", changes_config: "rounds=3"}
-  - {id: d-2026-09-06T10-31-route-a1b2-3.b, text: "stop here; hand the plan over",
+  - {id: d-2026-09-06T10-31-maestro-a1b2-3.b, text: "stop here; hand the plan over",
      action: "continue: stage report, plan-only style hand-over", changes_config: ""}
-recommendation: d-2026-09-06T10-31-route-a1b2-3.a
+recommendation: d-2026-09-06T10-31-maestro-a1b2-3.a
 answer: null
 ```
 
@@ -169,7 +171,7 @@ on; a new non-resume invocation moves its
 
 ## Resume procedure
 
-0. **Lock, host, jobs** (maestro). Read `run_id` and the lock token from the checkpoint and take the
+0. **Lock, host, jobs.** Read `run_id` and the lock token from the checkpoint and take the
    lock with `maestro-lock acquire --resume` — it takes over only a **stale** owner (a live director
    keeps it: stop, attended ask / unattended row 2). Re-detect the host and your identity
    (`maestro-host`); a different host, family or model line than `host` / `director` → attended:
@@ -223,7 +225,7 @@ on; a new non-resume invocation moves its
 6. A checkpoint with `plan_only: true` at `stage: report` is not resumed but built: SKILL.md,
    "Building a `--plan-only` plan".
 
-## Audit and the bookkeeping lifecycle (maestro)
+## Audit and the bookkeeping lifecycle
 
 `CHECKPOINT.md`, `ledger.jsonl`, `pending-decision.md`, `lock` and every job's `meta.json`, `cmd`
 and `cwd` are **audited**: each write appends `{file, sha256_after, gen, at}` to

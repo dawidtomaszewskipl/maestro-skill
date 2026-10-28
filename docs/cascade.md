@@ -1,13 +1,15 @@
 # Cascade
 
-`--cascade` is route's version of the *cascade* pattern from GitHub's Project HydraFusion: an
+> **What this page is for.** The exact protocol of `--cascade`: a cheap model drafts the change, a gate decides whether to accept the draft or hand the work to the stronger model. The plain overview is in [the guide](guide/how-it-works.md#cheaper-drafts-the-cascade).
+
+`--cascade` is maestro's version of the *cascade* pattern from GitHub's Project HydraFusion: an
 efficient model drafts, a quality gate decides whether to accept or escalate to a stronger model,
 and extra model calls are spent only when they are likely to improve the result. HydraFusion reports
 36–67 % lower cost than a frontier model at roughly equal quality on coding benchmarks; the gate's
-internals are undisclosed, so route's gate is its own — mechanical where it can be, cross-family
+internals are undisclosed, so maestro's gate is its own — mechanical where it can be, cross-family
 where it must be.
 
-Opt-in only. Without the flag route behaves as before.
+Opt-in only. Without the flag there is no draft and no gate: the implementer builds.
 
 ## When it pays
 
@@ -51,7 +53,7 @@ cascade.
    checkpoint.
 2. **Draft.** Write `.maestro/brief-draft.md` — `.maestro/brief-build.md` plus the appendix below — and,
    for a Gemini drafter, `.maestro/stub-draft.md` pointing at it. The drafter runs at the effective
-   draft effort (default `medium` since 3.2: the one recorded `low` draft failed on finish — one-liners, missing tests — not on shape). Background, watchdog as usual, wall cap 25 minutes for the draft only.
+   draft effort (default `medium`: the one recorded `low` draft failed on finish — one-liners, missing tests — not on shape). Background, watchdog as usual, wall cap 25 minutes for the draft only.
 3. **Gate A — mechanical, no model.** The change inventory is `git diff --name-only <base_sha>`
    **plus** `git ls-files --others --exclude-standard` (new files are untracked and invisible to the
    diff); all of it must stay inside the plan's boundaries. **First, whatever comes next, write
@@ -79,7 +81,7 @@ cascade.
    `.maestro/draft-rejected.diff` (`.maestro/` is untouched by the stash). A draft that left no changes
    (an early `DRAFT_ABORT`) needs no stash: `tree_state` stays `clean` and the implementer gets the
    empty diff. Otherwise
-   `git stash push -u -m route-draft-<run_id>` returns the tree to `base_sha`; the stash name goes into the checkpoint's `tree_state`. The
+   `git stash push -u -m maestro-draft-<run_id>` returns the tree to `base_sha`; the stash name goes into the checkpoint's `tree_state`. The
    implementer receives the original brief plus the gate findings (or "Gate B did not run" after an
    abort or a wall-cap stop) and `draft-rejected.diff`
    labelled "rejected draft: reuse what is right, trust nothing". The stash is dropped at report;
@@ -96,7 +98,7 @@ Under `--unattended` the director classifies **every** `DRAFT_ABORT` reason befo
   authorization, budget, scope or a high-stakes decision: row 2. The run stops with
   `needs-decision` and does **not** escalate — the implementer would face the same gap. The draft
   is kept as `.maestro/draft.diff` (written fresh in step 3); the tree is handled as step 7 handles
-  it — `git stash push -u -m route-draft-<run_id>`, or nothing when the draft left no changes — and
+  it — `git stash push -u -m maestro-draft-<run_id>`, or nothing when the draft left no changes — and
   `tree_state` records it. The decision goes into the checkpoint at `stage: draft`, its options
   saying how to go on with the answer (a new draft with the answer in the brief, or escalation
   with it).
@@ -157,8 +159,8 @@ The schema file (`docs/schemas/gate-schema.json`) is accepted verbatim by both `
 
 ## What the real runs say about cost
 
-These figures come from GPT-5.6 workers and a draft at effort `low`; GPT-6.1 Sol and GPT-6 Luna at the 3.2
-defaults are not yet measured — the ledger will tell. From the ledger-shaped data in past sessions: a Sol critique costs 4–10 minutes; a Sol build 13–35;
+These figures come from GPT-5.6 workers and a draft at effort `low`; GPT-6.1 Sol and GPT-6 Luna at the
+current defaults are not measured — the ledger will tell. From the ledger-shaped data in past sessions: a Sol critique costs 4–10 minutes; a Sol build 13–35;
 a review fix-loop 40–52. A Luna draft at a low effort plus a mechanical gate and one Flash critique
 is well under the cheapest of those. The cascade earns its keep when at least one draft in three is
 accepted; the report's cascade line is how you find out whether that holds for your project.

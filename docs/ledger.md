@@ -1,5 +1,7 @@
 # Cost ledger
 
+> **What this page is for.** The exact format of the cost ledger — one line per model call — and where each number comes from. The plain overview is in [the guide](guide/costs-and-limits.md).
+
 `.maestro/ledger.jsonl`, one line per model call, appended right after reading its output:
 
 ```

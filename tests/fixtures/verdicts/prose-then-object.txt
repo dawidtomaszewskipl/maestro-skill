@@ -1,1 +1,1 @@
-Porównam plan z niezmiennikami route 3.4.{"verdict":"approve","blocking_findings":[],"major_findings":[],"non_blocking_notes":["n"],"assumptions":[]}
+Porównam plan z niezmiennikami maestro.{"verdict":"approve","blocking_findings":[],"major_findings":[],"non_blocking_notes":["n"],"assumptions":[]}

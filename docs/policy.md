@@ -1,7 +1,9 @@
 # Roster policy
 
-maestro's routing is a written rubric (see "Roster" in `SKILL.md` and "How the
-director decides" in the README). A policy file lets you bend that rubric once instead of correcting
+> **What this page is for.** Every key of the policy file (`maestro.policy.yml`, `~/.config/maestro/policy.yml`) and how it is applied. The plain overview is in [the guide](guide/setup-and-hosts.md#the-policy-file).
+
+maestro's routing is a written rubric (see "Roster" in `SKILL.md` and "Which models it can use"
+in the README). A policy file lets you bend that rubric once instead of correcting
 the director every run — "never pick Fable here", "critic is always Gemini", "this repo builds with
 Sol by default".
 
@@ -12,9 +14,8 @@ Sol by default".
 | `maestro.policy.yml` at the repository root | the project, committed | team conventions: default implementer, banned slots or transports, a family the team does not license, pinned models |
 | `~/.config/maestro/policy.yml` | you, every project, every host | your own budget: "I never spend Fable on builds", "no Claude through Cursor" |
 
-The user file lives outside `~/.claude` because maestro runs in four hosts. route's own policy
-files (`route.policy.yml`, `~/.claude/route.policy.yml`) are **not** read: their schema has no xAI
-family, no transports and no pins.
+The user file lives outside `~/.claude` because maestro runs in four hosts. No other policy file
+is read.
 
 Precedence, highest first: **command-line flags → repo policy → user policy → skill defaults**,
 resolved **per key**: a scalar, each `effort.*` entry and each `families.*` entry is taken from the
