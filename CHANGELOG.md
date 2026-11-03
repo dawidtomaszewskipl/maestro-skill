@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **`maestro-state adopt` refuses under a headless host.** Adopting a file changed outside maestro
+  was only the director's rule ("only on the user's decision, never under `--unattended`"); the
+  script accepted any call. It now asks `maestro-host` and answers `{result: "refused"}` (exit 1)
+  when the host runs without a user (`claude -p`, `codex exec`, `agent -p`, `agy -p`). An
+  interactive host running `--unattended` cannot be told apart here and stays the director's rule.
+
 ## 1.4.0 — 2026-10-28
 
 **Documentation for people, not only for the author; the skill caught up with four CLI updates.**

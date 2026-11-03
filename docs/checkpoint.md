@@ -238,6 +238,6 @@ change goes through a helper, inside the fence:
 | remove (a resolved `pending-decision.md`) | `maestro-state --gen N delete <file>` — recorded as absent, so the file can be created again later |
 | move one file away | `maestro-state --gen N archive <file> --to <name>` |
 | end of a run, or `archive-and-start` | `maestro-state --gen N rotate --to <run_id>` — verifies every audited file, moves `CHECKPOINT.md`, `pending-decision.md` and `audit.jsonl` to `.maestro/archive/<run_id>/`, and starts a fresh audit whose first entries are the current hashes of what stays (the ledger, the lock, the jobs) |
-| accept a file changed outside maestro | `maestro-state --gen N adopt <file> --reason "…"` — **only on the user's decision** after they inspected it; never under `--unattended` |
+| accept a file changed outside maestro | `maestro-state --gen N adopt <file> --reason "…"` — **only on the user's decision** after they inspected it; never under `--unattended` (a headless host — `claude -p`, `codex exec`, `agent -p`, `agy -p` — is refused by the script itself: `{result: "refused"}`, exit 1) |
 
 A file changed any other way stops the next write or `--resume` (row 2 under `--unattended`).

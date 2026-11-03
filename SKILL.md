@@ -649,7 +649,7 @@ every limit, API or safety event — **only** through `"$MAESTRO/bin/maestro-sta
 ledger written any other way has no audit entry, and the next write or `--resume` refuses it
 (measured in maestro's own canary: the resume stopped as row 2). Only the user can accept such a
 file, after inspecting it (`maestro-state --gen N adopt <file> --reason "…"`; never under
-`--unattended`). It
+`--unattended` — under a headless host the script refuses it). It
 holds the resolved configuration (flags, roster with frozen models and
 transports, efforts, `test_scope`, the Codex config mode), the host and your
 identity, the lock token, one record per worker session (transport, job id,

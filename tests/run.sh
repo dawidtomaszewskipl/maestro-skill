@@ -635,7 +635,24 @@ if group T9 "audit and .maestro fingerprint"; then
   printf 'y\n' | "$B/maestro-state" --gen "$g" write CHECKPOINT.md >/dev/null 2>&1
   jqt "after a refused write the file is still unaudited" "$("$B/maestro-state" verify CHECKPOINT.md)" '.result == "tampered"'
   jqt "adopt needs a reason" "$("$B/maestro-state" --gen "$g" adopt CHECKPOINT.md 2>&1 | jq -Rc '{msg: .}')" '.msg | test("reason")'
-  jqt "adopt with a reason" "$("$B/maestro-state" --gen "$g" adopt CHECKPOINT.md --reason "user inspected it")" '.result == "adopted"'
+  # Whether a user is there to have inspected the file comes from maestro-host: fake an
+  # interactive and a headless Claude Code (pid 100) above this shell (pid 200).
+  hproc() {
+    local r="$WORK/$1"; shift
+    mkdir -p "$r/100" "$r/200"
+    printf '100 (x) S 1 100 100 0 -1 0 0 0 0 0 0 0 0 20 0 1 0 1100 0 0\n' > "$r/100/stat"
+    printf '200 (x) S 100 200 200 0 -1 0 0 0 0 0 0 0 0 20 0 1 0 1200 0 0\n' > "$r/200/stat"
+    printf '%s\0' "$@" > "$r/100/cmdline"; printf 'bash\0' > "$r/200/cmdline"
+    ln -sfn /home/u/.local/share/claude/versions/2.1.296 "$r/100/exe"; ln -sfn /usr/bin/bash "$r/200/exe"
+    printf '%s' "$r"
+  }
+  as_host() { MAESTRO_PROC="$1" MAESTRO_HOST_START_PID=200 CLAUDECODE=1 "${@:2}"; }
+  HI="$(hproc adopt-interactive claude)"; HH="$(hproc adopt-headless claude -p hi)"
+  o="$(as_host "$HH" "$B/maestro-state" --gen "$g" adopt CHECKPOINT.md --reason "director's own call"; echo "rc=$?")"
+  jqt "adopt under a headless host is refused" "${o%rc=*}" '.result == "refused" and (.reason | test("headless"))'
+  eq "refused adopt exits 1" "rc=1" "rc=${o##*rc=}"
+  jqt "a refused adopt leaves the file unaudited" "$("$B/maestro-state" verify CHECKPOINT.md)" '.result == "tampered"'
+  jqt "adopt with a reason" "$(as_host "$HI" "$B/maestro-state" --gen "$g" adopt CHECKPOINT.md --reason "user inspected it")" '.result == "adopted"'
   jqt "adopted file verifies" "$("$B/maestro-state" verify CHECKPOINT.md)" '.result == "ok"'
   jqt "the adoption is marked in the audit" "$(tail -1 .maestro/audit.jsonl)" '.adopted == true and .reason == "user inspected it"'
   if grep -qF "${g#*.}" .maestro/audit.jsonl; then bad "no audit path discloses the fence secret"; else ok "no audit path discloses the fence secret"; fi

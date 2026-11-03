@@ -15,6 +15,9 @@
 #       accept the file as it is now (an audit entry marked adopted, with the reason). Only on the
 #       user's explicit decision after they inspected the file — never under --unattended, never
 #       by the director's own judgment: it is how an edit made outside maestro becomes legitimate.
+#       Refused ({result: "refused"}, exit 1) when maestro-host reports a headless host (claude -p,
+#       codex exec, agent -p, agy -p): no user there could have inspected the file. An interactive
+#       host running --unattended is not detectable here; that rule stays with the director.
 #
 # <file> is relative to .maestro/ and must be bookkeeping: CHECKPOINT.md, ledger.jsonl, or
 # tasks/<id>/CHECKPOINT-entry.json. Inside the fence (maestro-lock exec) it first verifies the
@@ -100,6 +103,15 @@ case "$op" in
     else jq -cn --arg f "$rel" '{result: "tampered", file: $f}'; exit 5; fi ;;
   write|append|adopt|delete|archive)
     [[ -n "$gen" ]] || mae_die "maestro-state $op needs --gen N"
+    if [[ "$op" == adopt ]]; then
+      [[ "${3:-}" == "--reason" && -n "${4:-}" ]] || mae_die "maestro-state adopt needs --reason \"<text>\""
+      hj="$("$MAESTRO_BIN/maestro-host" 2>/dev/null || true)"
+      if [[ "$(jq -r '.interactive' <<<"$hj" 2>/dev/null)" == false ]]; then
+        jq -cn --arg f "$rel" --arg h "$(jq -r '.host' <<<"$hj")" \
+          '{result: "refused", file: $f, reason: ("headless host (" + $h + "): only the user can adopt a file, after inspecting it")}'
+        exit 1
+      fi
+    fi
     mkdir -p "$SD/tmp"
     src="$(mktemp "$SD/tmp/state.XXXXXX")"
     if [[ "$op" == delete ]]; then
@@ -108,7 +120,6 @@ case "$op" in
       [[ "${3:-}" == "--to" && "${4:-}" =~ ^[A-Za-z0-9._:-]+$ ]] || mae_die "maestro-state archive needs --to <name>"
       printf '%s' "$4" > "$src"
     elif [[ "$op" == adopt ]]; then
-      [[ "${3:-}" == "--reason" && -n "${4:-}" ]] || mae_die "maestro-state adopt needs --reason \"<text>\""
       printf '%s' "$4" > "$src"
     else
       cat > "$src"
