@@ -1232,6 +1232,175 @@ if group T17 "limits"; then
     '.claude.utilization == null and .codex.utilization == null and .warnings == []'
 fi
 
+# =============================================================================================
+if group T18 "policy"; then
+  PD="$WORK/policy"; mkdir -p "$PD"
+  pol() { "$B/maestro-policy" resolve --repo "$PD/repo.toml" --user "$PD/user.toml" "$@"; }
+  prepo() { printf '%s\n' "$@" > "$PD/repo.toml"; }
+  puser() { printf '%s\n' "$@" > "$PD/user.toml"; }
+  out="$(pol)"
+  jqt "policy: no files → the defaults" "$out" \
+    '.files == {repo: null, user: null} and .stops == [] and .warnings == []
+     and .effective == {deny: [], implementer: null, critic: null, reviewer: null, cascade_drafter: "luna", critique_rounds: 2,
+           effort: {critique: "medium", high_stakes_critique: "high", build: "medium", review: "high", draft: "medium"},
+           families: {claude: "on", openai: "on", google: "on"}, transports_deny: [], pin: {},
+           api: {fallback: false, max_usd_per_run: 20}}
+     and (.sources | to_entries | all(.value == "default")) and .sources["effort.build"] == "default"'
+  jqt "policy: the annotated example resolves clean" "$("$B/maestro-policy" resolve --repo "$ROOT/docs/examples/maestro.policy.toml" --user "$PD/none.toml")" \
+    '.stops == [] and .warnings == [] and .effective.implementer == "sol" and .effective.deny == ["fable","haiku"]
+     and .effective.pin == {sol: "6.1"} and .effective.families.google == "off" and .effective.api.fallback == true
+     and .effective.effort.high_stakes_critique == {claude: "high", openai: "xhigh", google: "high"}
+     and .effective.transports_deny == ["opus@agy","sonnet@api"]'
+
+  # per-key precedence: flags > repo > user > defaults
+  puser 'implementer = "opus"' 'critic = "sol"' 'critique_rounds = 5' 'deny = ["fable", "haiku"]' \
+        '[families]' 'google = "off"' 'openai = "off"' '[transports]' 'deny = ["opus@agy"]' \
+        '[pin]' 'sol = "6.1"' 'opus = { native = "claude-opus-5-5" }' '[api]' 'fallback = true' 'max_usd_per_run = 5'
+  prepo 'implementer = "sol"' 'critique_rounds = 3' 'deny = ["terra"]' \
+        '[families]' 'openai = "on"' '[pin]' 'sol = { codex = "gpt-6.1-sol" }' '[api]' 'max_usd_per_run = 7.5'
+  out="$(pol)"
+  jqt "policy: scalars per key (repo over user, user where repo is silent)" "$out" \
+    '.effective.implementer == "sol" and .sources.implementer == "repo" and .effective.critic == "sol" and .sources.critic == "user"
+     and .effective.critique_rounds == 3 and .sources.critique_rounds == "repo" and .sources.reviewer == "default"'
+  jqt "policy: a higher deny list replaces the lower one" "$out" '.effective.deny == ["terra"] and .sources.deny == "repo"'
+  jqt "policy: transports.deny from the only level that sets it" "$out" '.effective.transports_deny == ["opus@agy"] and .sources["transports.deny"] == "user"'
+  jqt "policy: families per key, on lifts a lower off" "$out" \
+    '.effective.families == {claude: "on", openai: "on", google: "off"} and .sources["families.openai"] == "repo" and .sources["families.google"] == "user"'
+  jqt "policy: pin per slot" "$out" \
+    '.effective.pin == {opus: {native: "claude-opus-5-5"}, sol: {codex: "gpt-6.1-sol"}} and .sources["pin.sol"] == "repo" and .sources["pin.opus"] == "user"'
+  jqt "policy: api per key" "$out" '.effective.api == {fallback: true, max_usd_per_run: 7.5} and .sources["api.fallback"] == "user" and .sources["api.max_usd_per_run"] == "repo"'
+  jqt "policy: files are reported, no stops" "$out" '.files == {repo: "'"$PD"'/repo.toml", user: "'"$PD"'/user.toml"} and .stops == []'
+  fl="$("$B/maestro-flags" "--model=opus@agy --rounds=4 --critic=argon --critic=astra --reviewer=terra do it" 2>/dev/null)"
+  out="$(pol --flags "$(jq -c .flags <<<"$fl")")"
+  jqt "policy: flags beat both files" "$out" \
+    '.effective.implementer == "opus" and .effective.critique_rounds == 4 and .effective.reviewer == "terra"
+     and .sources.implementer == "flags" and .sources.critique_rounds == "flags" and .sources.critic == "flags" and .sources.reviewer == "flags"'
+  jqt "policy: an explicit slot or transport beats a denial, with a warning" "$out" \
+    '(.warnings | any(test("^--reviewer=terra: denied"))) and (.warnings | any(test("^opus@agy: transport denied")))'
+  jqt "policy: maestro-flags whole line is taken too" "$(pol --flags "$fl")" '.sources.implementer == "flags"'
+  prepo 'deny = []'
+  jqt "policy: an empty deny list clears the lower one" "$(pol)" '.effective.deny == [] and .sources.deny == "repo" and .effective.implementer == "opus"'
+
+  # effort: per stage, per family
+  puser '[effort]' 'review = "low"' 'build = { openai = "ultra", google = "low" }' 'critique = "max"'
+  prepo '[effort]' 'review = { openai = "xhigh" }' 'critique = { google = "xhigh" }' 'draft = "low"'
+  out="$(pol)"
+  jqt "effort: a repo family value over the user single value" "$out" \
+    '.effective.effort.review == {claude: "low", openai: "xhigh", google: "low"}
+     and .sources["effort.review.openai"] == "repo" and .sources["effort.review.claude"] == "user" and (.sources | has("effort.review") | not)'
+  jqt "effort: user family values, the default for the family left out" "$out" \
+    '.effective.effort.build == {claude: "medium", openai: "ultra", google: "low"} and .sources["effort.build.claude"] == "default"'
+  jqt "effort: single values stay single" "$out" \
+    '.effective.effort.draft == "low" and .sources["effort.draft"] == "repo" and .effective.effort.high_stakes_critique == "high"
+     and .effective.effort.critique == {claude: "max", openai: "max", google: "xhigh"} and .stops == []'
+  puser '[effort]' 'review = { openai = "ultra" }'
+  prepo '[effort]' 'review = "medium"'
+  jqt "effort: a repo single value beats a user family value" "$(pol)" '.effective.effort.review == "medium" and .sources["effort.review"] == "repo"'
+
+  # validation: only the winning value of a key is checked
+  rm -f "$PD/user.toml"
+  stop1() { prepo "${@:3}"; jqt "$1" "$(pol)" '(.stops | length) == 1 and (.stops[0] | test("'"$2"'"))'; }
+  stop1 "stop: unknown slot" "deny: unknown slot gemini-pro" 'deny = ["opus", "gemini-pro"]'
+  stop1 "stop: a transport the slot does not have" "transports.deny: haiku has no transport agy" '[transports]' 'deny = ["haiku@agy"]'
+  stop1 "stop: a malformed pair" "is not <slot>@<transport>" '[transports]' 'deny = ["opus"]'
+  stop1 "stop: an effort that is no level" "effort.build: .hgih. is not an effort level" '[effort]' 'build = "hgih"'
+  stop1 "stop: ultra for google" "effort.review.google: ultra is outside the google range" '[effort]' 'review = { google = "ultra" }'
+  stop1 "stop: max for google" "outside the google range" '[effort]' 'review = { google = "max" }'
+  stop1 "stop: ultra as a single shared value" "effort.review: ultra is an openai level" '[effort]' 'review = "ultra"'
+  stop1 "stop: an unknown effort family" "effort.review.mistral: unknown family" '[effort]' 'review = { mistral = "low" }'
+  stop1 "stop: critique_rounds 9" "critique_rounds: 9 is outside 1–8" 'critique_rounds = 9'
+  stop1 "stop: critique_rounds true" "critique_rounds: true is outside" 'critique_rounds = true'
+  stop1 "stop: cascade_drafter sol" "cascade_drafter: must be one of luna, haiku, gemini" 'cascade_drafter = "sol"'
+  stop1 "stop: an unknown family" "families.mistral: unknown family" '[families]' 'mistral = "off"'
+  stop1 "stop: a family value that is not on or off" "families.google: must be" '[families]' 'google = "maybe"'
+  stop1 "stop: self as critic" "critic: self only builds" 'critic = "self"'
+  stop1 "stop: an unquoted pin version" "pin.sol: the version must be a quoted string" '[pin]' 'sol = 6.1'
+  stop1 "stop: a pin on a transport the slot lacks" "pin.sol: sol has no transport agy" '[pin]' 'sol = { agy = "gpt-6.1-sol" }'
+  stop1 "stop: a pin slug of another line" "pin.sol: codex: .* is not a sol slug" '[pin]' 'sol = { codex = "gpt-6-astra" }'
+  stop1 "stop: a pin for an unknown slot" "pin.gpt: unknown slot" '[pin]' 'gpt = "5"'
+  stop1 "stop: api.max_usd_per_run not a number" "api.max_usd_per_run: must be a number" '[api]' 'max_usd_per_run = "20"'
+  stop1 "stop: a TOML date where a number belongs" "critique_rounds: .2026-11-14. is outside" 'critique_rounds = 2026-11-14'
+  stop1 "stop: a TOML date as an effort" "effort.build: .2026-11-14. is not an effort level" '[effort]' 'build = 2026-11-14'
+  stop1 "stop: a TOML date in transports.deny" "is not <slot>@<transport>" '[transports]' 'deny = [2026-11-14]'
+  stop1 "stop: an infinite budget" "api.max_usd_per_run: must be a number" '[api]' 'max_usd_per_run = inf'
+  stop1 "stop: a table key given a scalar" "effort must be a table" 'effort = "high"'
+  stop1 "stop: a policy implementer that is denied" "implementer fable .repo policy. is not eligible: denied" 'implementer = "fable"' 'deny = ["fable"]'
+  stop1 "stop: a policy implementer of a family switched off" "implementer sol .* families.openai is off" 'implementer = "sol"' '[families]' 'openai = "off"'
+  stop1 "stop: a policy drafter of a family switched off" "cascade_drafter gemini .* families.google is off" 'cascade_drafter = "gemini"' '[families]' 'google = "off"'
+  prepo 'deny = ["luna"]' 'implementer = "self"' '[families]' 'claude = false'
+  jqt "policy: a denied default drafter is no stop; self survives families.claude off; false reads as off" "$(pol)" \
+    '.stops == [] and .effective.families.claude == "off" and .effective.implementer == "self"'
+  prepo 'critic = "argon"' '[families]' 'google = "off"'
+  jqt "policy: an ineligible critic preference is dropped with a warning" "$(pol)" '.stops == [] and (.warnings | any(test("policy critic argon dropped: families.google is off")))'
+  jqt "policy: --model and --critic beat a family switch, with a warning" \
+    "$(pol --flags '{"model":{"slot":"gemini","transport":null},"critics":[{"slot":"argon","transport":null}]}')" \
+    '(.warnings | any(test("^--model=gemini: families.google is off"))) and (.warnings | any(test("^--critic=argon: families.google is off"))) and .stops == []'
+  puser 'implementer = "gpt-5"' 'critique_rounds = 12'
+  prepo 'implementer = "sol"' 'critique_rounds = 3'
+  jqt "policy: precedence first — a losing value is not validated" "$(pol)" '.stops == [] and .effective.implementer == "sol"'
+  rm -f "$PD/user.toml"
+
+  # the names 2.0.0 removed stop, wherever they stand
+  stop1 "removed: the slot grok" "deny: the slot grok was removed in 2.0.0" 'deny = ["grok"]'
+  stop1 "removed: the key cursor_fast" "the key cursor_fast was removed in 2.0.0" 'cursor_fast = false'
+  stop1 "removed: families.xai" "families.xai: the family xai was removed in 2.0.0" '[families]' 'xai = "on"'
+  stop1 "removed: effort.<stage>.xai" "effort.build.xai: the family xai was removed" '[effort]' 'build = { xai = "high" }'
+  stop1 "removed: a <slot>@cursor pair" "fable@cursor: the transport cursor was removed in 2.0.0" '[transports]' 'deny = ["fable@cursor"]'
+  stop1 "removed: a cursor pin" "pin.opus: the transport cursor was removed" '[pin]' 'opus = { cursor = "claude-opus-5" }'
+  puser 'cursor_fast = true' 'deny = ["grok"]'; prepo 'deny = ["opus"]'
+  jqt "removed: a removed name stops even where the higher file wins" "$(pol)" '(.stops | length) == 2 and (.stops | all(test("^user policy .*removed in 2.0.0"))) and .effective.deny == ["opus"]'
+  rm -f "$PD/user.toml"
+
+  # unknown keys warn and are ignored
+  prepo 'implementer = "sol"' 'colour = "red"' '[effort]' 'deploy = "high"' '[api]' 'region = "eu"' '[transports]' 'allow = []'
+  jqt "policy: unknown keys warn, the rest applies" "$(pol)" \
+    '.stops == [] and .effective.implementer == "sol" and (.warnings | length) == 4
+     and (.warnings | map(capture("unknown key (?<k>[a-z._]+)").k) | sort) == ["api.region","colour","effort.deploy","transports.allow"]'
+
+  # malformed TOML, a YAML file left behind
+  prepo 'implementer = sol'
+  jqt "policy: malformed TOML is a stop with the parser's message" "$(pol)" \
+    '(.stops | length) == 1 and (.stops[0] | test("repo policy .*repo.toml.: malformed TOML: Invalid value \\(at line 1, column 15\\)")) and .effective.implementer == null and .files.repo != null'
+  prepo 'implementer = "sol"'; printf 'implementer: opus\n' > "$PD/repo.yml"
+  jqt "policy: a .yml next to the policy is a stop" "$(pol)" '.stops == ["convert to TOML: '"$PD"'/repo.yml → '"$PD"'/repo.toml"] and .effective.implementer == "sol"'
+  rm -f "$PD/repo.yml" "$PD/repo.toml"
+
+  # default locations: <repo top>/maestro.policy.toml and $XDG_CONFIG_HOME/maestro/policy.toml
+  REPO="$(new_repo)"; XC="$WORK/xdg"; mkdir -p "$REPO/sub" "$XC/maestro"
+  printf 'implementer = "sol"\n' > "$REPO/maestro.policy.toml"; printf 'critic = "opus"\n' > "$XC/maestro/policy.toml"
+  out="$(cd "$REPO/sub" && XDG_CONFIG_HOME="$XC" "$B/maestro-policy" resolve)"
+  jqt "policy: default files, from a subdirectory" "$out" \
+    '.files == {repo: "'"$REPO"'/maestro.policy.toml", user: "'"$XC"'/maestro/policy.toml"} and .sources.implementer == "repo" and .sources.critic == "user"'
+  : > "$REPO/maestro.policy.yml"; rm "$XC/maestro/policy.toml"; : > "$XC/maestro/policy.yml"
+  out="$(cd "$REPO" && XDG_CONFIG_HOME="$XC" "$B/maestro-policy" resolve)"
+  jqt "policy: 1.x YAML files at the default places stop" "$out" \
+    '.stops == ["convert to TOML: '"$XC"'/maestro/policy.yml → '"$XC"'/maestro/policy.toml", "convert to TOML: '"$REPO"'/maestro.policy.yml → '"$REPO"'/maestro.policy.toml"] and .files.user == null'
+  mkdir -p "$WORK/norepo"
+  out="$(cd "$WORK/norepo" && GIT_CEILING_DIRECTORIES="$WORK" XDG_CONFIG_HOME="$WORK/none-x" "$B/maestro-policy" resolve)"
+  jqt "policy: outside a repository → defaults, no stop" "$out" '.files == {repo: null, user: null} and .stops == []'
+  "$B/maestro-policy" resolve --flags '{oops' >/dev/null 2>&1; eq "policy: bad --flags is a usage error" 2 $?
+  "$B/maestro-policy" merge >/dev/null 2>&1; eq "policy: unknown command is a usage error" 2 $?
+  prepo 'critique_rounds = 99'; pol >/dev/null; eq "policy: exit 0 with stops" 0 $?
+
+  # roles-input: what the policy contributes to maestro-roles
+  ri() { "$B/maestro-policy" roles-input --repo "$PD/repo.toml" --user "$PD/user.toml" "$@"; }
+  prepo 'deny = ["fable", "haiku"]' 'critic = "opus"' 'reviewer = "argon"' '[families]' 'google = "off"' '[transports]' 'deny = ["opus@agy", "sonnet@api", "sonnet@agy"]'
+  out="$(ri)"
+  jqt "roles-input: critic, reviewer (an ineligible one dropped), the exclusion filter" "$out" \
+    '.policy_critic == "opus" and .policy_reviewer == null and .named_critics == [] and .named_reviewer == null
+     and .exclude == {slots: ["fable","haiku","argon","gemini"], denied: ["fable","haiku"], families_off: ["google"], kept_by_flag: []}
+     and .transports_denied == {opus: ["agy"], sonnet: ["api","agy"]} and .fable_budget == false and .stops == []
+     and (.warnings | any(test("policy reviewer argon dropped"))) and (.unmapped | any(test("^fable_budget")))'
+  out="$(ri --flags '{"model":{"slot":"fable","transport":null},"critics":[{"slot":"sol","transport":null},{"slot":"haiku","transport":null}],"reviewer":{"slot":"sol","transport":null}}')"
+  jqt "roles-input: flag-named slots stay eligible; named critics replace the policy critic" "$out" \
+    '.policy_critic == null and .named_critics == ["sol","haiku"] and .named_reviewer == "sol"
+     and .exclude.slots == ["argon","gemini"] and .exclude.kept_by_flag == ["fable","haiku"] and (has("fable_budget") | not)'
+  # …and maestro-roles takes it: the policy critic wins over the table's first choice
+  rin="$(jq -c '{builder: "sol", eligible: (["opus","sonnet","fable","sol","astra","argon","gemini"] - .exclude.slots), policy_critic, policy_reviewer, named_critics}' <<<"$(ri)")"
+  jqt "roles-input → maestro-roles" "$("$B/maestro-roles" <<<"$rin")" '.critics == ["opus"] and .stop == null and (.notes | index("critic=opus (policy)") != null)'
+  cd "$ROOT" || exit 2
+fi
+
 _gtime
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 if (( fail > 0 )); then printf '  %s\n' "${failed[@]}"; exit 1; fi

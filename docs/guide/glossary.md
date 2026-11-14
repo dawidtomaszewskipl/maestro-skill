@@ -73,7 +73,7 @@ the first is done or dead.
 **Plan-only** (`--plan-only`) — interview, plan and critique; no build. A later run can build the
 approved plan.
 
-**Policy** — `maestro.policy.yml` (repository) or `~/.config/maestro/policy.yml` (yours): standing
+**Policy** — `maestro.policy.toml` (repository) or `~/.config/maestro/policy.toml` (yours): standing
 preferences such as denied slots, pinned versions, families switched off.
 
 **Probe** — one cheap call ("Reply with exactly: OK") that proves the account can use a model on a

@@ -46,27 +46,33 @@ model.
 
 ## The policy file
 
-Standing preferences go into `maestro.policy.yml` at the repository root (for the team) or
-`~/.config/maestro/policy.yml` (for you). Every key is optional; flags beat the repository file,
+Standing preferences go into `maestro.policy.toml` at the repository root (for the team) or
+`~/.config/maestro/policy.toml` (for you). Every key is optional; flags beat the repository file,
 which beats yours.
 
-```yaml
-implementer: sol          # default builder when --model is absent
-deny: [fable]             # never picked on the director's own initiative
-critique_rounds: 2
-families:
-  google: off             # even if agy is installed
-transports:
-  deny: [opus@agy]        # a road the director never takes on its own
-api:
-  fallback: true          # switch to the API credit when the Claude limit runs out
-  max_usd_per_run: 20
+```toml
+implementer = "sol"       # default builder when --model is absent
+deny = ["fable"]          # never picked on the director's own initiative
+critique_rounds = 2
+
+[families]
+google = "off"            # even if agy is installed
+
+[transports]
+deny = ["opus@agy"]       # a road the director never takes on its own
+
+[api]
+fallback = true           # switch to the API credit when the Claude limit runs out
+max_usd_per_run = 20
 ```
+
+`maestro-policy resolve` reads both files and prints the merged values, where each came from, and
+anything wrong with them — run it to check a file you have just written.
 
 A value that came from a policy is marked `(policy)` in the assignment line, so you always see
 where a choice came from. The cross-family rule is not a policy key and cannot be switched off.
 Naming a denied slot on the command line still works, with a warning. The full key list and an
-annotated example: [policy.md](../policy.md), [examples/maestro.policy.yml](../examples/maestro.policy.yml).
+annotated example: [policy.md](../policy.md), [examples/maestro.policy.toml](../examples/maestro.policy.toml).
 
 ## Safety defaults
 

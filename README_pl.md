@@ -157,7 +157,7 @@ subskrypcji:
 5. `~/.claude/skills/maestro/bin/maestro-sdk --check` powinno zwrócić `"available": true`.
 
 Potem `/maestro --sdk <zadanie>` puszcza wszystkich Claude-workerów przez SDK na tym kluczu.
-Z `api: {fallback: true}` w `~/.config/maestro/policy.yml` maestro przełącza się na niego samo,
+Z `api.fallback = true` w `~/.config/maestro/policy.toml` maestro przełącza się na niego samo,
 gdy limit skończy się w trakcie przebiegu. `api.max_usd_per_run` (domyślnie $20) ogranicza jeden
 przebieg. Raport pokazuje, ile przebieg wydał.
 
@@ -167,11 +167,11 @@ kredytu.
 
 ## Stałe preferencje
 
-Zapisujesz je w `maestro.policy.yml` w repozytorium (dla zespołu) albo w
-`~/.config/maestro/policy.yml` (dla siebie): nigdy nie wybieraj slotu (`deny: [fable]`), nigdy nie
-używaj drogi (`transports: {deny: [opus@agy]}`), przypnij wersję (`pin: {sol: "6.1"}`), wyłącz
-rodzinę (`families: {google: off}`), ustaw wysiłek modelu per etap. Flagi biją plik repozytorium,
-a ten bije Twój własny. [Przykład z komentarzami](docs/examples/maestro.policy.yml).
+Zapisujesz je w `maestro.policy.toml` w repozytorium (dla zespołu) albo w
+`~/.config/maestro/policy.toml` (dla siebie): nigdy nie wybieraj slotu (`deny = ["fable"]`), nigdy nie
+używaj drogi (`transports.deny = ["opus@agy"]`), przypnij wersję (`pin.sol = "6.1"`), wyłącz
+rodzinę (`families.google = "off"`), ustaw wysiłek modelu per etap. Flagi biją plik repozytorium,
+a ten bije Twój własny. [Przykład z komentarzami](docs/examples/maestro.policy.toml).
 
 ## Bezpieczne domyślne zachowania
 
@@ -188,7 +188,7 @@ diffu i nie uruchomi testów.
 - **Argon** jako wykonawca nie był jeszcze mierzony, a **Gemini 4 Hydrogen** jest nowy: Google go
   nie ogłosił, a ledger nie ma jeszcze żadnych jego przebiegów.
 - **Fable i Haiku** nie mają drugiej drogi w subskrypcji: gdy skończy się ich limit natywny, dalej
-  pracują tylko na kredycie API (`--sdk` albo `api: {fallback: true}`).
+  pracują tylko na kredycie API (`--sdk` albo `api.fallback = true`).
 - **Kredyt API** widać tylko w Console; kwota w dolarach w ledgerze to szacunek SDK, nie faktura.
 
 Przypadki, które warto sprawdzić ręcznie, są opisane krok po kroku w

@@ -182,7 +182,7 @@ model lists (Hydrogen up to `xhigh`, Argon and Claude-on-agy up to `high`);
 model is the dial). Always pass effort explicitly.
 
 This rubric is the whole routing logic — a written rule you apply and name.
-`maestro.policy.yml` (repo) and `~/.config/maestro/policy.yml` (user) can deny
+`maestro.policy.toml` (repo) and `~/.config/maestro/policy.toml` (user) can deny
 slots and transports, pin models and set defaults: flags > repo policy > user
 policy > rubric, per key, every policy value marked `(policy)`
 (`docs/policy.md`). The user can override any assignment in one word; take it
@@ -267,7 +267,8 @@ call** — agy hosts Claude models next to Gemini, and Codex falls back to
    your own shell: the tests' cheap check (not under `--skip-tests`) and, when
    the run changes UI, the screenshot tool (`docs/hosts.md`, "Capability
    checks").
-4. Load and merge policy (`docs/policy.md`); resolve a provisional roster
+4. Load and merge policy (`maestro-policy resolve`; its `stops` halt,
+   `warnings` go in the Assign line); resolve a provisional roster
    among the eligible families and transports (`maestro-roles`), validate it,
    apply the cascade family rule (`--unattended`: halts are row 2, A8, A9).
 4a. **Live catalog**: `"$MAESTRO/bin/maestro-catalog" refresh --gen N` (`codex

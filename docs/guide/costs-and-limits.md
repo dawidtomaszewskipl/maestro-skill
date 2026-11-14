@@ -29,7 +29,7 @@ that would otherwise sit idle, which is often the point of using them.
 
 A Max plan includes a monthly API credit ($200 on Max 20x, $100 on Max 5x) that covers the Claude
 API and the Agent SDK but not Claude Code. With `--sdk` the Claude workers run on that credit
-instead of the subscription; with `api: {fallback: true}` in your policy the director switches to
+instead of the subscription; with `api.fallback = true` in your policy the director switches to
 it on its own when the subscription limit runs out mid-run. Set-up steps and caveats are in the
 [README](../../README.md#api-credit). The credit is only visible in the Console; the dollar figure
 maestro reports is the SDK's estimate.
