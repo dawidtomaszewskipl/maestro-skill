@@ -3,12 +3,13 @@
 > **What this page is for.** The exact shape of the checkpoint file that lets an interrupted run be resumed, and the resume procedure. The plain overview is in [the guide](guide/how-it-works.md#when-something-goes-wrong).
 
 `.maestro/CHECKPOINT.md` is what makes a maestro run resumable after a quota wall, an API failure, a
-safety stop, a closed laptop or a Claude Code session that ended. It is rewritten in place — never
+safety stop, a closed laptop or a Claude Code session that ended. It is updated in place — never
 appended — after every stage transition, at every worker launch (with the session id and the job
 id, the one write that saves resumability), at every worker finish, after each gate or fix round,
-and on any blocker. **It is written only through `"$MAESTRO/bin/maestro-state" --gen N write
-CHECKPOINT.md`**: that checks the file against its last audit entry first and refuses one changed
-by anything else (`docs/commands.md`, "Read-only proof").
+and on any blocker. **It is written only through `"$MAESTRO/bin/maestro-state" --gen N`** —
+`write CHECKPOINT.md` for the first checkpoint and structural changes, `set` and `add-session` for
+everything between ("Format rules" below): each checks the file against its last audit entry first
+and refuses one changed by anything else (`docs/commands.md`, "Read-only proof").
 
 ## Front matter
 
@@ -93,6 +94,56 @@ open_findings: []
 next_action: "maestro-wait the build job; on exited 0 run tests, then review stage"
 ledger: .maestro/ledger.jsonl
 ```
+
+## Format rules
+
+Most checkpoints change two or three scalars or add one session record. Those are patched, not
+rewritten:
+
+```bash
+"$MAESTRO/bin/maestro-state" --gen N set stage=review round=1 tree_state=clean tree.head=9be41c7 \
+  next_action="read both reviews; fix round 1 on any major finding"
+"$MAESTRO/bin/maestro-state" --gen N add-session codex \
+  '{"id":"01a075d7-…","role":"build","job":"<run_id>.build.r1.a1","config_mode":"isolated","mode_reason":"","rung":1,"approvals_form":"","rollout_offset":0,"worktree":"","baseline":"","fingerprint":""}'
+```
+
+`set` replaces the value of each named key and nothing else on its line — the trailing comment
+stays — and stamps `written_at` with the current time (an explicit `written_at=…` wins).
+`add-session` appends one `- {k: v, …}` line under `sessions.<transport>` (`codex`, `agy`,
+`claude_cli`, `claude`) and stamps `written_at`. Both are all or nothing, verified, fenced and
+audited exactly like `write`, and print the same `{result: "written", file, sha256}`.
+
+**`write` stays** the way to create the first checkpoint and to make any structural change: a new
+key, `roster`, `catalog`, `tasks`, `blockers`, `decisions`, `modes`, `artifacts`, a session record
+that changes or ends, the body. `set` and `add-session` are for transitions, launches and finishes.
+
+They rely on a strict front matter, which every `write` must keep:
+
+- The front matter sits between two `---` lines at the top of the file; the body follows. A file
+  without a leading `---` is taken as front matter to its end.
+- A top-level key starts at column 0, one per line, once: `key: value  # comment`. A comment starts
+  at ` #` (a blank, then `#`); a value that holds ` #` or `: `, or starts or ends with a blank, is
+  quoted.
+- A scalar is on its key's line. `key:` with indented lines or `- ` items under it is a block and
+  cannot be set; neither can a `[…]` or `{…}` value, a block scalar (`|`, `>`), an anchor or a tag.
+- A flow map that `set <parent>.<key>` should reach is on **one line**: `tree: {branch: …, head: …,
+  fingerprint: …}`. So `tree.head`, `tree.fingerprint`, `tests.last_result` and `lock.generation`
+  work, and `runtime.*` only when `runtime` is written on one line. One level only; a key inside a
+  block map (`decisions.current`, `roster.implementer`) goes through `write`.
+- `sessions:` is a block map whose keys share one indentation. Each transport holds either a block
+  list (`- {…}` records indented deeper than the key; a record may continue over several lines) or
+  a list on the key's own line (`[]`, `[{…}, {…}]`), which the first `add-session` turns into a
+  block list. A `[` list that continues on the next line is refused: write it in block form.
+- Values. `set` writes one plain word bare (letters, digits and `_./+:@-`, so `3`, `true` and
+  `null` keep their YAML types) and anything else in double quotes, with `\` and `"` escaped; a
+  value that replaces a quoted one stays quoted. `add-session` takes the types from the JSON: a
+  string is quoted when it is empty, when YAML would read it as a number, a boolean or null, or
+  when it is not one plain word. A newline or another control character is refused.
+- Refusals are exit 2 with a message, and nothing is written: a key that is not in the front
+  matter (never added — the shape is the director's), a key that appears twice, a value that is
+  not a scalar, an absent transport key, no `CHECKPOINT.md` yet. A file changed outside maestro is
+  `{result: "tampered"}`, exit 5; a superseded fence is exit 4. A front matter without
+  `written_at` is patched but not stamped (a warning on stderr).
 
 ## Body
 
@@ -238,6 +289,7 @@ change goes through a helper, inside the fence:
 | Operation | Helper |
 | --- | --- |
 | write or append | `maestro-state --gen N write|append <file>` (`maestro-ledger` for ledger rows) |
+| patch the checkpoint | `maestro-state --gen N set <key>=<value>…`, `maestro-state --gen N add-session <transport> '<json>'` ("Format rules") |
 | remove (a resolved `pending-decision.md`) | `maestro-state --gen N delete <file>` — recorded as absent, so the file can be created again later |
 | move one file away | `maestro-state --gen N archive <file> --to <name>` |
 | end of a run, or `archive-and-start` | `maestro-state --gen N rotate --to <run_id>` — verifies every audited file, moves `CHECKPOINT.md`, `pending-decision.md` and `audit.jsonl` to `.maestro/archive/<run_id>/`, and starts a fresh audit whose first entries are the current hashes of what stays (the ledger, the lock, the jobs) |
