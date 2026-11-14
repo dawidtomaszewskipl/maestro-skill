@@ -440,7 +440,7 @@ assumptions and its closing question against the stop matrix after every turn
    (with a `trigger` the spec allows).** **Approved only
    when every required critic returns `approve` with empty `blocking_findings`
    and `major_findings` and every prior finding `resolved`** (`maestro-validate
-   --decide critique`). At the cap without it: only majors left, not high
+   --decide critique --ids <the ids sent>`). At the cap without it: only majors left, not high
    stakes and `maestro-roles --arbiter` names a third family → **one arbiter
    call**; every finding downgraded approves the plan, and the report says so.
    Otherwise stop, no build, hand the disagreement to the user
