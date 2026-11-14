@@ -25,7 +25,11 @@ fm() {  # a top-level scalar of the checkpoint's front matter
   else sed -E 's/[[:space:]]+#.*$//' <<<"$v"; fi
 }
 open_dec=0   # decisions.current is the one open decision (docs/checkpoint.md)
-if [[ -f "$CP" ]] && sed -n '/^decisions:/,/^[^ ]/p' "$CP" | grep -qE '^  current: *[^n[:space:]#]'; then open_dec=1; fi
+if [[ -f "$CP" ]]; then
+  # current: {…} on its line, or current: followed by a more-indented block map
+  dec="$(sed -n '/^decisions:/,/^[^ ]/p' "$CP")"
+  if grep -qE '^  current: *[^n[:space:]#]' <<<"$dec" || grep -A1 -E '^  current: *(#.*)?$' <<<"$dec" | grep -qE '^    [^ #]'; then open_dec=1; fi
+fi
 
 jobs="[]"
 if [[ -d "$SD/jobs" ]]; then
@@ -37,13 +41,12 @@ if [[ -d "$SD/jobs" ]]; then
       fi
     done | jq -sc .)"
 fi
-ledger='{"calls":0,"total_tokens":null,"api_usd":0}'
 run_id="$(fm run_id)"
-if [[ -f "$SD/ledger.jsonl" ]]; then
-  ledger="$(jq -sc --arg r "$run_id" '[ .[] | select($r == "" or .run_id == $r) ] as $rows
-    | {calls: ($rows | length),
-       total_tokens: ([ $rows[] | .total_tokens | select(type == "number") ] | if length == 0 then null else add end),
-       api_usd: ([ $rows[] | select(.transport == "api") | .cost_usd | select(type == "number") ] | add // 0)}' "$SD/ledger.jsonl")"
+ledger='{"calls":0,"total_tokens":null,"api_usd":0}'
+if [[ -n "$run_id" ]]; then   # the same numbers as the report's table
+  ledger="$("$MAESTRO_BIN/maestro-ledger" report --run "$run_id" --json 2>/dev/null \
+    | jq -c '{calls, total_tokens: ([.rows[].total | select(. != null)] | if length == 0 then null else add end), api_usd}' \
+    || echo "$ledger")"
 fi
 lock="$(jq -c 'if . == {} then null else {run_id, host, generation} end' "$SD/lock" 2>/dev/null || echo null)"
 

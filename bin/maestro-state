@@ -134,7 +134,14 @@ fm_find() {
 # double-quoted otherwise, or when the value it replaces was quoted.
 yaml_scalar() {
   local v="$1"
-  if [[ "$2" != quote && "$v" =~ ^-?[A-Za-z0-9_./+][A-Za-z0-9_./+:@-]*$ && "$v" != *: ]]; then YV="$v"
+  # Bare only for a plain word no YAML 1.1 reader turns into something else: not a boolean or
+  # null keyword (yes/no/on/off/y/n/true/false/null/~), no colon (10:30 is sexagesimal), not a
+  # number-like form other than a plain decimal (0x1F, 1e3, .inf).
+  local lc="${v,,}"
+  if [[ "$2" != quote && "$v" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+(Z|[-+][0-9]{2}:[0-9]{2})?$ ]]; then YV="$v"   # an ISO timestamp
+  elif [[ "$2" != quote && "$v" =~ ^-?[A-Za-z0-9_./+][A-Za-z0-9_./+@-]*$ \
+        && ! "$lc" =~ ^(y|n|yes|no|on|off|true|false|null|~)$ \
+        && ! "$lc" =~ ^[-+]?(0x[0-9a-f]+|0o?[0-7]+|[0-9.]*e[-+]?[0-9]+|\.inf|\.nan)$ ]]; then YV="$v"
   else v="${v//\\/\\\\}"; v="${v//\"/\\\"}"; YV="\"$v\""; fi
 }
 

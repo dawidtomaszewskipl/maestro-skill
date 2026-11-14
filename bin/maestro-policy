@@ -365,7 +365,7 @@ def flag_slot(flag, slot):
 
 
 kept = []
-for key, flag in (("implementer", "--model"), ("cascade_drafter", None), ("critic", None), ("reviewer", "--reviewer")):
+for key, flag in (("implementer", "--model"), ("cascade_drafter", "--cascade"), ("critic", None), ("reviewer", "--reviewer")):
     why = blocked(eff[key]) if eff[key] else None
     if sources[key] == "flags":
         if flag:
@@ -378,6 +378,9 @@ for key, flag in (("implementer", "--model"), ("cascade_drafter", None), ("criti
         warnings.append(f"policy {key} {eff[key]} dropped: {why}")
 for c in named_critics:
     flag_slot("--critic", c)
+if flags.get("cascade") not in (None, "") and eff["cascade_drafter"] and eff["cascade_drafter"] == eff["implementer"]:
+    stops.append(f"--cascade: the drafter {eff['cascade_drafter']} ({sources['cascade_drafter']}) is the implementer "
+                 f"({sources['implementer']}) — illegal (docs/cascade.md); name another drafter or another --model")
 kept = list(dict.fromkeys(kept))
 for x in [flags.get("model"), flags.get("reviewer")] + flag_critics:
     if isinstance(x, dict) and x.get("transport") and f"{x.get('slot')}@{x['transport']}" in eff["transports_deny"]:

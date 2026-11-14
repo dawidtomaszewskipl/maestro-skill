@@ -6,7 +6,7 @@
 #   maestro-brief open  --role R --transport T [--repo DIR] [--inline]
 #       agy read-only roles: the "read inside <REPO> only" paragraph, or with --inline the
 #       no-tools paragraph of the inline variant. Every other combination prints nothing.
-#   maestro-brief rubric [--critique] [--round1] [--arbiter]
+#   maestro-brief rubric [--critique] [--round1]
 #       the severity rubric (critique and arbiter briefs); --critique adds the verdict line,
 #       --round1 the round-1 line. The round-2 block carries the findings: write it from
 #       docs/briefs.md, "Round 2 and later".
@@ -47,13 +47,12 @@ if [[ "${1:-}" == "--print-blocks" ]]; then
 fi
 
 sub="${1:-}"; shift || true
-role="" transport="" repo="" inline=0 unattended=0 worktree=0 schema="" critique=0 round1=0 arbiter=0
+role="" transport="" repo="" inline=0 unattended=0 worktree=0 schema="" critique=0 round1=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --role) role="$2"; shift 2 ;; --transport) transport="$2"; shift 2 ;; --repo) repo="$2"; shift 2 ;;
     --inline) inline=1; shift ;; --unattended) unattended=1; shift ;; --worktree) worktree=1; shift ;;
     --schema) schema="$2"; shift 2 ;; --critique) critique=1; shift ;; --round1) round1=1; shift ;;
-    --arbiter) arbiter=1; shift ;;
     *) mae_die "maestro-brief: unknown option $1" ;;
   esac
 done
@@ -68,13 +67,13 @@ case "$sub" in
     check_rt
     if [[ "$transport" == agy ]] && readonly_role; then
       if [[ $inline -eq 1 ]]; then printf '%s\n' "$AGY_INLINE"
-      else t="$AGY_OPEN"; [[ -n "$repo" ]] && t="${t//<REPO>/$repo}"; printf '%s\n' "$t"; fi
+      else t="$AGY_OPEN"; [[ -n "$repo" ]] && t="${t//<REPO>/"$repo"}"; printf '%s\n' "$t"; fi
     fi ;;
   rubric)
     printf '%s\n' "$RUBRIC"
     [[ $critique -eq 1 ]] && printf '\n%s\n' "$VERDICT"
     [[ $round1 -eq 1 ]] && printf '\n%s\n' "$ROUND1"
-    [[ $arbiter -eq 1 || $critique -eq 1 || $round1 -eq 1 ]] || true ;;
+    true ;;
   close)
     check_rt
     printf '%s\n' "$CLOSE"

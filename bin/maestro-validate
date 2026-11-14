@@ -44,6 +44,8 @@ done
 [[ -f "$schema" && -f "$file" ]] || mae_die "usage: maestro-validate <schema.json> <file> --envelope … [--role …] [--decide critique|arbiter [--ids …]]"
 [[ -z "$decide" || "$decide" == critique || "$decide" == arbiter ]] || mae_die "maestro-validate: unknown --decide $decide"
 [[ "$has_ids" == false || -n "$decide" ]] || mae_die "maestro-validate: --ids needs --decide"
+# Without the ids sent, an answer that leaves a prior or disputed finding out would approve.
+[[ -z "$decide" || "$has_ids" == true ]] || mae_die "maestro-validate: --decide needs --ids (the ids sent; --ids \"\" in round 1)"
 
 # Every output passes through here: with --decide an invalid answer is never approved.
 emit() {  # emit <json> [<decision json>]

@@ -446,9 +446,9 @@ if group T5 "verdict validation"; then
   jqt "decide critique: revise → valid, not approved, reasons named" "$out" \
     '.valid and .decision.approved == false and .decision.reasons == ["verdict revise", "1 major finding", "prior finding r1-m1 not resolved"]'
   eq "decide critique: a valid revise exits 0" 0 "$rc"
-  jqt "decide critique: reject → not approved" "$(dc "$(crit reject "[$FND]" '[]' '[]')" --decide critique)" \
+  jqt "decide critique: reject → not approved" "$(dc "$(crit reject "[$FND]" '[]' '[]')" --decide critique --ids "")" \
     '.valid and .decision.approved == false and (.decision.reasons | index("verdict reject") != null)'
-  out="$(dc "$(crit approve '[]' "[$FND]" '[]')" --decide critique)"; rc=$?
+  out="$(dc "$(crit approve '[]' "[$FND]" '[]')" --decide critique --ids "")"; rc=$?
   jqt "decide critique: approve that lists a finding → invalid, with the reason" "$out" \
     '.valid == false and .stage == "decide" and (.errors[0] | test("approve with .* 1 major finding listed")) and .decision.approved == false and .verdict.verdict == "approve"'
   eq "decide critique: an inconsistent approve exits 1" 1 "$rc"
@@ -460,12 +460,12 @@ if group T5 "verdict validation"; then
   jqt "decide critique: an id that was not sent → invalid" \
     "$(dc "$(crit approve '[]' '[]' '[{"id":"r9-m9","status":"resolved","note":"n"}]')" --decide critique --ids "")" '.valid == false and (.errors[0] | test("r9-m9 was not sent"))'
   jqt "decide critique: an id listed twice → invalid" \
-    "$(dc "$(crit revise '[]' '[]' '[{"id":"r1-m1","status":"resolved","note":"n"},{"id":"r1-m1","status":"not_resolved","note":"n"}]')" --decide critique)" '.valid == false and (.errors[0] | test("listed twice"))'
-  jqt "decide critique: empty trigger → invalid" "$(dc "$(crit revise '[]' "[$(jq -c '.trigger = "  "' <<<"$FND")]" '[]')" --decide critique)" \
+    "$(dc "$(crit revise '[]' '[]' '[{"id":"r1-m1","status":"resolved","note":"n"},{"id":"r1-m1","status":"not_resolved","note":"n"}]')" --decide critique --ids r1-m1)" '.valid == false and (.errors[0] | test("listed twice"))'
+  jqt "decide critique: empty trigger → invalid" "$(dc "$(crit revise '[]' "[$(jq -c '.trigger = "  "' <<<"$FND")]" '[]')" --decide critique --ids "")" \
     '.valid == false and .stage == "decide" and (.errors[0] | test("major_findings\\[0\\].trigger: empty"))'
-  jqt "decide: a schema failure is never approved" "$("$B/maestro-validate" "$S" "$V/wrong-enum.txt" --decide critique)" \
+  jqt "decide: a schema failure is never approved" "$("$B/maestro-validate" "$S" "$V/wrong-enum.txt" --decide critique --ids "")" \
     '.valid == false and .stage == "schema" and .decision.approved == false'
-  jqt "decide: an envelope failure is never approved" "$("$B/maestro-validate" "$S" "$V/agy-canceled.json" --envelope agy --decide critique)" \
+  jqt "decide: an envelope failure is never approved" "$("$B/maestro-validate" "$S" "$V/agy-canceled.json" --envelope agy --decide critique --ids "")" \
     '.valid == false and .stage == "envelope" and .decision.approved == false'
   jqt "decide critique through an agy envelope" "$("$B/maestro-validate" "$S" "$V/agy-structured-only.json" --envelope agy --decide critique --ids "")" '.valid and .decision.approved'
   jqt "arbiter schema: valid" "$(da '{"verdicts":[{"id":"r1-m1","decision":"upheld","reason":"r"}],"assumptions":[]}')" '.valid'
@@ -477,11 +477,11 @@ if group T5 "verdict validation"; then
   jqt "decide arbiter: one upheld → not approved, named" \
     "$(da '{"verdicts":[{"id":"r1-m1","decision":"downgraded","reason":"r"},{"id":"r2-m1","decision":"upheld","reason":"r"}],"assumptions":[]}' --decide arbiter --ids r1-m1,r2-m1)" \
     '.valid and .decision == {approved: false, reasons: ["r2-m1 upheld"]}'
-  jqt "decide arbiter: no verdicts → not approved" "$(da '{"verdicts":[],"assumptions":[]}' --decide arbiter)" '.valid and .decision == {approved: false, reasons: ["no verdicts"]}'
+  jqt "decide arbiter: no verdicts → not approved" "$(da '{"verdicts":[],"assumptions":[]}' --decide arbiter --ids "")" '.valid and .decision == {approved: false, reasons: ["no verdicts"]}'
   jqt "decide arbiter: a disputed id without a verdict → invalid" \
     "$(da '{"verdicts":[{"id":"r1-m1","decision":"downgraded","reason":"r"}],"assumptions":[]}' --decide arbiter --ids r1-m1,r2-m1)" \
     '.valid == false and .stage == "decide" and (.errors[0] | test("r2-m1 sent but not answered")) and .decision.approved == false'
-  jqt "decide: the wrong schema for the decision → invalid, not a jq error" "$(da '{"verdicts":[],"assumptions":[]}' --decide critique)" '.valid == false and .stage == "decide"'
+  jqt "decide: the wrong schema for the decision → invalid, not a jq error" "$(da '{"verdicts":[],"assumptions":[]}' --decide critique --ids "")" '.valid == false and .stage == "decide"'
   if "$B/maestro-validate" "$S" "$V/valid.txt" --decide gate >/dev/null 2>&1; then bad "decide: unknown kind refused"; else ok "decide: unknown kind refused"; fi
   if "$B/maestro-validate" "$S" "$V/valid.txt" --ids r1-m1 >/dev/null 2>&1; then bad "--ids without --decide refused"; else ok "--ids without --decide refused"; fi
 fi
@@ -835,6 +835,11 @@ if group T9 "audit and .maestro fingerprint"; then
   S set "next_action=$v" "tests.cmd=a, b: {c}" >/dev/null
   eq "a value with a colon, quotes and a backslash round-trips" "$v" "$(sed -n 's/^next_action: //p' "$CP" | jq -r .)"
   eq "… and inside a flow map" 'tests: {cmd: "a, b: {c}", last_result: "1104/1104", duration_s: 412, T_slow_s: 417}' "$(grep '^tests: ' "$CP")"
+  S set next_action=no tree_state=on >/dev/null
+  eq "set: YAML 1.1 keywords are quoted (no, on)" 'next_action: "no"|tree_state: "on"' "$(grep -o '^next_action: [^ ]*' "$CP")|$(grep -o '^tree_state: [^ ]*' "$CP")"
+  S set "next_action=10:30" >/dev/null
+  eq "set: a sexagesimal-looking value is quoted" 'next_action: "10:30"' "$(grep -o '^next_action: [^ ]*' "$CP")"
+  S set tree_state=clean >/dev/null
   h="$(cpsha)"; n1="$(naud)"
   eq "a newline in a value is refused" 2 "$(rc_of S set "next_action=one"$'\n'"stage: report")"
   eq "an unknown key is refused" 2 "$(rc_of S set nope=1)"
@@ -1060,6 +1065,7 @@ if group T12 "docs consistency"; then
   if [[ "$out" == *"edit files only"* && "$out" != *"timeout"* && "$out" == *"do not decide it"* ]]; then ok "brief: edits-only builder, unattended"; else bad "brief: edits-only builder, unattended" "$out"; fi
   out="$("$B/maestro-brief" close --role fix --transport codex --worktree)"
   if [[ "$out" == *"Do not run tests; the director will."* && "$out" != *"timeout"* ]]; then ok "brief: worktree writer"; else bad "brief: worktree writer" "$out"; fi
+  eq "brief: a repo path with & is printed as is" "/home/a&b" "$("$B/maestro-brief" open --role critic --transport agy --repo '/home/a&b' | grep -o '/home/a&b' | head -1)"
   eq "brief: no agy opening for a Codex critic" "" "$("$B/maestro-brief" open --role critic --transport codex)"
   out="$("$B/maestro-brief" close --role builder --transport codex --schema "$ROOT/docs/schemas/gate-schema.json" 2>&1; echo "rc=$?")"
   if [[ "$out" == *"read-only role"* && "$out" == *rc=2* ]]; then ok "brief: --schema refused for a writer"; else bad "brief: --schema refused for a writer" "$out"; fi
@@ -1241,6 +1247,11 @@ if group T16 "status"; then
   txt="$("$B/maestro-status")"
   if [[ "$txt" == *"stage build round 2"* && "$txt" == *"1 open decision"* && "$txt" == *"rs.build.r2.a1 running"* && "$txt" == *"api \$0.25"* ]]; then ok "status: text lines"; else bad "status: text lines" "$txt"; fi
   "$B/maestro-wait" rs.build.r2.a1 --max 20 >/dev/null
+  printf -- '---\nskill: maestro\nrun_id: rs\nstage: critique\ndecisions:\n  current:\n    decision_id: d-1\n    question: x\n  history: []\n---\n' > "$WORK/cp-block.md"
+  "$B/maestro-state" --gen "$g" adopt CHECKPOINT.md --reason t >/dev/null 2>&1 || true
+  cp "$WORK/cp-block.md" .maestro/CHECKPOINT.md
+  jqt "status: an open decision written as a block map counts" "$("$B/maestro-status" --json)" '.decisions_open == 1'
+  jqt "status: --peek works with a malformed MAESTRO_WAIT_MAX" "$(MAESTRO_WAIT_MAX=1.5 "$B/maestro-wait" rs.build.r2.a1 --peek)" '.state == "exited"' 
   cd "$ROOT" || exit 2
 fi
 
@@ -1256,6 +1267,9 @@ if group T17 "limits"; then
   jqt "limits: codex takes the fuller of its windows" "$out" '.codex.utilization == 0.83 and .codex.window == "168 h" and .codex.plan == "pro"'
   jqt "limits: agy unknown" "$out" '.agy.utilization == null'
   jqt "limits: >= 90% is a warning" "$out" '(.warnings | length) == 1 and (.warnings[0] | test("^claude at 93%"))'
+  printf '%s\n' '{"type":"rate_limit_event","rate_limit_info":{"rateLimitType":"five_hour","utilization":0.2}}' >> "$LS/jobs/j1/out"
+  jqt "limits: a later five-hour event does not hide a fuller seven-day window" \
+    "$(MAESTRO_STATE="$LS" CODEX_HOME="$LS/codex" "$B/maestro-limits")" '.claude.utilization == 0.93 and .claude.window == "seven_day"'
   touch -d '-8 hours' "$LS/jobs/j1/out"
   jqt "limits: an old record is stale" "$(MAESTRO_STATE="$LS" CODEX_HOME="$LS/codex" "$B/maestro-limits")" '.claude.stale == true and (.warnings[0] | test("min old"))'
   jqt "limits: no sources → reasons, no warnings" "$(MAESTRO_STATE="$WORK/none-l" CODEX_HOME="$WORK/none-c" "$B/maestro-limits")" \
@@ -1429,6 +1443,14 @@ if group T18 "policy"; then
   rin="$(jq -c '{builder: "sol", eligible: (["opus","sonnet","fable","sol","astra","argon","gemini"] - .exclude.slots), policy_critic, policy_reviewer, named_critics}' <<<"$(ri)")"
   jqt "roles-input → maestro-roles" "$("$B/maestro-roles" <<<"$rin")" '.critics == ["opus"] and .stop == null and (.notes | index("critic=opus (policy)") != null)'
   cd "$ROOT" || exit 2
+  prepo 'cascade_drafter = "gemini"'; puser
+  jqt "policy: bare --cascade with the policy drafter as implementer → stop" \
+    "$(pol --flags "$("$B/maestro-flags" "--cascade --model=gemini t")")" '.stops | any(test("drafter gemini .* is the implementer"))'
+  prepo 'deny = ["haiku"]'
+  jqt "policy: --cascade=<denied slot> is kept with an explicit-wins warning" \
+    "$("$B/maestro-policy" roles-input --repo "$PD/repo.toml" --user "$PD/user.toml" --flags "$("$B/maestro-flags" "--cascade=haiku t")")" \
+    '(.exclude.kept_by_flag | index("haiku") != null) and (.warnings | any(test("--cascade=haiku")))'
+  prepo; puser
 fi
 
 _gtime

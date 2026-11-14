@@ -35,8 +35,10 @@ for f in "${files[@]+"${files[@]}"}"; do
   (( t > best_t )) && { best="$f"; best_t="$t"; }
 done
 if [[ -n "$best" ]]; then
-  cl="$(grep '"rate_limit_event"' "$best" | tail -1 | jq -c --arg src "$best" --argjson age $(( now - best_t )) --argjson max "$max_age" '
-    .rate_limit_info as $i
+  # the last event of each window type, then the fullest one: a five-hour event after a seven-day
+  # one must not hide a nearly spent week
+  cl="$(grep '"rate_limit_event"' "$best" | jq -sc --arg src "$best" --argjson age $(( now - best_t )) --argjson max "$max_age" '
+    (map(.rate_limit_info | select(. != null)) | group_by(.rateLimitType) | map(last) | max_by(.utilization // 0)) as $i
     | {utilization: ($i.utilization // null), window: ($i.rateLimitType // null),
        resets_at: (if $i.resetsAt then ($i.resetsAt | todate) else null end), status: ($i.status // null),
        age_s: $age, stale: ($age > $max), source: $src}' 2>/dev/null \

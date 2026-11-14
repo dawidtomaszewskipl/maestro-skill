@@ -43,7 +43,7 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$job" ]] || mae_die "usage: maestro-wait <job-id> [--max S] [--peek | --until-done] [--also FILE]"
 [[ $until -eq 0 || $peek -eq 0 ]] || mae_die "maestro-wait: --until-done and --peek exclude each other"
-[[ "$max" =~ ^[0-9]+$ ]] || mae_die "maestro-wait: --max takes whole seconds"
+[[ $peek -eq 1 || "$max" =~ ^[0-9]+$ ]] || mae_die "maestro-wait: --max takes whole seconds"
 J="$(mae_job_dir "$SD" "$job")"
 [[ -d "$J" ]] || mae_die "maestro-wait: no job $job"
 
