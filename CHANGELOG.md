@@ -1,12 +1,75 @@
 # Changelog
 
-## Unreleased
+## 2.0.0 — 2026-11-14
 
-- **`maestro-state adopt` refuses under a headless host.** Adopting a file changed outside maestro
-  was only the director's rule ("only on the user's decision, never under `--unattended`"); the
-  script accepted any call. It now asks `maestro-host` and answers `{result: "refused"}` (exit 1)
-  when the host runs without a user (`claude -p`, `codex exec`, `agent -p`, `agy -p`). An
-  interactive host running `--unattended` cannot be told apart here and stays the director's rule.
+**Claude Code only; Cursor and Grok out; Gemini 4 Hydrogen and Fable 5.2; the director's hand
+checks became helpers.** Breaking: read "Migration" before upgrading.
+
+### Breaking
+- **Claude Code is the only director host**, interactive or headless (`claude -p --unattended`).
+  Codex and agy stay as worker transports. `maestro-host` now answers `claude-code`, `unsupported`
+  (another agent CLI is directing) or `unknown`; the `--host` flag, `$maestro` (Codex) and the
+  agy and Cursor directors are gone, and so are the director identity from a Codex rollout and the
+  per-host adapters.
+- **Cursor's `agent` transport, the `grok` slot and the xAI family are removed.** Three families
+  remain: Claude, OpenAI, Google. Transport orders: opus and sonnet native → agy → api, **fable
+  native → api** (no subscription fallback: a native quota hit is a swap unless `api` is
+  eligible), haiku native → api, argon agy only. Second-critic orders: Claude → google, openai;
+  OpenAI → google, claude; Google → openai, claude. Rubric row 5 is `sol` or `gemini`, row 6's
+  fallback `sonnet`, `sol`, `gemini`. `maestro-ledger --cli cursor-agent` and
+  `maestro-validate --envelope cursor` are gone.
+- **Install location:** a real copy in `~/.claude/skills/maestro` (was a symlink to
+  `~/.agents/skills/maestro`, also linked for agy). `install.sh --hosts` is gone.
+
+### Models
+- **Gemini 4 Hydrogen** (`gemini-4-hydrogen-{low,medium,high,xhigh}`, reported as Gemini 4 Flash;
+  Google has not confirmed it) is now the line of slot `gemini`; Flash (3.8) stays as the older
+  candidate, and at one version Hydrogen wins. agy slugs up to `max` are parsed; effort is clamped
+  to the suffixes a model lists (Hydrogen up to `xhigh`, Argon to `high`).
+- **Fable 5.2**: `claude -p --model fable` serves `claude-fable-5-2` (probed); $8/$40 per MTok.
+- New fixture `tests/fixtures/catalogs/machine-2026-11-14` (Codex 0.169.0, agy 1.5.9);
+  `gemini-pro-orchestrator-g1-pro` and `gpt-oss-120b-medium` stay unmatched.
+
+### CLI catch-up (Claude Code 2.1.325, Codex 0.169.0, agy 1.5.9)
+- agy: a print timeout exits 3 with `finished_reason: print_timeout` — `maestro-validate` rejects
+  any `finished_reason`; Auto is the default mode since 1.5.7, so every agy line passes `--mode`
+  (the `/skills` probe now `--mode plan`). `--disable-slash-commands` was measured and **not**
+  adopted: it makes `--mode plan` ineffective.
+- Claude Code: the init check fails closed on `plugin_errors`; `maestro-preflight` warns when the
+  login expires within a day (`loginExpiresAt`); since 2.1.323 the Bash sandbox makes `git
+  worktree` read-only — preflight names the remedy. `--restricted` was measured and not adopted
+  (no gain over the read-only lines' own flags).
+- Codex: `--trust` is never used; `cyber_access_program` must be `standard`; the effective-config
+  check was verified on a 0.169.0 rollout; the coming rollout migration is a known risk.
+- Agent SDK 0.3.312 → 0.3.325 (bundles Claude Code 2.1.325); one paid probe on Fable 5.2 cost
+  $0.0036 (the SDK's estimate).
+
+### Refactor
+- `bin/slots.json`: one slot table (family, transport order, pin pattern, provisional) read by
+  `maestro-roles` and `maestro-catalog`; T12 checks SKILL.md's roster against it.
+- New helpers: `maestro-preflight` (stage 0 steps 2, 3, 3a, 6, 7 in one call, about 2 s),
+  `maestro-identity` (the Codex effective-config check that was a script copied by hand from
+  commands.md, and the `claude -p`/`api` init check), `maestro-flags` (syntax, unknown values and
+  every illegal combination).
+- `maestro-wait`: meta.json read once, members matched in one pass, the unowned scan by one
+  `find` — a snapshot went from about 870 to 210 ms here.
+- `_lib.sh`: shared fencing, job-dir, rollout and event readers. **Fix:** `maestro-wait`,
+  `maestro-kill` and `maestro-ledger` accepted a job id with `..`; every helper now refuses it.
+- SKILL.md 46 → 35 KB and `docs/hosts.md` 28 → 16 KB; the fixed brief text moved to
+  `docs/briefs.md`, splits to `docs/worktrees.md`, measurement history to `docs/evidence.md`.
+- Tests: T12 (docs consistency, ban on the removed names), T13 identity, T14 preflight, T15 flags;
+  370 pass.
+- `maestro-state adopt` refuses under a headless Claude Code (`claude -p`): no user there could have
+  inspected the file. An interactive Claude Code running `--unattended` cannot be told apart and
+  stays the director's rule.
+
+### Migration from 1.x
+- Run `./install.sh` (add `--sdk` for the api transport). It replaces the 1.x symlink and names
+  the leftovers: delete `~/.agents/skills/maestro` and `~/.gemini/config/skills/maestro` yourself.
+- A policy that names `grok`, `xai`, `cursor_fast` or a `<slot>@cursor` pair halts until the
+  entry is removed.
+- A checkpoint from 1.x that recorded another host, a `cursor` transport or a `grok` slot stops on
+  `--resume`: finish or discard that run with 1.4.0, or start again.
 
 ## 1.4.0 — 2026-10-28
 

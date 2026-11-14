@@ -20,7 +20,7 @@ for _ in $(seq 1800); do
     sleep 8
     echo "$(date +%T) build job $(basename "$b") running; killing the director"
     kill "$dir"; wait "$dir" 2>/dev/null; killed=1
-    echo "$(date +%T) after kill: $("${D}/.agents/skills/maestro/bin/maestro-wait" "$(basename "$b")" --peek | jq -c '{state, code}')"
+    echo "$(date +%T) after kill: $("${D}/.claude/skills/maestro/bin/maestro-wait" "$(basename "$b")" --peek | jq -c '{state, code}')"
     break
   fi
   sleep 2
