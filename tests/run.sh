@@ -797,5 +797,30 @@ if group T11 "api transport runner (maestro-sdk, no model turn)"; then
   fi
 fi
 
+# =============================================================================================
+if group T12 "docs consistency"; then
+  DOCS=("$ROOT/SKILL.md" "$ROOT"/docs/*.md "$ROOT"/docs/guide/*.md "$ROOT"/README*.md)
+  # every helper named in SKILL.md and the docs exists (run ids, stashes and repo names excluded)
+  missing=""
+  while read -r h; do [[ -x "$B/$h" ]] || missing+="$h "; done < <(grep -ohE '\bmaestro-[a-z]+\b' "${DOCS[@]}" \
+    | grep -vxE 'maestro-(a|c|draft|integrated|skill|tests|probe|checks)' | sort -u)
+  eq "every helper named in the docs exists" "" "$missing"
+  # every `SKILL.md "<section>"` reference names a heading or a bold paragraph lead of SKILL.md
+  missing=""
+  while read -r sec; do
+    { grep -E '^#+ ' "$ROOT/SKILL.md" | grep -qF -- "$sec"; } || grep -qF -- "**$sec" "$ROOT/SKILL.md" || missing+="[$sec] "
+  done < <(grep -ohE 'SKILL\.md,? "[^"]+"' "$ROOT"/docs/*.md "$ROOT"/docs/guide/*.md | sed -E 's/^SKILL\.md,? "(.*)"$/\1/' | sort -u)
+  eq "every SKILL.md section reference resolves" "" "$missing"
+  # every A-entry SKILL.md points at exists in docs/unattended.md
+  missing=""
+  while read -r a; do grep -qE "^\| $a \|" "$ROOT/docs/unattended.md" || missing+="$a "; done \
+    < <(grep -ohE '\bA[0-9]+[a-z]?\b' "$ROOT/SKILL.md" | sort -u)
+  eq "every A-entry named in SKILL.md exists" "" "$missing"
+  # every docs/ page SKILL.md points at exists
+  missing=""
+  while read -r d; do [[ -e "$ROOT/$d" ]] || missing+="$d "; done < <(grep -ohE 'docs/[a-z/_-]+\.(md|json)' "$ROOT/SKILL.md" | sort -u)
+  eq "every docs/ page SKILL.md names exists" "" "$missing"
+fi
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 if (( fail > 0 )); then printf '  %s\n' "${failed[@]}"; exit 1; fi
