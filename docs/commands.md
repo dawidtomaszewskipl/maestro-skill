@@ -266,6 +266,25 @@ jq -c '.structured_output' "$J/out"                                             
 When the verdict is invalid, re-ask once on the same session with the validator's `errors`. Still
 invalid → the role moves to the next eligible critic (a named critic → halt).
 
+`--decide critique|arbiter [--ids <id,id,…>]` adds the mechanical decision of the plan critique
+(`docs/briefs.md`, "Plan critique") as `decision: {approved, reasons}`:
+
+```bash
+"$MAESTRO/bin/maestro-validate" .maestro/critique-schema.json "$J/answer" --envelope codex --decide critique --ids ""           # round 1
+"$MAESTRO/bin/maestro-validate" .maestro/critique-schema.json "$J/answer" --envelope codex --decide critique --ids r1-m1,r1-m2  # round 2+
+"$MAESTRO/bin/maestro-validate" .maestro/arbiter-schema.json "$J/out" --envelope agy --decide arbiter --ids r1-m2,r2-m1
+```
+
+- `critique`: approved iff verdict `approve`, `blocking_findings` and `major_findings` empty, every
+  prior finding `resolved`. `arbiter`: approved iff there is a verdict and every one is `downgraded`.
+- A contradiction is `valid: false` at stage `decide`, not a decision: an `approve` that still
+  lists a finding or a `not_resolved` prior finding, a finding with an empty `trigger`, an id
+  listed twice, and — with `--ids` — an id sent but not answered or answered but not sent.
+- The exit code follows `valid` alone: a valid `revise` exits 0 with `approved: false`. Every
+  invalid output carries `approved: false`.
+- An invalid critique is re-asked as above; an invalid arbiter answer is not (one call, then the
+  stop).
+
 ### Read-only proof
 
 ```bash

@@ -28,9 +28,14 @@ out of bounds.
 
 **Critique.** The plan — never the code — goes to the critics, who always come from a different
 company than the builder. Each answers with a verdict (approve, revise or reject) and findings
-graded blocking, major or minor. The director revises and resends until every critic approves,
-up to the round cap (two by default). If the cap is reached without approval, the run stops and
-hands you the disagreement; nothing is built.
+graded blocking (the plan cannot meet the spec, or would cause damage) or major (a defect that an
+input the spec allows can reach — the critic must name that input); everything else is a note. The
+director revises and resends until every critic approves, up to the round cap (two by default).
+From the second round a critic only checks whether its earlier findings were resolved and whether
+the revision broke something new. If the cap is reached with nothing but major findings left, one
+model from a third company — the arbiter — rules on them once: all of them unfounded and the plan
+is approved (the report says so); otherwise, and always on a high-stakes change, the run stops
+and hands you the disagreement; nothing is built.
 
 **Build.** The builder gets a brief: the plan, the boundaries, the conventions, what "done" looks
 like. It writes the code and, when its sandbox allows it, runs the tests covering the change. Some

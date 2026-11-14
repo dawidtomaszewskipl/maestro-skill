@@ -3,6 +3,7 @@
 # (docs/commands.md, "Validating a verdict").
 #
 #   maestro-validate <schema.json> <file> --envelope codex|agy|claude|raw [--role read-only|writer]
+#                    [--decide critique|arbiter [--ids <id,id,…>]]
 #
 # 1. Envelope (envelope failure is not an invalid verdict):
 #    codex   the -o file is the answer text
@@ -15,22 +16,42 @@
 #    parse; leading prose is allowed, trailing non-whitespace is not. toolAction/toolSummary keys
 #    (agy before 1.4.0 put them into response) are dropped.
 # 3. Schema: type, enum, required, properties, additionalProperties:false, items — recursively.
-# Prints {valid, stage, errors, verdict}; exit 0 iff valid.
+# 4. With --decide, the mechanical decision (docs/briefs.md, "Plan critique"), added as
+#    decision: {approved, reasons}:
+#    critique  approved iff verdict approve, blocking_findings and major_findings empty and every
+#              prior finding resolved. Invalid (stage "decide"): an approve that still lists a
+#              finding or a not_resolved prior finding; a finding with an empty trigger.
+#    arbiter   approved iff there is at least one verdict and every verdict is downgraded.
+#    --ids     the ids the director sent — prior findings (critique; "" in round 1) or disputed
+#              findings (arbiter). A missing or unknown id is invalid; an id listed twice always is.
+# Prints {valid, stage, errors, verdict}; exit 0 iff valid (a valid revise exits 0, approved false).
 set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/_lib.sh"
 
 schema="${1:-}" file="${2:-}"; shift 2 || true
-envelope="raw" role="read-only"
+envelope="raw" role="read-only" decide="" ids="" has_ids=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --envelope) envelope="$2"; shift 2 ;;
     --role) role="$2"; shift 2 ;;
+    --decide) [[ $# -ge 2 ]] || mae_die "maestro-validate: --decide needs critique|arbiter"
+              decide="$2"; shift 2 ;;
+    --ids) [[ $# -ge 2 ]] || mae_die "maestro-validate: --ids needs a list (may be empty)"
+           ids="$2" has_ids=true; shift 2 ;;
     *) mae_die "maestro-validate: unknown option $1" ;;
   esac
 done
-[[ -f "$schema" && -f "$file" ]] || mae_die "usage: maestro-validate <schema.json> <file> --envelope … [--role …]"
+[[ -f "$schema" && -f "$file" ]] || mae_die "usage: maestro-validate <schema.json> <file> --envelope … [--role …] [--decide critique|arbiter [--ids …]]"
+[[ -z "$decide" || "$decide" == critique || "$decide" == arbiter ]] || mae_die "maestro-validate: unknown --decide $decide"
+[[ "$has_ids" == false || -n "$decide" ]] || mae_die "maestro-validate: --ids needs --decide"
 
-fail() { jq -cn --arg st "$1" --arg e "$2" '{valid: false, stage: $st, errors: [$e], verdict: null}'; exit 1; }
+# Every output passes through here: with --decide an invalid answer is never approved.
+emit() {  # emit <json> [<decision json>]
+  if [[ -z "$decide" ]]; then printf '%s\n' "$1"
+  elif [[ -n "${2:-}" ]]; then jq -c --argjson d "$2" '. + {decision: $d}' <<<"$1"
+  else jq -c '. + {decision: {approved: false, reasons: (["invalid (\(.stage))"] + .errors)}}' <<<"$1"; fi
+}
+fail() { emit "$(jq -cn --arg st "$1" --arg e "$2" '{valid: false, stage: $st, errors: [$e], verdict: null}')"; exit 1; }
 
 # --- 1. envelope ------------------------------------------------------------------------------
 last_result() { mae_result_event "$file"; }  # the last `result` event of a json or stream-json transcript
@@ -130,9 +151,52 @@ check='
          else empty end) ];
   errs($schema[0]; "$")'
 errors="$(jq -c --slurpfile schema "$schema" "$check" <<<"$verdict")"
-if [[ "$errors" == "[]" ]]; then
-  jq -cn --argjson v "$verdict" '{valid: true, stage: "schema", errors: [], verdict: $v}'
-else
-  jq -cn --argjson e "$errors" --argjson v "$verdict" '{valid: false, stage: "schema", errors: $e, verdict: $v}'
+if [[ "$errors" != "[]" ]]; then
+  emit "$(jq -cn --argjson e "$errors" --argjson v "$verdict" '{valid: false, stage: "schema", errors: $e, verdict: $v}')"
   exit 1
 fi
+if [[ -z "$decide" ]]; then
+  jq -cn --argjson v "$verdict" '{valid: true, stage: "schema", errors: [], verdict: $v}'
+  exit 0
+fi
+
+# --- 4. decision --------------------------------------------------------------------------------
+# errors: the answer contradicts itself or the ids sent (invalid); reasons: why it does not approve.
+# A schema that is not the one --decide names fails here, not in jq.
+# shellcheck disable=SC2016  # jq program
+decision='
+  def plural($n; $w): "\($n) \($w) finding\(if $n == 1 then "" else "s" end)";
+  ($ids | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != ""))) as $want
+  | (if $kind == "critique" then .prior_findings else .verdicts end | map(.id)) as $got
+  | ( [ $got | group_by(.)[] | select(length > 1) | "id \(.[0]) listed twice" ]
+      + (if $has_ids then
+           [ $want[] | . as $i | select(($got | index($i)) == null) | "id \($i) sent but not answered" ]
+           + [ $got | unique[] | . as $i | select(($want | index($i)) == null) | "id \($i) was not sent" ]
+         else [] end) ) as $iderrs
+  | if $kind == "critique" then
+      (.blocking_findings | length) as $b | (.major_findings | length) as $m
+      | [ .prior_findings[] | select(.status == "not_resolved") | .id ] as $open
+      | ( [ ("blocking_findings", "major_findings") as $k | .[$k] | to_entries[]
+            | select(.value.trigger | test("^\\s*$")) | "$.\($k)[\(.key)].trigger: empty" ]
+          + (if .verdict == "approve" and ($b + $m) > 0
+             then ["approve with \(plural($b; "blocking")) and \(plural($m; "major")) listed"] else [] end)
+          + (if .verdict == "approve" and ($open | length) > 0
+             then ["approve with prior finding \($open | join(", ")) not resolved"] else [] end) ) as $errs
+      | {errors: ($iderrs + $errs),
+         reasons: ( (if .verdict != "approve" then ["verdict \(.verdict)"] else [] end)
+                    + (if $b > 0 then [plural($b; "blocking")] else [] end)
+                    + (if $m > 0 then [plural($m; "major")] else [] end)
+                    + [ $open[] | "prior finding \(.) not resolved" ] )}
+    else
+      {errors: $iderrs,
+       reasons: ( (if (.verdicts | length) == 0 then ["no verdicts"] else [] end)
+                  + [ .verdicts[] | select(.decision == "upheld") | "\(.id) upheld" ] )}
+    end'
+dec="$(jq -c --arg kind "$decide" --arg ids "$ids" --argjson has_ids "$has_ids" "$decision" <<<"$verdict" 2>/dev/null)" \
+  || fail decide "the verdict does not have the shape --decide $decide reads (wrong schema?)"
+if [[ "$(jq -c .errors <<<"$dec")" != "[]" ]]; then
+  emit "$(jq -cn --argjson d "$dec" --argjson v "$verdict" '{valid: false, stage: "decide", errors: $d.errors, verdict: $v}')"
+  exit 1
+fi
+emit "$(jq -cn --argjson v "$verdict" '{valid: true, stage: "schema", errors: [], verdict: $v}')" \
+     "$(jq -c '{approved: (.reasons | length == 0), reasons: .reasons}' <<<"$dec")"

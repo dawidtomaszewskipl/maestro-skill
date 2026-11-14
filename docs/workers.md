@@ -516,7 +516,8 @@ Fable and no Haiku. The envelope has no served-model field.
 
 ## Schemas
 
-`docs/schemas/critique-schema.json`, `gate-schema.json` and `review-schema.json` are the shared dialect that
+`docs/schemas/critique-schema.json`, `gate-schema.json` and `review-schema.json` (and `arbiter-schema.json`,
+which uses the same constructs and is not yet verified on a CLI) are the shared dialect that
 both `--output-schema` (JSON Schema, strict: every property `required`, `additionalProperties:false`)
 and `--json-schema` (OpenAPI-3.0-style, rejects `["integer","null"]`) accept — verified on both CLIs
 with the same file (critique and gate; review uses the same constructs). The rule that makes this possible: **no nullable fields**. `line: 0` and

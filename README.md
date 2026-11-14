@@ -40,8 +40,9 @@ word from you changes the choice.
    reason for each pick and the exact model behind each name. "Let sol build" changes it.
 3. **Plan and critique.** It writes a plan. Critics from other families read the plan — never the
    code yet — and answer approve or revise. The plan goes back and forth until every critic
-   approves, up to a cap (two rounds unless you say otherwise). Not approved at the cap? The run
-   stops and hands you the disagreement.
+   approves, up to a cap (two rounds unless you say otherwise). Not approved at the cap? A model
+   from a third family rules once on what is left (never on a risky change); if a finding stands,
+   the run stops and hands you the disagreement.
 4. **Build.** The chosen model writes the code, inside the boundaries the plan set.
 5. **Checks.** The director reads the whole diff itself and runs the tests. On request a model
    from a family other than the builder's — usually the one that critiqued the plan — reviews the

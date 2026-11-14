@@ -2,6 +2,10 @@
 
 ## Terms
 
+**Arbiter** — a model from a third family asked once, at the critique cap, to rule on the major
+findings a critic still holds: "upheld" stops the run as before, "downgraded" for every finding
+approves the plan. Never on high-stakes changes.
+
 **Assignment line** — the one line printed before the plan that names the builder, critics,
 reviewer, their exact models and roads, the efforts, rounds, tests, sandbox level, mode
 (interactive or headless) and families — each with the reason for the choice. Your one-word override starts here.

@@ -22,6 +22,14 @@
 #          "Precedence"; row = the --unattended stop-matrix row when the action is a stop)
 # Output: {critics: [slot…], reviewer: slot|null, degraded: family|null, notes: [...],
 #          stop: null | {reason, remedy}}
+#
+#   maestro-roles --arbiter < {builder, drafter, high_stakes, eligible: [slot…],
+#                              critics_with_findings: [slot…], director_family}
+#       the arbiter at the critique cap (docs/briefs.md, "Arbiter at the cap"): the first eligible
+#       slot of a family that is neither the builder's, nor the drafter's, nor that of any critic
+#       still holding a finding. Per family: openai sol, astra; google argon, gemini; claude opus,
+#       fable, sonnet. High stakes, or no such family → no arbiter: today's stop.
+# Output: {arbiter: slot|null, reason, stop: null | {reason}}
 set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/_lib.sh"
 SLOTS="$MAESTRO_BIN/slots.json"
@@ -77,6 +85,37 @@ if [[ "${1:-}" == "--transports" ]]; then
       elif $d and $in.explicit then {action: "use", transport: $d, reason: "explicit --model beats policy denial (warning)", row: null}
       else {action: "halt", transport: null, reason: "no eligible transport for \($in.slot)", row: 2} end
   end'
+fi
+
+if [[ "${1:-}" == "--arbiter" ]]; then
+  # shellcheck disable=SC2016  # jq program
+  exec jq -c --slurpfile slots "$SLOTS" '
+  . as $in
+  | ($slots[0]) as $S
+  | def fam($s): if $s == "self" then ($in.director_family // "unknown")
+      elif ($s | type) != "string" then "unknown" else ($S[$s].family // "unknown") end;
+    def none($r): {arbiter: null, reason: $r, stop: {reason: $r}};
+  ($in.eligible // []) as $el
+  | ($in.critics_with_findings // []) as $cw
+  | fam($in.builder) as $bf
+  | (if $in.drafter then fam($in.drafter) else null end) as $df
+  | ($cw | map(fam(.)) | unique) as $cf
+  | ([$bf, $df] + $cf | map(select(. != null)) | unique) as $excl
+  | if $in.high_stakes then none("high stakes: no arbiter, the findings go to the user")
+    elif ($cw | length) == 0 then none("no critic holds a finding: nothing to arbitrate")
+    elif ($excl | index("unknown")) != null then none("the family of the builder, the drafter or a critic is unknown")
+    else
+      ([ (["openai", ["sol", "astra"]], ["google", ["argon", "gemini"]], ["claude", ["opus", "fable", "sonnet"]])
+         | .[0] as $f | select(($excl | index($f)) == null)
+         | .[1][] | . as $x | select(($el | index($x)) != null and fam($x) == $f) ] | first // null) as $a
+      | "builder \($bf)\(if $df then ", drafter \($df)" else "" end), findings held by \($cf | join(", "))" as $who
+      | if $a == null then none("no eligible third family (\($who))")
+        else {arbiter: $a,
+              reason: ("third family \(fam($a)) (\($who))"
+                       + (if $S[$a].provisional // false then "; \($a) is provisional (unmeasured)" else "" end)),
+              stop: null}
+        end
+    end'
 fi
 
 # shellcheck disable=SC2016  # jq program

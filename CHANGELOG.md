@@ -73,6 +73,22 @@ checks became helpers.** Breaking: read "Migration" before upgrading.
   build option, the director was killed while the build job ran, and `--resume --unattended`
   reconciled the finished job, checked its identity, ran the tests and committed.
 
+### Plan critique
+- **Severity rubric** in every critique brief (`docs/briefs.md`, "Plan critique"): `blocking` = the
+  plan cannot meet the spec or would cause damage; `major` = a defect reachable with an input or
+  state the spec allows; the rest are notes. Blocking and major findings carry a required
+  `trigger`.
+- **Delta rounds.** From round 2 a critic gets its open findings with the director's resolutions,
+  answers each in the new required `prior_findings` (`resolved` | `not_resolved`) and reports new
+  findings only when the revision introduced them or they are blocking. Approval also needs every
+  prior finding resolved.
+- **Arbiter at the cap.** Only majors left, not high stakes, a third family eligible
+  (`maestro-roles --arbiter`) → one call with `docs/schemas/arbiter-schema.json`; every finding
+  downgraded approves the plan (the report says so), anything else is the stop as before. Also
+  under `--unattended` (A13).
+- `maestro-validate --decide critique|arbiter [--ids …]` prints the mechanical decision; an
+  `approve` that still lists findings is invalid.
+
 ### Migration from 1.x
 - Run `./install.sh` (add `--sdk` for the api transport). It replaces the 1.x symlink and names
   the leftovers: delete `~/.agents/skills/maestro` and `~/.gemini/config/skills/maestro` yourself.
