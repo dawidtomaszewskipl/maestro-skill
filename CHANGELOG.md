@@ -33,6 +33,16 @@ interactive-job parts as a builder; every diff was read, tested and merged by th
   `maestro.policy.yml` left over stops with "convert to TOML". The removed 1.x keys stop.
 - Bare `--cascade` now leaves the drafter to policy (`cascade: "default"` in `maestro-flags`).
 
+### One job model in both modes
+- Interactive Claude Code also launches every external worker and test run through `maestro-run`;
+  one background Bash call runs `maestro-wait <job> --until-done` and its notification wakes the
+  director. Interactive jobs now have `meta.json`, an exit code and `maestro-kill`; the
+  hand-rolled `kill -0` watchdog is gone. `--until-done` keeps waiting on `running` and on
+  `uncertain` with a live leader, and returns on every other state (lingering and orphaned need
+  `maestro-kill`, so waiting on them would hang).
+- `maestro-run` takes host and session from the lock when the environment has none, so ledger rows
+  keep their host.
+
 ### Checkpoint patches
 - `maestro-state --gen N set key=value…` and `add-session <transport> '<json>'` patch the front
   matter in place through the same audit as `write`; the first checkpoint and structural changes

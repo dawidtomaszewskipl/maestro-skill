@@ -33,8 +33,9 @@ reports that as a stop.
 In a `claude -p` director (haiku, `--tools Bash`, `dontAsk`), `maestro-lock acquire`, `maestro-run …
 -- sleep 900` and `maestro-wait --peek` ran as separate commands. The job was `running` in the third
 command and still `running` after the director process was gone. A second check 11 minutes after
-the director session ended found it still `running` (elapsed 672 s). An interactive Claude Code uses
-the Bash tool's background mode instead, so the question does not arise there.
+the director session ended found it still `running` (elapsed 672 s). Since 2.1 interactive jobs are
+`maestro-run` jobs too: a background `maestro-wait --until-done` stopped with TaskStop left the job
+`running` (`leader_alive: true`), and `maestro-kill` then ended it (`signalled` → `done`).
 
 ## Screenshots (V14)
 
@@ -105,3 +106,9 @@ On Claude Code 2.1.325, Codex 0.169.0 and agy 1.5.9:
   and duration, but **no model**: `--served` is optional since, and `model_served` is `null`.
 - agy Argon critic with `--json-schema` (`gemini-4-argon-medium`, plan mode, brief by paths):
   `SUCCESS`, `structured_output` passed `maestro-validate --envelope agy` (verdict approve).
+- Arbiter (2.1): `maestro-roles --arbiter` named `argon` for a Claude build whose finding Sol held;
+  Argon (`gemini-4-argon-medium`, `arbiter-schema.json`) downgraded the int64 finding from the 2.0
+  canary ("a state the system cannot reach"); `maestro-validate --decide arbiter --ids r3-m1` →
+  approved.
+- `maestro-limits` (2.1): Claude seven-day 0.77 from a probe's `rate_limit_event`, Codex 0.83 of
+  its 168 h window from the newest rollout; agy unknown.

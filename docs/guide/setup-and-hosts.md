@@ -39,7 +39,7 @@ only ever workers; since 2.0.0 they no longer run maestro themselves.
 | Start | `/maestro <task>` | `claude -p "/maestro --unattended <task>"` |
 | How it asks you | a question dialog | it does not: a gap becomes a recorded assumption, a decision stops the run (`--unattended` is required) |
 | Claude workers | subagents (the `Agent` tool) | `claude -p`, edits-only (the director runs the tests) |
-| Long jobs | Claude Code's own background tasks, with a completion notification | launched detached and polled; a job keeps running after the director's session ends, and `/maestro --resume` finds it and waits for it |
+| Long jobs | started detached by `maestro-run`; a background task waits for each and notifies the director when it ends | started the same way and polled; in both modes a job keeps running after the director's session ends, and `/maestro --resume` finds it and waits for it |
 
 The director can make a small change itself (`self`) in both modes: Claude Code knows its own
 model.

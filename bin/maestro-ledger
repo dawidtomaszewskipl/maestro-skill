@@ -22,8 +22,7 @@
 #
 # Reads .maestro/jobs/<id>/: `out` (the event stream or envelope), `answer` (codex -o), `exit`,
 # `meta.json`. run_id and host come from meta.json (a maestro-run job), else from --run/--host,
-# else from the lock record — an interactive Claude Code launches with the Bash tool's background
-# mode, so its job directories have no meta.json. Usage is taken from the CLI's own fields —
+# else from the lock record (a job directory written by hand, without maestro-run, has no meta.json). Usage is taken from the CLI's own fields —
 # codex: the last turn.completed.usage; agy: the envelope's usage (cumulative per conversation: kept raw in raw_cumulative); claude-cli:
 # the result event's usage and modelUsage; claude-sdk (the api transport, maestro-sdk): the same
 # event stream, plus cost_usd from result.total_cost_usd.

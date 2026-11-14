@@ -902,7 +902,7 @@ if group T10 "ledger rows from job output"; then
   printf '{"type":"thread.started","thread_id":"t1"}\n{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":4,"output_tokens":3,"reasoning_output_tokens":1}}\n' > .maestro/jobs/j2/out
   row="$("$B/maestro-ledger" --dry-run --job j2 --stage build --cli codex --transport codex --family openai --model gpt-6.1-sol)"
   jqt "codex row: usage, session, total" "$row" '.session_id == "t1" and .input_tokens == 10 and .reasoning_tokens == 1 and .total_tokens == 13'
-  jqt "no meta.json (interactive Claude Code job): run and host from the lock" "$row" '.run_id == "r" and .host == "test"'
+  jqt "no meta.json (a job not launched by maestro-run): run and host from the lock" "$row" '.run_id == "r" and .host == "test"'
   row="$("$B/maestro-ledger" --dry-run --cli claude-agent --stage build --round 1 --transport native --family claude \
           --model opus --served claude-opus-5-5 --agent-id ac8f --total-tokens 327499 --tool-uses 94 --duration-ms 1521500)"
   jqt "Agent-tool row without a served model (the completion names none) → null" \
