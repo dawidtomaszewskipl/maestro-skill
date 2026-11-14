@@ -98,7 +98,7 @@ when all hold** after the last round — `--unattended` included:
 Input `{builder, drafter, high_stakes, eligible, critics_with_findings, director_family}`; output
 `{arbiter, reason, stop}`. `stop` not null → no arbiter: the stop below. Otherwise **one** call to
 that slot — read-only, launched and proven like a critic (job role `arbiter`; a Codex arbiter's
-`maestro-identity` check takes `--role critic`, the same read-only profile), at the critique
+`maestro-identity codex --role arbiter`, the read-only profile), at the critique
 effort, `.maestro/arbiter-schema.json`, a new slot probed first (stage 0 step 5). The disputed findings
 are every critic's `major_findings` of the last round (give them ids) and its `-m` ids still
 `not_resolved`. The brief (verbatim; plan and spec embedded or as paths, as for a critic):
