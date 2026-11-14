@@ -293,6 +293,8 @@ if named_critics:
     fl["critic"] = (named_critics[0], None)
 if fslot(flags.get("reviewer")):
     fl["reviewer"] = (fslot(flags["reviewer"]), None)
+if flags.get("cascade") not in (None, "", "default"):   # --cascade=<drafter>; bare --cascade keeps the policy's
+    fl["cascade_drafter"] = (flags["cascade"], None)
 
 user_flat, user_file = load("user", user_path)
 repo_flat, repo_file = load("repo", repo_path)

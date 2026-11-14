@@ -163,7 +163,7 @@ Console (kredyt czy saldo, ile).
 
 **Cel:** transport-switch na `api` w trakcie przebiegu.
 
-**Gdzie:** jak w 7, z `api: {fallback: true}` w `~/.config/maestro/policy.yml`. Shim `claude` z
+**Gdzie:** jak w 7, z `[api] fallback = true` w `~/.config/maestro/policy.toml`. Shim `claude` z
 `tests/canary/shim/claude` udaje wyczerpany limit.
 
 **Oczekuję:** `transport: sonnet native→api (quota; …)`, wiersz ledgera `transport-switch`,

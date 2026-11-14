@@ -75,7 +75,7 @@ review, or to another worker (`--unattended`: a validation stop, A1).
   API key, `bin/maestro-sdk`, billed to the Max plan's API credit) — for when
   the subscription's limits are spent. An explicit `@transport` still wins.
   Spend is capped per run (policy `api.max_usd_per_run`). Without it, policy
-  `api: {fallback: true}` makes `api` the last transport a Claude slot switches
+  `api.fallback = true` makes `api` the last transport a Claude slot switches
   to on quota (`docs/workers.md`).
 
 `maestro-flags` rejects the illegal combinations: `--plan-only` with
@@ -135,7 +135,7 @@ the run. **Family is decided by the model, never by the CLI.**
 **Transports.** `native` = the `Agent` tool in an interactive Claude Code,
 `claude -p` headless (and for a pinned native id). `agy` = `agy --model
 <slug>`. `codex` = `codex exec -m <slug>`. `api` = `maestro-sdk --model <full
-id>` (eligible only with `--sdk` or policy `api.fallback: true`, and only when
+id>` (eligible only with `--sdk` or policy `api.fallback = true`, and only when
 `maestro-sdk --check` is `available`). **An agy worker, a `claude -p` and an
 `api` worker are edits-only — you run the tests**; a Codex worker runs commands
 in its sandbox. Fable has no subscription transport but native: its native quota
@@ -419,7 +419,7 @@ assumptions and its closing question against the stop matrix after every turn
    critic=sol→gpt-6.1-sol (cross-family default) · reviewer=none (no --review)
    · effort critique=high (policy) · rounds=2 · tests=covering,browser (user) ·
    catalog: codex live · families=claude,openai,google ·
-   policy=maestro.policy.yml`. `codex-config=…` whenever a Codex worker runs;
+   policy=maestro.policy.toml`. `codex-config=…` whenever a Codex worker runs;
    `unattended=on` with `--unattended`.
 3. **Plan.** `.maestro/PLAN.md` (or `.maestro/tasks/<id>/PLAN.md` in a task
    queue), test commands and runner paths included.
@@ -527,7 +527,7 @@ implementer (`docs/cascade.md`).
 
 Write `.maestro/CHECKPOINT.md` (`docs/checkpoint.md`) after every stage
 transition, at every worker launch (session id, job id), and on every limit, API
-or safety event — **only** through `maestro-state --gen N write CHECKPOINT.md`,
+or safety event — **only** through `maestro-state` (`write`, `set`, `add-session`),
 never with an edit tool or a redirect: a checkpoint or ledger written any other
 way has no audit entry, and the next write or `--resume` refuses it.
 Transitions, launches and finishes patch it with `maestro-state --gen N set

@@ -234,7 +234,7 @@ The family does not change, so critics, reviewer and gate stand. A forced `@tran
 switches.
 
 **`api` is the last transport** of every Claude slot. It is a switch target only with `--sdk` or
-policy `api: {fallback: true}`. Announced as `transport: opus native→api (quota; API credit, budget
+policy `api.fallback = true`. Announced as `transport: opus native→api (quota; API credit, budget
 $<left>; edits-only, director runs tests)`.
 
 - Under `--sdk` the slot starts on `api` (a forced transport), so an `api` failure never falls back

@@ -1166,7 +1166,8 @@ if group T15 "flags"; then
   jqt "separate words work like one string" "$(fl --review x y)" '.flags.review == "full" and .task == "x y"'
   jqt "--reviewer alone implies --review=full" "$(fl --reviewer=sol t)" '.flags.review == "full" and .flags.reviewer.slot == "sol"'
   jqt "--tests=browser means covering,browser" "$(fl --tests=browser t)" '.flags.tests == {scope: "covering", browser: true}'
-  jqt "--cascade defaults to luna" "$(fl --cascade t)" '.flags.cascade == "luna"'
+  jqt "bare --cascade leaves the drafter to policy (default)" "$(fl --cascade t)" '.flags.cascade == "default"'
+  jqt "--cascade=haiku names the drafter" "$(fl --cascade=haiku t)" '.flags.cascade == "haiku"'
   jqt "--resume: the rest is the answer" "$(fl --resume --unattended opcja 2)" '.flags.resume and .flags.unattended and .task == "opcja 2" and .errors == []'
   for c in "--model=grok:unknown slot grok" "--model=sonnet@cursor:has no transport cursor" "--model=fable@agy:has no transport agy" \
            "--critic=self:self only builds" "--model=self@native:self takes no" "--review=half:--review is full" \

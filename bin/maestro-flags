@@ -10,7 +10,8 @@
 # ("-- add a --verbose option"). Prints one JSON line {flags, task, errors}; exit 0 iff errors == [].
 #   flags: {model: {slot, transport}|null, review: null|"full"|"self"|"cross",
 #           critics: [{slot, transport}], reviewer: {slot, transport}|null, rounds: N|null,
-#           tests: {scope, browser}|null, skip_tests, setup, plan_only, cascade: drafter|null,
+#           tests: {scope, browser}|null, skip_tests, setup, plan_only,
+#           cascade: drafter|"default" (bare --cascade: policy cascade_drafter, else luna)|null,
 #           resume, unattended, sdk}
 #   With --resume the task text is the answer to the recorded decision.
 # Slots, families and transports come from bin/slots.json (plus `self`, model only).
@@ -81,7 +82,7 @@ jq -cn --slurpfile slots "$MAESTRO_BIN/slots.json" --argjson w "$wj" '
             (if $f.v != null then .errors += ["--\($f.n) takes no value"]
              else .flags[$f.n | gsub("-"; "_")] = true end)
           elif $f.n == "cascade" then
-            (if $f.v == null then .flags.cascade = "luna"
+            (if $f.v == null then .flags.cascade = "default"
              elif ($f.v | IN("luna","haiku","gemini")) then .flags.cascade = $f.v
              else .errors += ["--cascade drafter is luna, haiku or gemini, not \($f.v)"] end)
           elif $f.n == "host" then .errors += ["--host was removed in 2.0.0: maestro runs only in Claude Code"]
