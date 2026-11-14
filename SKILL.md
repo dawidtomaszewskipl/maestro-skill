@@ -360,10 +360,12 @@ has the exact lines. The invariants:
 
 ## Briefs
 
-**Read `docs/briefs.md` before writing the first brief**: the closing blocks
-every brief ends with (verbatim, by role, transport and `--unattended`), the
-agy openings, the inline variant, the size limits and the plan-critique
-blocks (severity rubric, round 2, arbiter). The rules:
+**Read `docs/briefs.md` before writing the first brief.** Its fixed text comes
+from `"$MAESTRO/bin/maestro-brief"`: `close --role … --transport …
+[--unattended] [--worktree] [--schema F]` ends every brief, `open` starts an agy
+read-only brief, `rubric [--critique] [--round1]` goes into every critique and
+arbiter brief — never retype them. The round-2 and arbiter blocks carry the
+findings: write them from `docs/briefs.md`. The rules:
 
 Everything lives under `.maestro/`. External workers start cold: absolute paths
 (a worktree worker: paths relative to its worktree root), explicit change
@@ -433,7 +435,9 @@ assumptions and its closing question against the stop matrix after every turn
    call**; every finding downgraded approves the plan, and the report says so.
    Otherwise stop, no build, hand the disagreement to the user
    (`--unattended`: row 3, as is a `reject` in any round, A13). `--plan-only`
-   ends here (A15).
+   ends here (A15). Two critics (high stakes) run **at once**: one `maestro-fp
+   snapshot` before both, one `compare` after both; `changed` discards both
+   verdicts and reruns them one after the other (say so in the report).
 5. **Build** — or cascade (`docs/cascade.md`; under `--unattended` every
    `DRAFT_ABORT` is classified before it escalates, A21). One writer in the
    checkout at a time.
@@ -456,8 +460,9 @@ assumptions and its closing question against the stop matrix after every turn
    (`--unattended`: row 4, A14). **Bounded fixes are yours:** a few lines, no
    design change, nothing in permissions, money or data integrity. **Review
    and screenshots certify the final diff:** after any edit that follows them,
-   the changed part goes back to the reviewer, the covering tests run again,
-   the screenshots it touches are retaken.
+   the changed part goes back to the reviewer — **only** the diff since the
+   last reviewed state plus the open findings, not the whole change again — the
+   covering tests run again, the screenshots it touches are retaken.
 8. **Approve and commit** — inside the fence (`maestro-lock exec --gen N -- git
    commit …`) — after your diff read, the passed gates and, unless
    `--skip-tests`, your own test run. A worker's green run is evidence, not a

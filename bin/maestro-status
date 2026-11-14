@@ -19,7 +19,10 @@ CP="$SD/CHECKPOINT.md"
 
 fm() {  # a top-level scalar of the checkpoint's front matter
   [[ -f "$CP" ]] || return 0
-  sed -n "s/^$1: *//p" "$CP" | head -1 | sed -E 's/[[:space:]]+#.*$//; s/^"(.*)"$/\1/'
+  local v; v="$(sed -n "s/^$1: *//p" "$CP" | head -1)"
+  if [[ "$v" == \"* ]]; then   # a double-quoted scalar: read it as a JSON string (maestro-state writes it so)
+    jq -rn --arg v "$v" '$v | capture("^(?<q>\"([^\"\\\\]|\\\\.)*\")") .q | fromjson' 2>/dev/null || printf '%s\n' "$v"
+  else sed -E 's/[[:space:]]+#.*$//' <<<"$v"; fi
 }
 open_dec=0   # decisions.current is the one open decision (docs/checkpoint.md)
 if [[ -f "$CP" ]] && sed -n '/^decisions:/,/^[^ ]/p' "$CP" | grep -qE '^  current: *[^n[:space:]#]'; then open_dec=1; fi

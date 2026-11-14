@@ -33,7 +33,8 @@ guide, then the technical pages when you need the exact rule.
 | [cascade.md](cascade.md) | The `--cascade` protocol: drafter, gates, escalation | you use the cascade |
 | [checkpoint.md](checkpoint.md) | The checkpoint file, decisions, the resume procedure, the audit | a resume did something you did not expect |
 | [ledger.md](ledger.md) | The cost ledger's fields and sources | you are reading `.maestro/ledger.jsonl` |
-| [unattended.md](unattended.md) | The `--unattended` rules: stop matrix, ask-point inventory, scenarios | you run maestro headless |
+| [unattended.md](unattended.md) | The `--unattended` rules: stop matrix, ask-point inventory, decisions and answers | you run maestro headless |
+| [unattended-reference.md](unattended-reference.md) | How the ask-point inventory was found, and the scenario test of the stop rules | you change the unattended rules |
 | [sandbox-and-preflight.md](sandbox-and-preflight.md) | What each sandbox denies, the reach probe, the escalation ladder | a worker could not run the tests |
 | [troubleshooting.md](troubleshooting.md) | Real incidents with their diagnoses | something hangs, fails or looks wrong |
 | [evidence.md](evidence.md) | Measurement history: job survival, end-to-end canaries | you want to know how a rule was measured |

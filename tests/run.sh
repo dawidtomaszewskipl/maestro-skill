@@ -935,6 +935,20 @@ if group T12 "docs consistency"; then
   roster="$(awk -F'|' '/^\| `[a-z]+` \|/ { gsub(/[` ]/, "", $2); gsub(/^ +| +$/, "", $4); gsub(/ /, "", $5); print $2 "|" tolower($4) "|" $5 }' "$ROOT/SKILL.md" | grep -v '^self|' | sort)"
   want="$(jq -r 'del(._comment) | to_entries[] | "\(.key)|\(.value.family)|\(.value.transports | join("→"))"' "$B/slots.json" | sort)"
   eq "SKILL.md roster = bin/slots.json" "$want" "$roster"
+  # every fixed block maestro-brief prints appears verbatim in docs/briefs.md (blockquotes joined)
+  norm() { sed -E 's/^> ?//; s/\*"/"/g; s/"\*/"/g' | tr -s ' \n' '  '; }
+  doc="$(norm < "$ROOT/docs/briefs.md")" missing=""
+  while IFS= read -r blk; do
+    [[ "$doc" == *"$(norm <<<"$blk" | sed 's/ $//')"* ]] || missing+="[${blk:0:40}…] "
+  done < <("$B/maestro-brief" --print-blocks)
+  eq "maestro-brief blocks = docs/briefs.md" "" "$missing"
+  out="$("$B/maestro-brief" close --role builder --transport claude-cli --unattended)"
+  if [[ "$out" == *"edit files only"* && "$out" != *"timeout"* && "$out" == *"do not decide it"* ]]; then ok "brief: edits-only builder, unattended"; else bad "brief: edits-only builder, unattended" "$out"; fi
+  out="$("$B/maestro-brief" close --role fix --transport codex --worktree)"
+  if [[ "$out" == *"Do not run tests; the director will."* && "$out" != *"timeout"* ]]; then ok "brief: worktree writer"; else bad "brief: worktree writer" "$out"; fi
+  eq "brief: no agy opening for a Codex critic" "" "$("$B/maestro-brief" open --role critic --transport codex)"
+  out="$("$B/maestro-brief" close --role builder --transport codex --schema "$ROOT/docs/schemas/gate-schema.json" 2>&1; echo "rc=$?")"
+  if [[ "$out" == *"read-only role"* && "$out" == *rc=2* ]]; then ok "brief: --schema refused for a writer"; else bad "brief: --schema refused for a writer" "$out"; fi
   # Removed in 2.0.0: the third-party transport, its model line and family, non-Claude-Code hosts.
   # Allowed: CHANGELOG history, maestro-host's detection of other agent CLIs (to refuse them),
   # maestro-flags' message for the removed --host flag, and one "Removed in 2.0.0" line per page.

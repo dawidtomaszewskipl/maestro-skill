@@ -1,7 +1,8 @@
 # Briefs
 
 *What this page is for: the fixed text every worker brief carries. Read it before the first brief
-of a run (SKILL.md, "Briefs" has the rules about content).*
+of a run (SKILL.md, "Briefs" has the rules about content). `bin/maestro-brief` prints these blocks
+(`open`, `close`, `rubric`); T12 checks that its text and this page agree word for word.*
 
 ## Closing blocks (verbatim)
 
@@ -151,6 +152,13 @@ Above ~100 KB (the argv limit is ~128 KB) split it into parts, each a full brief
 Combined: approve only when every part approves; findings are the union; a gate or review part
 also names the plan items its slice covers — combined `done` is the union and `missing` the plan
 items no part reports done. Or give the role to another family.
+
+## Re-review after a fix round
+
+The reviewer gets only what changed since the state it last reviewed (`git diff <reviewed
+state>`, written to `.maestro/diff-review-r<N>.patch`) plus its open findings, each with the
+builder's fix — not the whole change again. It answers with the review schema; `plan_coverage`
+covers the plan items the fix touched. The review stage is the costliest one in the ledger.
 
 ## Sizes
 

@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# maestro-brief — the fixed text of a worker brief (docs/briefs.md is the reference; T12 checks
+# that every block printed here appears there verbatim). Prints plain text for the director to
+# put at the start or the end of a brief file.
+#
+#   maestro-brief open  --role R --transport T [--repo DIR] [--inline]
+#       agy read-only roles: the "read inside <REPO> only" paragraph, or with --inline the
+#       no-tools paragraph of the inline variant. Every other combination prints nothing.
+#   maestro-brief rubric [--critique] [--round1] [--arbiter]
+#       the severity rubric (critique and arbiter briefs); --critique adds the verdict line,
+#       --round1 the round-1 line. The round-2 block carries the findings: write it from
+#       docs/briefs.md, "Round 2 and later".
+#   maestro-brief close --role R --transport T [--unattended] [--worktree] [--schema FILE]
+#       the closing block, plus by role and transport: the test line (a writer that runs tests:
+#       transport native = the Agent tool, or codex), the edits-only line (agy, claude-cli, api),
+#       the worktree line (--worktree), the quoted schema and the JSON-only line (--schema, for a
+#       claude-cli or api read-only role whose line has no schema flag), the --unattended line.
+#
+# Roles: critic gate reviewer arbiter (read-only) · builder drafter fix (writers).
+# Transports: native (the Agent tool) claude-cli api codex agy.
+# shellcheck disable=SC2016  # the blocks quote Markdown code spans, not shell expansions
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+
+CLOSE='Do not ask questions. Where the brief is silent, decide and record each assumption — in the `assumptions` field when a JSON schema was given, otherwise under a `## Assumptions` heading. Do not commit. Do not write outside the boundaries or into `.maestro/`.'
+TESTS='Run test commands without a `timeout` wrapper and never kill them; if your shell caps foreground execution, run any test that can take more than a few minutes in the background and wait for it.'
+EDITS='Do not execute shell or terminal commands; edit files only — the director runs the tests.'
+WORKTREE='Do not run tests; the director will.'
+JSONONLY='Your final message must be the JSON object only.'
+UNATTENDED='If the brief is silent on authorization, budget, scope or a high-stakes decision, do not decide it: stop, leave the tree as it is, and end your answer with the question.'
+AGY_OPEN='You may read files inside <REPO> with your file tools (view a file, list a directory, search the repository). Do NOT run commands or terminal tools, do NOT call MCP servers, do NOT read anything outside <REPO>.'
+AGY_INLINE='This brief is self-contained. Do NOT call any tools: do not read files, do not run commands, do not call MCP, do not search the repository. Answer from the text below alone.'
+RUBRIC='Severity of a finding:
+- `blocking`: the plan cannot meet the spec, or it would cause damage (data loss, a security hole, a broken build).
+- `major`: a defect reachable with an input or state the spec allows. It MUST name that input or state.
+- Everything else is a note, not a finding.
+
+Every blocking and major finding carries a `trigger`: the concrete input or state, inside the spec, that triggers the defect. A defect with no such trigger — it needs an input the spec excludes, or a state the system cannot reach — is a note.'
+VERDICT='Notes go in `non_blocking_notes` and never block. `approve` only with `blocking_findings` and `major_findings` both empty; otherwise `revise`; `reject` only when no revision of this plan can meet the spec.'
+ROUND1='This is round 1: return `prior_findings` as an empty array.'
+
+# --print-blocks: every block, one per line, for T12's comparison with docs/briefs.md.
+if [[ "${1:-}" == "--print-blocks" ]]; then
+  printf '%s\n' "$CLOSE" "$TESTS" "$EDITS" "$WORKTREE" "$JSONONLY" "$UNATTENDED" "$AGY_OPEN" "$AGY_INLINE" \
+    "${RUBRIC//$'\n'/ }" "$VERDICT" "$ROUND1"
+  exit 0
+fi
+
+sub="${1:-}"; shift || true
+role="" transport="" repo="" inline=0 unattended=0 worktree=0 schema="" critique=0 round1=0 arbiter=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --role) role="$2"; shift 2 ;; --transport) transport="$2"; shift 2 ;; --repo) repo="$2"; shift 2 ;;
+    --inline) inline=1; shift ;; --unattended) unattended=1; shift ;; --worktree) worktree=1; shift ;;
+    --schema) schema="$2"; shift 2 ;; --critique) critique=1; shift ;; --round1) round1=1; shift ;;
+    --arbiter) arbiter=1; shift ;;
+    *) mae_die "maestro-brief: unknown option $1" ;;
+  esac
+done
+readonly_role() { [[ "$role" =~ ^(critic|gate|reviewer|arbiter)$ ]]; }
+check_rt() {
+  [[ "$role" =~ ^(critic|gate|reviewer|arbiter|builder|drafter|fix)$ ]] || mae_die "--role is critic, gate, reviewer, arbiter, builder, drafter or fix"
+  [[ "$transport" =~ ^(native|claude-cli|api|codex|agy)$ ]] || mae_die "--transport is native, claude-cli, api, codex or agy"
+}
+
+case "$sub" in
+  open)
+    check_rt
+    if [[ "$transport" == agy ]] && readonly_role; then
+      if [[ $inline -eq 1 ]]; then printf '%s\n' "$AGY_INLINE"
+      else t="$AGY_OPEN"; [[ -n "$repo" ]] && t="${t//<REPO>/$repo}"; printf '%s\n' "$t"; fi
+    fi ;;
+  rubric)
+    printf '%s\n' "$RUBRIC"
+    [[ $critique -eq 1 ]] && printf '\n%s\n' "$VERDICT"
+    [[ $round1 -eq 1 ]] && printf '\n%s\n' "$ROUND1"
+    [[ $arbiter -eq 1 || $critique -eq 1 || $round1 -eq 1 ]] || true ;;
+  close)
+    check_rt
+    printf '%s\n' "$CLOSE"
+    if ! readonly_role; then
+      if [[ $worktree -eq 1 ]]; then printf '%s\n' "$WORKTREE"
+      elif [[ "$transport" == native || "$transport" == codex ]]; then printf '%s\n' "$TESTS"
+      fi
+      [[ "$transport" =~ ^(agy|claude-cli|api)$ ]] && printf '%s\n' "$EDITS"
+    fi
+    if [[ -n "$schema" ]]; then
+      readonly_role && [[ "$transport" =~ ^(claude-cli|api)$ ]] || mae_die "--schema is for a claude-cli or api read-only role"
+      [[ -f "$schema" ]] || mae_die "no schema file $schema"
+      printf '\nThe JSON schema of your answer:\n\n%s\n\n%s\n' "$(jq . "$schema")" "$JSONONLY"
+    fi
+    [[ $unattended -eq 1 ]] && printf '%s\n' "$UNATTENDED"
+    true ;;
+  *) mae_die "usage: maestro-brief open|rubric|close … (--help)" ;;
+esac
