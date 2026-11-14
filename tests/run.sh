@@ -761,8 +761,19 @@ if group T10 "ledger rows from job output"; then
     '.cli == "claude-sdk" and .transport == "api" and .input_tokens == 12000 and .cached_input_tokens == 30000
      and .model_served == "claude-opus-5-5" and .cost_usd == 0.4125 and .session_id == "sdk1" and .duration_s == 42'
   jqt "non-api rows carry cost_usd null" "$("$B/maestro-ledger" --dry-run --job j1 --stage critique --cli claude-cli --transport native --family claude --model m)" '.cost_usd == null'
+  mkdir -p .maestro/jobs/cw; cp .maestro/jobs/j2/out .maestro/jobs/cw/out
+  printf '{"run_id":"r","host":"claude-code","started_at":"%s"}' "$(date -u -d '-42 seconds' +%Y-%m-%dT%H:%M:%SZ)" > .maestro/jobs/cw/meta.json
+  printf 0 > .maestro/jobs/cw/exit
+  jqt "codex row: wall time from meta started_at to the exit file" \
+    "$("$B/maestro-ledger" --dry-run --job cw --stage critique --cli codex --transport codex --family openai --model gpt-6.1-sol)" '.duration_s >= 41 and .duration_s <= 44'
   "$B/maestro-ledger" --gen "$g" --job k1 --stage critique --cli claude-sdk --transport api --family claude --model claude-opus-5-5 >/dev/null
   "$B/maestro-ledger" --gen "$g" --job k1 --stage build --cli claude-sdk --transport api --family claude --model claude-opus-5-5 >/dev/null
+  rep="$("$B/maestro-ledger" report --run r --json)"
+  jqt "report: rows grouped by stage and model, api spend summed" "$rep" \
+    '.calls >= 2 and (.rows | any(.stage == "critique" and .who == "claude-opus-5-5" and .transport == "api")) and .api_usd > 0'
+  md="$("$B/maestro-ledger" report --run r)"
+  if [[ "$md" == *"| Stage | Who |"* && "$md" == *"api spend: \$"* && "$md" == *"not subscription cost"* ]]; then ok "report: Markdown table"; else bad "report: Markdown table" "$md"; fi
+  jqt "report: unknown numbers stay null, never 0" "$("$B/maestro-ledger" report --run nope --json)" '.calls == 0 and .rows == []' 
   "$B/maestro-ledger" --gen "$g" --job k2 --stage build --cli claude-sdk --transport api --family claude --model claude-opus-5-5 >/dev/null
   jqt "cost: the run's api spend summed" "$("$B/maestro-ledger" cost --run r --transport api)" '.cost_usd == 0.825 and .rows == 3'
   jqt "cost: another run spent nothing" "$("$B/maestro-ledger" cost --run other --transport api)" '.cost_usd == 0 and .rows == 0'
@@ -959,6 +970,9 @@ if group T15 "flags"; then
   jqt "flags anywhere, task text kept in order" "$(fl "add --model=opus@agy a thing --critic=sol,argon --rounds=3")" \
     '.task == "add a thing" and .flags.model == {slot: "opus", transport: "agy"} and (.flags.critics | map(.slot)) == ["sol","argon"] and .flags.rounds == 3 and .errors == []'
   jqt "a multi-line argument string keeps every line" "$(fl $'build a page\nwith OAuth --model=sol')" '.task == "build a page with OAuth" and .flags.model.slot == "sol"'
+  jqt "a lone -- ends the flags: --words after it are task text" "$(fl "--model=opus -- add a --verbose option")" '.task == "add a --verbose option" and .flags.model.slot == "opus" and .errors == []'
+  jqt "a near-miss flag gets a did-you-mean" "$(fl "--modle=opus x")" '.errors == ["unknown flag --modle=opus (did you mean --model?)"]'
+  jqt "a far unknown flag names the -- escape" "$(fl "add a --verbose option")" '.errors[0] | test("lone --")'
   jqt "separate words work like one string" "$(fl --review x y)" '.flags.review == "full" and .task == "x y"'
   jqt "--reviewer alone implies --review=full" "$(fl --reviewer=sol t)" '.flags.review == "full" and .flags.reviewer.slot == "sol"'
   jqt "--tests=browser means covering,browser" "$(fl --tests=browser t)" '.flags.tests == {scope: "covering", browser: true}'
@@ -987,6 +1001,45 @@ if group T15 "flags"; then
     if [[ $rc -ne 0 ]] && jq -e --arg w "$want" '.errors | any(contains("illegal combination: " + $w))' >/dev/null <<<"$out"; then ok "illegal: $a"; else bad "illegal: $a" "$out"; fi
   done
   jqt "every slot of slots.json parses as --model" "$(for x in $(jq -r 'del(._comment) | keys[]' "$B/slots.json"); do fl --model="$x" t | jq -c .errors; done | jq -sc 'add')" '. == []'
+fi
+
+# =============================================================================================
+if group T16 "status"; then
+  REPO="$(new_repo)"; cd "$REPO" || exit 2
+  jqt "status: nothing in a fresh checkout" "$("$B/maestro-status" --json)" '.run_id == null and .lock == null and .jobs == []'
+  eq "status: text for a fresh checkout" "no maestro run in this checkout" "$("$B/maestro-status")"
+  g="$("$B/maestro-lock" acquire --run rs --token t --host test | jq -r .fence)"
+  printf -- '---\nskill: maestro\nrun_id: rs\ntask: "add repeat"\nstage: build   # comment\nround: 2\nnext_action: "wait for the build"\ndecisions:\n  current: {id: d-rs-1, question: "x"}\n  history: []\n---\n' \
+    | "$B/maestro-state" --gen "$g" write CHECKPOINT.md >/dev/null
+  "$B/maestro-run" --gen "$g" --job rs.build.r2.a1 --run rs --role build -- sleep 5 >/dev/null
+  printf '%s\n' '{"run_id":"rs","total_tokens":100,"transport":"codex"}' '{"run_id":"rs","total_tokens":50,"transport":"api","cost_usd":0.25}' '{"run_id":"other","total_tokens":9}' > .maestro/ledger.jsonl
+  out="$("$B/maestro-status" --json)"
+  jqt "status: checkpoint scalars, the open decision, the live job, ledger of this run, the lock" "$out" \
+    '.run_id == "rs" and .task == "add repeat" and .stage == "build" and .round == 2 and .next_action == "wait for the build"
+     and .decisions_open == 1 and (.jobs | length) == 1 and .jobs[0].state == "running"
+     and .ledger == {calls: 2, total_tokens: 150, api_usd: 0.25} and .lock.run_id == "rs"'
+  txt="$("$B/maestro-status")"
+  if [[ "$txt" == *"stage build round 2"* && "$txt" == *"1 open decision"* && "$txt" == *"rs.build.r2.a1 running"* && "$txt" == *"api \$0.25"* ]]; then ok "status: text lines"; else bad "status: text lines" "$txt"; fi
+  "$B/maestro-wait" rs.build.r2.a1 --max 20 >/dev/null
+  cd "$ROOT" || exit 2
+fi
+
+# =============================================================================================
+if group T17 "limits"; then
+  LS="$WORK/limits"; mkdir -p "$LS/jobs/j1" "$LS/codex/sessions/2026/11/14"
+  printf '%s\n' '{"type":"system","subtype":"init"}' \
+    '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","resetsAt":1794805200,"rateLimitType":"seven_day","utilization":0.93}}' > "$LS/jobs/j1/out"
+  printf '%s\n' '{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":40.0,"window_minutes":300,"resets_at":1794902332},"secondary":{"used_percent":83.0,"window_minutes":10080,"resets_at":1794902999},"plan_type":"pro"}}}' \
+    > "$LS/codex/sessions/2026/11/14/rollout-2026-11-14T10-00-00-x.jsonl"
+  out="$(MAESTRO_STATE="$LS" CODEX_HOME="$LS/codex" "$B/maestro-limits")"
+  jqt "limits: claude from the newest rate_limit_event" "$out" '.claude.utilization == 0.93 and .claude.window == "seven_day" and .claude.stale == false'
+  jqt "limits: codex takes the fuller of its windows" "$out" '.codex.utilization == 0.83 and .codex.window == "168 h" and .codex.plan == "pro"'
+  jqt "limits: agy unknown" "$out" '.agy.utilization == null'
+  jqt "limits: >= 90% is a warning" "$out" '(.warnings | length) == 1 and (.warnings[0] | test("^claude at 93%"))'
+  touch -d '-8 hours' "$LS/jobs/j1/out"
+  jqt "limits: an old record is stale" "$(MAESTRO_STATE="$LS" CODEX_HOME="$LS/codex" "$B/maestro-limits")" '.claude.stale == true and (.warnings[0] | test("min old"))'
+  jqt "limits: no sources → reasons, no warnings" "$(MAESTRO_STATE="$WORK/none-l" CODEX_HOME="$WORK/none-c" "$B/maestro-limits")" \
+    '.claude.utilization == null and .codex.utilization == null and .warnings == []'
 fi
 
 _gtime

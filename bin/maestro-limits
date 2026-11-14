@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# maestro-limits — how much of each subscription window is used, without a model turn.
+#
+#   maestro-limits [--max-age S]
+#
+# Sources (the newest record wins; older than S seconds, default 21600 = 6 h, is reported stale):
+#   claude  the `rate_limit_event` every `claude -p` / maestro-sdk stream-json carries, read from
+#           .maestro/jobs/*/out and from any extra files in $MAESTRO_LIMITS_CLAUDE (colon-separated);
+#           the stage 0 probe writes one, so a run always has a fresh one
+#   codex   the `token_count.rate_limits` record of the newest rollout in $CODEX_HOME/sessions
+#           (account-wide: any recent Codex session counts)
+#   agy     none known: always unknown
+# Prints one JSON line {claude, codex, agy, warnings}; a family is
+#   {utilization: 0–1, window, resets_at (ISO), age_s, stale, source} or {utilization: null, reason}.
+# A warning is emitted at utilization >= 0.9: the Assign line carries it and rubric rows 3–5 prefer a
+# pool with headroom.
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+
+max_age=21600
+[[ "${1:-}" == "--max-age" ]] && max_age="${2:?seconds}"
+SD="$(mae_state_dir 2>/dev/null || echo .maestro)"
+now="$(date +%s)"
+
+# --- claude: newest rate_limit_event -----------------------------------------------------------
+cl='{"utilization":null,"reason":"no claude -p or maestro-sdk output yet (the stage 0 probe writes one)"}'
+files=()
+for f in "$SD"/jobs/*/out; do [[ -f "$f" ]] && files+=("$f"); done
+IFS=':' read -r -a extra <<<"${MAESTRO_LIMITS_CLAUDE:-}"
+for f in "${extra[@]+"${extra[@]}"}"; do [[ -f "$f" ]] && files+=("$f"); done
+best="" best_t=0
+for f in "${files[@]+"${files[@]}"}"; do
+  grep -q '"rate_limit_event"' "$f" 2>/dev/null || continue
+  t="$(stat -c %Y "$f")"
+  (( t > best_t )) && { best="$f"; best_t="$t"; }
+done
+if [[ -n "$best" ]]; then
+  cl="$(grep '"rate_limit_event"' "$best" | tail -1 | jq -c --arg src "$best" --argjson age $(( now - best_t )) --argjson max "$max_age" '
+    .rate_limit_info as $i
+    | {utilization: ($i.utilization // null), window: ($i.rateLimitType // null),
+       resets_at: (if $i.resetsAt then ($i.resetsAt | todate) else null end), status: ($i.status // null),
+       age_s: $age, stale: ($age > $max), source: $src}' 2>/dev/null \
+    || echo '{"utilization":null,"reason":"unreadable rate_limit_event"}')"
+fi
+
+# --- codex: newest rollout's rate_limits ---------------------------------------------------------
+cx='{"utilization":null,"reason":"no Codex rollout found"}'
+ro="$(find "${CODEX_HOME:-$HOME/.codex}/sessions" -name 'rollout-*.jsonl' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2- || true)"
+if [[ -n "$ro" ]]; then
+  rl="$( { grep '"rate_limits"' "$ro" || true; } | tail -1)"
+  if [[ -n "$rl" ]]; then
+    t="$(stat -c %Y "$ro")"
+    cx="$(jq -c --arg src "$ro" --argjson age $(( now - t )) --argjson max "$max_age" '
+      (.payload.rate_limits // .payload.info.rate_limits // .rate_limits) as $r
+      | ([$r.primary, $r.secondary] | map(select(. != null)) | max_by(.used_percent // 0)) as $w
+      | {utilization: (if $w then ($w.used_percent / 100) else null end),
+         window: (if $w.window_minutes then "\($w.window_minutes / 60 | floor) h" else null end),
+         resets_at: (if $w.resets_at then ($w.resets_at | todate) else null end),
+         plan: ($r.plan_type // null), age_s: $age, stale: ($age > $max), source: $src}' <<<"$rl" 2>/dev/null \
+      || echo '{"utilization":null,"reason":"unreadable rate_limits"}')"
+  else cx='{"utilization":null,"reason":"the newest rollout has no rate_limits record yet"}'; fi
+fi
+
+jq -cn --argjson cl "$cl" --argjson cx "$cx" '
+  {claude: $cl, codex: $cx, agy: {utilization: null, reason: "agy exposes no quota"}}
+  | . + {warnings: [ to_entries[] | select((.value.utilization // 0) >= 0.9)
+                     | "\(.key) at \(.value.utilization * 100 | floor)% of its \(.value.window // "window")"
+                       + (if .value.resets_at then " (resets \(.value.resets_at))" else "" end)
+                       + (if .value.stale then ", data \(.value.age_s / 60 | floor) min old" else "" end) ]}'

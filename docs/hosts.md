@@ -50,7 +50,7 @@ roles. An assignment that became illegal → ask (unattended: row 2).
 | Claude worker | `Agent` tool with an explicit `model`, default `subagent_type` (`fork` ignores `model`); `claude -p` for a pinned native id | `claude -p` |
 | Long command | Bash `run_in_background: true`, then its completion notification | jobs (below): `maestro-run`, then `maestro-wait` |
 | Foreground cap | 600 s, cut silently | the Bash tool's: 120 s by default, 600 s at most |
-| `maestro-wait --max` | — (harness) | 25 |
+| `maestro-wait --max` | — (harness) | 540, in a Bash call with `timeout: 600000` (default 100 fits the 120 s default cap) |
 | Ask the user | `AskUserQuestion`, only while no worker is running | nobody: `--unattended` only |
 | Progress sampling | every 5 min, a background `sleep 300` or `Monitor` | `maestro-wait` loop (`last_progress_at` persists) |
 
@@ -149,7 +149,7 @@ Headless there is no notification that wakes the director, so maestro brings its
   alive, so `maestro-kill` never classifies an incomplete live set.
 
 **Never end your turn while a job is `running`, `lingering`, `orphaned`, or `uncertain` with
-`leader_alive: true`.** Loop `maestro-wait --max 25`, sample progress, and ask nothing meanwhile.
+`leader_alive: true`.** Loop `maestro-wait --max 540` (Bash `timeout: 600000`), sample progress, and ask nothing meanwhile.
 A hang is no progress for max(15 min, 2 × T_slow): read the job's files, then `maestro-kill`.
 A test never counts as hung.
 

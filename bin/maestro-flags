@@ -6,7 +6,8 @@
 #   maestro-flags "<the raw argument string>"      (or the arguments as separate words)
 #
 # Tokens that start with "--" are flags wherever they stand; every other token is task text
-# (joined by single spaces). Prints one JSON line {flags, task, errors}; exit 0 iff errors == [].
+# (joined by single spaces); a lone "--" ends the flags, everything after it is task text
+# ("-- add a --verbose option"). Prints one JSON line {flags, task, errors}; exit 0 iff errors == [].
 #   flags: {model: {slot, transport}|null, review: null|"full"|"self"|"cross",
 #           critics: [{slot, transport}], reviewer: {slot, transport}|null, rounds: N|null,
 #           tests: {scope, browser}|null, skip_tests, setup, plan_only, cascade: drafter|null,
@@ -23,7 +24,15 @@ if [[ $# -eq 1 ]]; then read -r -d '' -a words <<<"$1" || true; else words=("$@"
 wj="$(if [[ ${#words[@]} -gt 0 ]]; then printf '%s\n' "${words[@]}" | jq -R . | jq -sc .; else echo '[]'; fi)"
 jq -cn --slurpfile slots "$MAESTRO_BIN/slots.json" --argjson w "$wj" '
   ($slots[0] | del(._comment)) as $S
-  | def slot_t($v; $what; $self_ok):
+  | ["model","review","critic","reviewer","rounds","tests","skip-tests","setup","plan-only","cascade",
+     "resume","unattended","sdk"] as $known
+  | def lev($a; $b):   # edit distance, for "did you mean"
+      ($a | explode) as $x | ($b | explode) as $y
+      | reduce range(0; $x | length) as $i ([range(0; ($y | length) + 1)];
+          . as $prev | reduce range(0; $y | length) as $j ([$i + 1];
+            . + [[ $prev[$j + 1] + 1, .[$j] + 1, $prev[$j] + (if $x[$i] == $y[$j] then 0 else 1 end) ] | min]))
+      | last;
+  def slot_t($v; $what; $self_ok):
       ($v | capture("^(?<s>[a-z]+)(@(?<t>[a-z]+))?$") // null) as $c
       | if $c == null then {err: "\($what): \"\($v)\" is not <slot>[@<transport>]"}
         elif $c.s == "self" then
@@ -34,11 +43,12 @@ jq -cn --slurpfile slots "$MAESTRO_BIN/slots.json" --argjson w "$wj" '
         elif $c.t != null and (($S[$c.s].transports | index($c.t)) == null) then
           {err: "\($what): \($c.s) has no transport \($c.t) (its transports: \($S[$c.s].transports | join(", ")))"}
         else {v: {slot: $c.s, transport: $c.t}} end;
-  reduce $w[] as $tok ({flags: {model: null, review: null, critics: [], reviewer: null, rounds: null, tests: null,
+  reduce $w[] as $tok ({ended: false, flags: {model: null, review: null, critics: [], reviewer: null, rounds: null, tests: null,
                                 skip_tests: false, setup: false, plan_only: false, cascade: null,
                                 resume: false, unattended: false, sdk: false},
                         task: [], errors: [], seen: []};
-    if ($tok | startswith("--") | not) then .task += [$tok]
+    if .ended or ($tok | startswith("--") | not) then .task += [$tok]
+    elif $tok == "--" then .ended = true
     else
       ($tok | capture("^--(?<n>[a-z-]+)(=(?<v>.*))?$") // {n: "", v: null}) as $f
       | if (.seen | index($f.n)) != null and $f.n != "" then .errors += ["--\($f.n) given twice"]
@@ -75,7 +85,10 @@ jq -cn --slurpfile slots "$MAESTRO_BIN/slots.json" --argjson w "$wj" '
              elif ($f.v | IN("luna","haiku","gemini")) then .flags.cascade = $f.v
              else .errors += ["--cascade drafter is luna, haiku or gemini, not \($f.v)"] end)
           elif $f.n == "host" then .errors += ["--host was removed in 2.0.0: maestro runs only in Claude Code"]
-          else .errors += ["unknown flag \($tok)"] end
+          else
+            ([ $known[] | {k: ., d: lev(.; $f.n)} | select(.d <= 2) ] | sort_by(.d) | first // null) as $near
+            | .errors += ["unknown flag \($tok)" + (if $near then " (did you mean --\($near.k)?)"
+                else "; if it belongs to the task text, put a lone -- before the task" end)] end
         end
     end)
   | .flags as $F

@@ -11,6 +11,10 @@
 #       An Agent-tool call (interactive Claude Code) has no job: its numbers come from the
 #       subagent's completion (total tokens, tool uses, duration — the harness reports no split
 #       into input and output, so those fields stay null) and job_id is null.
+#   maestro-ledger report --run <id> [--json]
+#       the report's cost table (docs/ledger.md, "Report table") from the run's rows: per stage and
+#       model — calls, wall time, tokens, verdicts — plus per-family totals and the api spend.
+#       Missing numbers show as "–", never as 0. Read-only, no --gen.
 #   maestro-ledger cost --run <id> [--transport api]
 #       {run_id, transport, cost_usd, rows}: the USD the run's rows report (cost_usd, an estimate of
 #       the SDK's own price table — not an invoice). Read-only, no --gen. The director subtracts it
@@ -31,6 +35,44 @@ set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/_lib.sh"
 
 SD="$(mae_state_dir)"
+
+if [[ "${1:-}" == report ]]; then
+  shift; r_run="" r_json=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --run) r_run="$2"; shift 2 ;;
+      --json) r_json=1; shift ;;
+      *) mae_die "maestro-ledger report: unknown option $1" ;;
+    esac
+  done
+  [[ -n "$r_run" ]] || mae_die "maestro-ledger report needs --run"
+  # shellcheck disable=SC2016  # jq program
+  tbl="$({ [[ -f "$SD/ledger.jsonl" ]] && cat "$SD/ledger.jsonl"; true; } | jq -sc --arg r "$r_run" '
+    def n: if type == "number" then . else 0 end;
+    def known(f): [ .[] | f | select(type == "number") ] | if length == 0 then null else add end;
+    [ .[] | select(.run_id == $r) ] as $rows
+    | { run_id: $r, calls: ($rows | length),
+        rows: [ $rows | group_by([.stage, .model_served // .model_requested, .effort, .transport])[]
+                | { stage: .[0].stage, who: ((.[0].model_served // .[0].model_requested // "?")
+                      + (if .[0].effort then "@" + .[0].effort else "" end)),
+                    transport: .[0].transport, calls: length, wall_s: known(.duration_s),
+                    input: known(.input_tokens), output: known(.output_tokens), total: known(.total_tokens),
+                    cost_usd: known(.cost_usd), verdicts: ([ .[] | .verdict // .outcome | select(. != null) ] | unique) } ],
+        families: ( $rows | group_by(.family) | map({family: (.[0].family // "?"), calls: length,
+                    total: known(.total_tokens), cost_usd: known(.cost_usd)}) ),
+        api_usd: ([ $rows[] | select(.transport == "api") | .cost_usd | n ] | add // 0) }')"
+  if [[ $r_json -eq 1 ]]; then printf '%s\n' "$tbl"; exit 0; fi
+  jq -r '
+    def f: if . == null then "–" else tostring end;
+    "| Stage | Who | Transport | Calls | Wall s | In | Out | Total | Result |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    (.rows[] | "| \(.stage) | \(.who) | \(.transport | f) | \(.calls) | \(.wall_s | f) | \(.input | f) | \(.output | f) | \(.total | f) | \(.verdicts | join(", ")) |"),
+    "",
+    "Per family: " + ([ .families[] | "\(.family) \(.calls) calls, \(.total | f) tokens" ] | join(" · ")),
+    (if .api_usd > 0 then "api spend: $\(.api_usd) (the SDK'"'"'s estimate, not an invoice)" else empty end),
+    "Token totals are not subscription cost."' <<<"$tbl"
+  exit 0
+fi
 
 if [[ "${1:-}" == cost ]]; then
   shift; c_run="" c_tr=""
@@ -100,7 +142,13 @@ case "$cli" in
     usage="$(jq -c '{input_tokens, cached_input_tokens, cache_write_input_tokens, output_tokens,
                      reasoning_tokens: .reasoning_output_tokens}' <<<"$u")"
     status="$(if grep -q '"turn.failed"' "$out"; then echo failed; elif grep -q '"turn.completed"' "$out"; then echo completed; else echo incomplete; fi)"
-    denied=null; served=null; dur=null
+    denied=null; served=null
+    # Codex events carry no timestamps: wall time = launch (meta.json started_at, else the out
+    # file's birth time) to finish (the exit file's mtime, else the out file's last write).
+    t0="$(jq -r '.started_at // empty | fromdateiso8601? // empty' "$J/meta.json" 2>/dev/null || true)"
+    [[ -n "$t0" ]] || { t0="$(stat -c %W "$out" 2>/dev/null || echo 0)"; [[ "$t0" == 0 ]] && t0=""; }
+    t1="$(stat -c %Y "$J/exit" 2>/dev/null || stat -c %Y "$out" 2>/dev/null || true)"
+    dur=null; [[ -n "$t0" && -n "$t1" && "$t1" -ge "$t0" ]] && dur=$(( t1 - t0 ))
     # The served model is the thread's latest turn_context in its rollout (the effective-config source).
     if [[ -n "$sid" ]]; then
       ro="$(mae_codex_rollout "$sid")"

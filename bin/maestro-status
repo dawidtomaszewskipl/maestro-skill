@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# maestro-status — where the run in this checkout stands, in one call. Read-only, no lock needed.
+#
+#   maestro-status [--json]
+#
+# Reads .maestro/CHECKPOINT.md (run_id, task, stage, round, next_action, open decisions), every job
+# directory without an exit code plus every job whose exit is newer than the checkpoint
+# (`maestro-wait --peek`: state, idle_s), the ledger (calls, tokens, api USD) and the lock owner.
+# Prints one text line per part, or with --json one JSON object:
+#   {run_id, task, stage, round, next_action, decisions_open, jobs: [{job_id, state, idle_s}],
+#    ledger: {calls, total_tokens, api_usd}, lock: {run_id, host, generation}|null}
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+
+json=0
+[[ "${1:-}" == "--json" ]] && json=1
+SD="$(mae_state_dir)"
+CP="$SD/CHECKPOINT.md"
+
+fm() {  # a top-level scalar of the checkpoint's front matter
+  [[ -f "$CP" ]] || return 0
+  sed -n "s/^$1: *//p" "$CP" | head -1 | sed -E 's/[[:space:]]+#.*$//; s/^"(.*)"$/\1/'
+}
+open_dec=0   # decisions.current is the one open decision (docs/checkpoint.md)
+if [[ -f "$CP" ]] && sed -n '/^decisions:/,/^[^ ]/p' "$CP" | grep -qE '^  current: *[^n[:space:]#]'; then open_dec=1; fi
+
+jobs="[]"
+if [[ -d "$SD/jobs" ]]; then
+  jobs="$(for d in "$SD"/jobs/*/; do
+      [[ -d "$d" ]] || continue
+      j="$(basename "$d")"
+      if [[ ! -f "$d/exit" || ( -f "$CP" && "$d/exit" -nt "$CP" ) ]]; then
+        "$MAESTRO_BIN/maestro-wait" "$j" --peek 2>/dev/null | jq -c '{job_id, state, code, idle_s}' || true
+      fi
+    done | jq -sc .)"
+fi
+ledger='{"calls":0,"total_tokens":null,"api_usd":0}'
+run_id="$(fm run_id)"
+if [[ -f "$SD/ledger.jsonl" ]]; then
+  ledger="$(jq -sc --arg r "$run_id" '[ .[] | select($r == "" or .run_id == $r) ] as $rows
+    | {calls: ($rows | length),
+       total_tokens: ([ $rows[] | .total_tokens | select(type == "number") ] | if length == 0 then null else add end),
+       api_usd: ([ $rows[] | select(.transport == "api") | .cost_usd | select(type == "number") ] | add // 0)}' "$SD/ledger.jsonl")"
+fi
+lock="$(jq -c 'if . == {} then null else {run_id, host, generation} end' "$SD/lock" 2>/dev/null || echo null)"
+
+out="$(jq -cn --arg run "$run_id" --arg task "$(fm task)" --arg stage "$(fm stage)" --arg round "$(fm round)" \
+  --arg next "$(fm next_action)" --argjson dec "${open_dec:-0}" --argjson jobs "$jobs" --argjson ledger "$ledger" \
+  --argjson lock "$lock" '
+  def nn: if . == "" then null else . end;
+  {run_id: ($run | nn), task: ($task | nn), stage: ($stage | nn), round: ($round | nn | if . then tonumber? // . else null end),
+   next_action: ($next | nn), decisions_open: $dec, jobs: $jobs, ledger: $ledger, lock: $lock}')"
+if [[ $json -eq 1 ]]; then printf '%s\n' "$out"; exit 0; fi
+jq -r '
+  def f: if . == null then "–" else tostring end;
+  if .run_id == null and .lock == null and (.jobs | length) == 0 then "no maestro run in this checkout"
+  else
+    "run \(.run_id | f) · stage \(.stage | f) round \(.round | f) · \(.task | f)",
+    "next: \(.next_action | f)" + (if .decisions_open > 0 then " · \(.decisions_open) open decision(s)" else "" end),
+    (if (.jobs | length) == 0 then "jobs: none live"
+     else "jobs: " + ([ .jobs[] | "\(.job_id) \(.state)" + (if .idle_s then " idle \(.idle_s)s" else "" end) ] | join(" · ")) end),
+    "ledger: \(.ledger.calls) calls, \(.ledger.total_tokens | f) tokens" + (if .ledger.api_usd > 0 then ", api $\(.ledger.api_usd)" else "" end),
+    "lock: " + (if .lock then "\(.lock.run_id) (gen \(.lock.generation), \(.lock.host))" else "free" end)
+  end' <<<"$out"

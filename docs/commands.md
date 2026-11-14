@@ -21,7 +21,7 @@ Read this before the first external launch of a run. `SKILL.md` keeps the invari
   - **headless `claude -p`**: `"$MAESTRO/bin/maestro-run" --gen N --job <job> --run <run_id> --role
     <role> -- "$MAESTRO/bin/maestro-env" -- <line>`. maestro-run creates the job directory and owns
     stdout, stderr and stdin, so the line carries **no redirection of its own**. Then run
-    `"$MAESTRO/bin/maestro-wait" <job> --max 25` in a loop.
+    `"$MAESTRO/bin/maestro-wait" <job> --max 540` in a loop, each call with the Bash tool's `timeout: 600000`.
 
   The lines below are written without redirections.
 - **Every external worker runs through `maestro-env`.** It strips your host markers and the
@@ -346,7 +346,7 @@ field: the requested slug is recorded.
 - **Interactive Claude Code:** sample every 5 minutes, by a background `sleep 300` or a `Monitor`
   whose command prints one line per sample and exits when the PID dies. Never end the turn for it;
   re-arm the monitor on every expiry.
-- **Headless:** `maestro-wait <job> --max 25` in a loop. It persists `last_progress_at` in the job
+- **Headless:** `maestro-wait <job> --max 540` in a loop (Bash `timeout: 600000`). It persists `last_progress_at` in the job
   directory, so the hang clock survives calls and turns.
 
 Progress sources:

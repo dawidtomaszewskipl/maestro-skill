@@ -12,7 +12,8 @@
 #   lost       leader gone, no exit, no member left — terminated, outcome unknown
 #   uncertain  /proc, the leader or a member unreadable (the leader may still be alive: see
 #              leader_alive) — never counted as terminated; blocks like running while the leader lives
-# Blocks up to --max seconds (default $MAESTRO_WAIT_MAX or 25) while running; --peek never blocks
+# Blocks up to --max seconds (default $MAESTRO_WAIT_MAX or 100: the Bash tool's default cap is 120 s;
+# with `timeout: 600000` pass --max 540) while running; --peek never blocks
 # and never updates the progress record. --also FILE counts FILE's growth as progress too (agy's
 # CLI log). Progress = new bytes on stdout, or on stderr/--also with a last line different from
 # the previous one (a repeated identical error line is not progress).
@@ -21,7 +22,7 @@ set -euo pipefail
 
 SD="$(mae_state_dir)"
 job="${1:-}"; shift || true
-max="${MAESTRO_WAIT_MAX:-25}" peek=0 also=""
+max="${MAESTRO_WAIT_MAX:-100}" peek=0 also=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --max) max="$2"; shift 2 ;;
