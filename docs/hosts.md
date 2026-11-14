@@ -48,11 +48,11 @@ roles. An assignment that became illegal → ask (unattended: row 2).
 | --- | --- | --- |
 | Invoke the skill | `/maestro` | `/maestro --unattended …` in the prompt |
 | Claude worker | `Agent` tool with an explicit `model`, default `subagent_type` (`fork` ignores `model`); `claude -p` for a pinned native id | `claude -p` |
-| Long command | Bash `run_in_background: true`, then its completion notification | jobs (below): `maestro-run`, then `maestro-wait` |
+| Long command | a job (below): `maestro-run`, foreground, returns at once | the same |
+| Waiting for it | one Bash call with `run_in_background: true`: `maestro-wait <job> --until-done`; its completion notification wakes you | `maestro-wait <job> --max 540` in a foreground loop, each call with `timeout: 600000` (the default 100 fits the 120 s default cap) |
 | Foreground cap | 600 s, cut silently | the Bash tool's: 120 s by default, 600 s at most |
-| `maestro-wait --max` | — (harness) | 540, in a Bash call with `timeout: 600000` (default 100 fits the 120 s default cap) |
 | Ask the user | `AskUserQuestion`, only while no worker is running | nobody: `--unattended` only |
-| Progress sampling | every 5 min, a background `sleep 300` or `Monitor` | `maestro-wait` loop (`last_progress_at` persists) |
+| Progress sampling | every 5 min (a background `sleep 300` or `Monitor`): `maestro-wait <job> --peek` or `maestro-status` | the `maestro-wait` loop (`last_progress_at` persists) |
 
 A Bash permission prompt that is denied is a stop (unattended: row 2), never a hang.
 
@@ -86,10 +86,13 @@ Two checks stay yours:
   under `.maestro/evidence/`, and you read it back (measured: Claude Code and `claude -p` read a
   Playwright screenshot correctly, `docs/evidence.md`).
 
-## Jobs (headless `claude -p`)
+## Jobs
 
-An interactive Claude Code uses the Bash tool's background mode and its completion notification.
-Headless there is no notification that wakes the director, so maestro brings its own:
+Every external worker (`codex exec`, agy, `claude -p`, `maestro-sdk`) and every test run is a job,
+in both modes. Only the wait differs: an interactive director is woken by the completion
+notification of one background `maestro-wait --until-done`; a headless one has no notification, so
+it loops `maestro-wait` in the foreground. A Claude worker on the `Agent` tool (interactive,
+`native`) is not a job: the harness owns it.
 
 - `bin/maestro-run --gen N --job <id> --run <run_id> --role <role> [--kind test]
   [--test-cmd "<cmd>"]… [--test-runner <path>]… -- <command…>` launches the command in its own
@@ -101,8 +104,8 @@ Headless there is no notification that wakes the director, so maestro brings its
   spawn, then every second): pid, start time, **original** parent, process group, argv, cwd. A
   process that `setsid`s or is re-parented later stays a member. A process that was never a
   descendant is never a member, whatever its command line.
-- `bin/maestro-wait <id> [--max S] [--peek] [--also <file>]` prints `{state, code, elapsed,
-  last_progress_at, idle_s, progress_source, live_members, unowned}`:
+- `bin/maestro-wait <id> [--max S] [--peek | --until-done] [--also <file>]` prints `{state, code,
+  leader_alive, elapsed, last_progress_at, idle_s, progress_source, live_members, unowned}`:
 
   | state | meaning |
   | --- | --- |
@@ -120,6 +123,19 @@ Headless there is no notification that wakes the director, so maestro brings its
   processes in the job's directory whose **full command line** equals the job's recorded command or
   a recorded test command but that were never members. They are reported, never signalled; for a
   writer you do not integrate or relaunch until they are settled.
+- `bin/maestro-wait <id> --until-done [--max S] [--also <file>]` blocks, with no cap, until the
+  job needs you, and prints that one snapshot:
+
+  | state seen | `--until-done` |
+  | --- | --- |
+  | `running`; `uncertain` with `leader_alive: true` | keeps waiting |
+  | `exited`, `lost` | returns: terminated |
+  | `lingering`, `orphaned` | returns: nothing ends them but `maestro-kill`, so waiting would never end |
+  | `uncertain` without a live leader | returns: read the job's files and `--peek` again |
+
+  Exit 0 with the snapshot in every returning case. An explicit `--max S` caps the wait: still
+  waiting at the deadline → the snapshot and exit 3. It writes the progress record every 2 s, so
+  give it the job's `--also`; `--peek` beside it then shows a true `idle_s`.
 - `bin/maestro-kill <id> --gen N [--grace S]` stops a job **without ever signalling a test**, one
   step per call (call it again until `done` or `blocked`):
   - **Protected:** a test root and everything under it. A test root is a member whose recorded
@@ -149,7 +165,24 @@ Headless there is no notification that wakes the director, so maestro brings its
   alive, so `maestro-kill` never classifies an incomplete live set.
 
 **Never end your turn while a job is `running`, `lingering`, `orphaned`, or `uncertain` with
-`leader_alive: true`.** Loop `maestro-wait --max 540` (Bash `timeout: 600000`), sample progress, and ask nothing meanwhile.
+`leader_alive: true`**, and ask nothing meanwhile.
+
+- **Interactive:** every such job has one background `maestro-wait <job> --until-done` task. That
+  task is the only thing that wakes you: a job without one (the task was stopped, the turn was
+  interrupted, a `--resume` adopted the job) gets it re-armed before anything else. When it
+  returns:
+  - `exited`/`lost` → read the job;
+  - `lingering`/`orphaned` → act in the same turn (`--peek`, then `maestro-kill`); re-arming
+    would return at once;
+  - `uncertain` → `--peek` again; with a live leader re-arm, otherwise `maestro-kill` answers
+    `blocked`;
+  - exit 3 (you passed `--max`) → still running: re-arm.
+- **Headless:** loop `maestro-wait --max 540` (Bash `timeout: 600000`) and sample progress.
+
+`maestro-run` is the one sanctioned detach. The director's own commands never use `&`, `nohup`,
+`setsid` or `disown`: a process detached by hand has no task, so nothing would wake you
+(`docs/troubleshooting.md`).
+
 A hang is no progress for max(15 min, 2 × T_slow): read the job's files, then `maestro-kill`.
 A test never counts as hung.
 
@@ -162,7 +195,15 @@ A later `--resume` of the same run reconciles: members gone → dirty-exit and c
 `blocked` again. It is a state to clear, not a decision, and the same under `--unattended`.
 
 A `maestro-run` job survives separate director commands and the end of the director's session
-(measured, `docs/evidence.md`), which is what `--resume` relies on.
+(measured, `docs/evidence.md`), which is what `--resume` relies on. The job belongs to the
+wrapper's own session and process group, not to a Bash task: stopping the background
+`--until-done` task stops only the waiter (measured 2026-11-14 in a Claude Code session:
+`maestro-run … -- sleep 45`, the waiter stopped with `TaskStop`, `--peek` still `running`,
+`maestro-kill` → `done`). So when the user interrupts the director, the job keeps running:
+
+- back in the same session → `--peek`, then re-arm `--until-done` or `maestro-kill`;
+- session gone → `--resume` adopts the job;
+- to stop a job, always `maestro-kill`, never the harness task.
 
 ## Lock
 

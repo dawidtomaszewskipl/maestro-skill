@@ -13,17 +13,32 @@ Read this before the first external launch of a run. `SKILL.md` keeps the invari
   stderr, and Codex's `-o` answer. The read-only fingerprint treats every other file under
   `.maestro/` as a protected input, so an answer written next to the plan would look like a critic
   editing the run's state.
-- **How a line is run depends on the mode** (`docs/hosts.md`, "Adapters"):
-  - **interactive Claude Code**: create the job directory (`mkdir -p .maestro/jobs/<job>`) and run
-    `"$MAESTRO/bin/maestro-env" -- <line> < /dev/null > .maestro/jobs/<job>/out 2>
-    .maestro/jobs/<job>/err` with the Bash tool's `run_in_background: true`. Never use `&`,
-    `nohup`, `setsid` or `disown`.
-  - **headless `claude -p`**: `"$MAESTRO/bin/maestro-run" --gen N --job <job> --run <run_id> --role
-    <role> -- "$MAESTRO/bin/maestro-env" -- <line>`. maestro-run creates the job directory and owns
-    stdout, stderr and stdin, so the line carries **no redirection of its own**. Then run
-    `"$MAESTRO/bin/maestro-wait" <job> --max 540` in a loop, each call with the Bash tool's `timeout: 600000`.
+- **Every line is launched as a job, in both modes** (`docs/hosts.md`, "Jobs"), in the foreground:
 
-  The lines below are written without redirections.
+  ```bash
+  "$MAESTRO/bin/maestro-run" --gen N --job <job> --run <run_id> --role <role> -- "$MAESTRO/bin/maestro-env" -- <line>
+  ```
+
+  maestro-run creates the job directory, owns stdout, stderr and stdin (the line carries **no
+  redirection of its own**), prints the job JSON and returns at once. Test runs go the same way,
+  with `--kind test` and without `maestro-env`. Then wait:
+  - **interactive Claude Code**: one Bash call with `run_in_background: true`:
+
+    ```bash
+    "$MAESTRO/bin/maestro-wait" <job> --until-done
+    ```
+
+    (agy: add `--also "$J/agy.log"`). Its completion notification wakes you, and its one output
+    line is the snapshot: `exited`/`lost` → read the job; `lingering`/`orphaned` → `maestro-kill`
+    in the same turn; `uncertain` → `--peek` again.
+  - **headless `claude -p`**: a foreground loop, each call with the Bash tool's `timeout: 600000`:
+
+    ```bash
+    "$MAESTRO/bin/maestro-wait" <job> --max 540
+    ```
+
+  maestro-run is the only detach: never `&`, `nohup`, `setsid` or `disown` in a command of your
+  own. The lines below are written without redirections.
 - **Every external worker runs through `maestro-env`.** It strips your host markers and the
   variables that inject plugins, hooks, an API key or a different effort into a child CLI.
 - **Codex config mode.** Every Codex line, exec and resume, carries either `--ignore-user-config`
@@ -362,9 +377,10 @@ field: the requested slug is recorded.
 
 ## Progress sampling
 
-- **Interactive Claude Code:** sample every 5 minutes, by a background `sleep 300` or a `Monitor`
-  whose command prints one line per sample and exits when the PID dies. Never end the turn for it;
-  re-arm the monitor on every expiry.
+- **Interactive Claude Code:** the background `maestro-wait <job> --until-done` keeps
+  `last_progress_at` current. Sample every 5 minutes, woken by a background `sleep 300` or a
+  `Monitor`, with `maestro-wait <job> --peek` (`idle_s`; agy: the same `--also` as the waiter) or
+  `maestro-status`. Never end the turn for it; re-arm the sampler on every expiry.
 - **Headless:** `maestro-wait <job> --max 540` in a loop (Bash `timeout: 600000`). It persists `last_progress_at` in the job
   directory, so the hang clock survives calls and turns.
 
@@ -377,5 +393,5 @@ Silence is a hang only after `max(15 min, 2 × T_slow)`, and never for a test ru
 read the job's files. Codex's stderr prints `Reading additional input from stdin...` even on healthy
 runs; the hang signal is that line **with no `thread.started` event**.
 
-Kill with `maestro-kill` (it spares tests and signals members one by one) or, in an interactive
-Claude Code, by the harness task or PID. Never `pkill -f`.
+Kill with `maestro-kill` (it spares tests and signals members one by one), in both modes. Stopping
+the harness task of `--until-done` stops only the waiter, never the job. Never `pkill -f`.

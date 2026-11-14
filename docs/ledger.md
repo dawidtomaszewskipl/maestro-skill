@@ -25,9 +25,9 @@
 `cli` is one of `codex`, `agy`, `claude-cli` (`claude -p`), `claude-sdk` (`maestro-sdk`),
 `claude-agent` (the Agent tool); `transport` the slot's transport (`native`, `agy`, `codex`, `api`);
 `host` the director's host (`claude-code`); `job_id` the maestro job (null for an Agent-tool call). `run_id` and `host` come
-from the job's `meta.json`; an interactive Claude Code launches with the Bash tool's background mode,
-so its job directories have none, and `maestro-ledger` takes both from the lock record (or from
-its run and host options). Missing → `null`, never
+from the job's `meta.json`, which every job has in both modes (interactive launches go through
+`maestro-run` too). Only a job directory without one falls back to the run and host options,
+then to the lock record. Missing → `null`, never
 estimated. `codex exec review` (a manual extra, not the cross reviewer)
 reports zero usage, so its token fields are `null`.
 
