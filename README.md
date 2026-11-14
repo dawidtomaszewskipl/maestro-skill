@@ -156,7 +156,7 @@ maestro can run its Claude workers on it once the subscription's 5-hour or weekl
 5. `~/.claude/skills/maestro/bin/maestro-sdk --check` should say `"available": true`.
 
 Then `/maestro --sdk <task>` runs every Claude worker through the SDK on that key. With
-`api: {fallback: true}` in `~/.config/maestro/policy.yml`, maestro also switches to it on its own
+`api.fallback = true` in `~/.config/maestro/policy.toml`, maestro also switches to it on its own
 when the limit runs out mid-run. `api.max_usd_per_run` (default $20) caps a run. The report shows
 what the run spent.
 
@@ -166,11 +166,11 @@ does not draw on the credit.
 
 ## Standing preferences
 
-Put them in `maestro.policy.yml` in a repository (for the team) or in
-`~/.config/maestro/policy.yml` (for you): never pick a slot (`deny: [fable]`), never use a road
-(`transports: {deny: [opus@agy]}`), pin a version (`pin: {sol: "6.1"}`), switch a family off
-(`families: {google: off}`), set the effort per stage. Flags beat the repository file, which beats
-your own. [Annotated example](docs/examples/maestro.policy.yml).
+Put them in `maestro.policy.toml` in a repository (for the team) or in
+`~/.config/maestro/policy.toml` (for you): never pick a slot (`deny = ["fable"]`), never use a road
+(`transports.deny = ["opus@agy"]`), pin a version (`pin.sol = "6.1"`), switch a family off
+(`families.google = "off"`), set the effort per stage. Flags beat the repository file, which beats
+your own. [Annotated example](docs/examples/maestro.policy.toml).
 
 ## Safety defaults
 
@@ -186,7 +186,7 @@ has read the diff and run the tests itself.
 - **Argon** has not been measured as a builder yet, and **Gemini 4 Hydrogen** is new: Google has
   not announced it, and the ledger has no runs of it yet.
 - **Fable and Haiku** have no second subscription road: when their native limit runs out, only
-  the API credit (`--sdk` or `api: {fallback: true}`) keeps them going.
+  the API credit (`--sdk` or `api.fallback = true`) keeps them going.
 - **The API credit** is visible only in the Console; the dollar figure in the ledger is the SDK's
   estimate, not an invoice.
 

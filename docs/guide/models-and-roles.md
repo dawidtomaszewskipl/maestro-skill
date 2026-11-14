@@ -60,7 +60,7 @@ denial and does not step down. A passed probe is remembered for seven days, a de
 and only for this repository and this CLI version. The resolved ids are frozen in the checkpoint:
 a fix round never silently moves to a model that appeared mid-run.
 
-A policy file can **pin** a version (`pin: {sol: "6.1"}`) or an exact slug when you need to stay
+A policy file can **pin** a version (`pin.sol = "6.1"`) or an exact slug when you need to stay
 put.
 
 ## Transports: more than one road to a model
