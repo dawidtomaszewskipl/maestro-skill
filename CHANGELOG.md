@@ -62,6 +62,12 @@ checks became helpers.** Breaking: read "Migration" before upgrading.
 - `maestro-state adopt` refuses unless `maestro-host` reports an interactive Claude Code (headless
   `claude -p`, or another agent CLI): no user there could have inspected the file. An interactive
   Claude Code running `--unattended` cannot be told apart and stays the director's rule.
+- Interactive check: an Agent-tool Sonnet builder, an agy Argon critic with `--json-schema`, the
+  `claude-agent` ledger row and a fenced commit (`docs/evidence.md`). The Agent tool's completion
+  names no model, so `maestro-ledger --cli claude-agent --served` is optional (null when absent).
+- `maestro-lock` refuses unknown options; `maestro-preflight` does not count an untracked project
+  install of the skill (`.claude/skills/maestro/`) as a dirty tree; `tests/run.sh` prints the time
+  of each group.
 - Live canary (`tests/canary/build-interrupt-resume.sh`, headless Sonnet director, `--critic=sol`):
   the first run stopped correctly at the critique cap (`needs-decision`, row 3); resumed with the
   build option, the director was killed while the build job ran, and `--resume --unattended`

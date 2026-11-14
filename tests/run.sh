@@ -23,7 +23,9 @@ jqt()  { if jq -e "$3" >/dev/null 2>&1 <<<"$2"; then ok "$1"; else bad "$1" "$(h
 
 want() { [[ ${#SELECT[@]} -eq 0 || " ${SELECT[*]} " == *" $1 "* ]]; }
 SELECT=("$@")
-group() { want "$1" || return 1; printf '\n%s — %s\n' "$1" "$2"; }
+_gstart=0 _gname=""
+_gtime() { [[ -n "$_gname" ]] && printf '  (%s: %d s)\n' "$_gname" $((SECONDS - _gstart)); return 0; }
+group() { want "$1" || return 1; _gtime; _gname="$1" _gstart=$SECONDS; printf '\n%s — %s\n' "$1" "$2"; }
 
 new_repo() {  # a scratch git repo with one commit; prints its path
   local d; d="$(mktemp -d "$WORK/repo.XXXXXX")"
@@ -558,6 +560,8 @@ if group T8 "lock"; then
   fo="$(L acquire --run ra --token tra --host test --pid "$own" --starttime "$(st_of "$own")" | jq -r .fence)"
   "$B/maestro-run" --gen "$fo" --job ra.build.r1.a1 --run ra --role build -- sleep 30 >/dev/null; sleep 1
   kill "$own"; wait "$own" 2>/dev/null
+  out="$(L acquire --run x --tokn t --host h 2>&1; echo "rc=$?")"
+  if [[ "$out" == *"unknown option --tokn"* && "$out" == *rc=2* ]]; then ok "lock: an unknown option is refused"; else bad "lock: an unknown option is refused" "$out"; fi
   jqt "resume of a stale owner adopts its running job" "$(L acquire --run ra --token tra --host test --resume)" \
     '.result == "acquired" and (.adopted_jobs | index("ra.build.r1.a1") != null)'
   fr="$(L show | jq -r .generation)"; : "$fr"
@@ -696,12 +700,15 @@ if group T10 "ledger rows from job output"; then
   jqt "no meta.json (interactive Claude Code job): run and host from the lock" "$row" '.run_id == "r" and .host == "test"'
   row="$("$B/maestro-ledger" --dry-run --cli claude-agent --stage build --round 1 --transport native --family claude \
           --model opus --served claude-opus-5-5 --agent-id ac8f --total-tokens 327499 --tool-uses 94 --duration-ms 1521500)"
+  jqt "Agent-tool row without a served model (the completion names none) → null" \
+    "$("$B/maestro-ledger" --dry-run --cli claude-agent --stage build --transport native --family claude --model sonnet --agent-id a1 --total-tokens 40180 --tool-uses 3 --duration-ms 7319)" \
+    '.model_served == null and .total_tokens == 40180 and .duration_s == 7.319'
   jqt "Agent-tool row: no job, harness totals, served model, run and host from the lock" "$row" \
     '.cli == "claude-agent" and .job_id == null and .total_tokens == 327499 and .input_tokens == null and .tool_uses == 94
      and .duration_s == 1521.5 and .model_served == "claude-opus-5-5" and .session_id == "ac8f" and .status == "success"
      and .run_id == "r" and .host == "test" and .round == 1'
   out="$("$B/maestro-ledger" --dry-run --cli claude-agent --stage build --model opus --served x --agent-id a 2>&1; echo "rc=$?")"
-  if [[ "$out" == *"needs --served, --agent-id and --total-tokens"* && "$out" == *"rc=2"* ]]; then ok "Agent-tool row without its numbers refused"; else bad "Agent-tool row without its numbers refused" "$out"; fi
+  if [[ "$out" == *"needs --agent-id and --total-tokens"* && "$out" == *"rc=2"* ]]; then ok "Agent-tool row without its numbers refused"; else bad "Agent-tool row without its numbers refused" "$out"; fi
   jqt "Agent-tool row appends through maestro-state" "$("$B/maestro-ledger" --gen "$g" --cli claude-agent --stage build --transport native --family claude --model sonnet --served claude-sonnet-5-5 --agent-id ace4 --total-tokens 114960)" '.result == "written"'
   jqt "… --run/--host override the lock" \
     "$("$B/maestro-ledger" --dry-run --job j2 --stage build --cli codex --transport codex --family openai --model m --run r9 --host claude-code)" \
@@ -927,6 +934,9 @@ SH
   jqt "preflight: a dirty tree is a stop" "$out" '.tree.clean == false and (.stops | any(test("not clean")))'
   jqt "preflight: project default_permissions is a warning" "$out" '.warnings | any(test("default_permissions"))'
   jqt "preflight: --resume reports a dirty tree without a stop" "$(pf --resume)" '.tree.clean == false and .stops == []'
+  rm -rf .codex; mkdir -p .claude/skills/maestro; : > .claude/skills/maestro/SKILL.md
+  jqt "preflight: an untracked project install of the skill is not a dirty tree" "$(pf)" '.tree.clean == true and .stops == []'
+  rm -r .claude
   rm -rf .codex
   eq "preflight: no probe residue (refs, index files, state files)" "0 0 0" "$(git for-each-ref refs/maestro | wc -l) $(find "$(git rev-parse --absolute-git-dir)" -maxdepth 1 -name 'maestro-probe-*' | wc -l) $(find .maestro -maxdepth 1 -name 'probe-*' | wc -l)"
   UB="$WORK/unborn"; mkdir -p "$UB"; git -C "$UB" init -q -b main
@@ -979,5 +989,6 @@ if group T15 "flags"; then
   jqt "every slot of slots.json parses as --model" "$(for x in $(jq -r 'del(._comment) | keys[]' "$B/slots.json"); do fl --model="$x" t | jq -c .errors; done | jq -sc 'add')" '. == []'
 fi
 
+_gtime
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 if (( fail > 0 )); then printf '  %s\n' "${failed[@]}"; exit 1; fi

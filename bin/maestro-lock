@@ -44,7 +44,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --) shift; rest=("$@"); break ;;
     --resume) opt[resume]=1; shift ;;
-    --*) k="${1#--}"; opt[${k//-/_}]="${2:-}"; shift 2 ;;
+    --run|--token|--host|--session|--pid|--starttime|--fence|--gen)
+      [[ $# -ge 2 ]] || mae_die "maestro-lock: $1 needs a value"
+      k="${1#--}"; opt[$k]="$2"; shift 2 ;;
+    --*) mae_die "maestro-lock: unknown option $1" ;;
     *) rest+=("$1"); shift ;;
   esac
 done

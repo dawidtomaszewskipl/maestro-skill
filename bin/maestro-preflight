@@ -56,7 +56,9 @@ s() { stops+=("$1"); }
 # --- step 2: workspace -----------------------------------------------------------------------
 mae_fenced "$gen" __workspace "$SD" "$(git rev-parse --git-path info/exclude)" \
   || { jq -cn '{stops: ["the fence refused the workspace setup: superseded — stop at once"]}'; exit 4; }
-dirty="$(git status --porcelain=v1 --untracked-files=all | grep -v ' \.maestro/' || true)"
+# The run's own state and an untracked project install of this skill (install.sh <project>) are not
+# the user's changes.
+dirty="$(git status --porcelain=v1 --untracked-files=all | grep -vE '^.. \.maestro/|^\?\? \.claude/skills/maestro/' || true)"
 clean=true; [[ -z "$dirty" ]] || clean=false
 if [[ "$clean" == false && "$resume" == false ]]; then
   s "the working tree is not clean: commit or stash first (maestro needs a clean tree to start)"

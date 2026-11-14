@@ -98,3 +98,10 @@ On Claude Code 2.1.325, Codex 0.169.0 and agy 1.5.9:
 - Live `maestro-catalog refresh`: codex sol 6.1/6/5.6, astra 6, luna 6/5.6, terra 6.1/5.6; agy argon 4,
   gemini 4 (Hydrogen) and 3.8 (Flash), opus 5.5, sonnet 5.5; `pick gemini agy --effort xhigh` →
   `gemini-4-hydrogen-xhigh`. `maestro-preflight` ran in about 2 s.
+- Interactive Claude Code (this session): `maestro-host` → `claude-code`, `interactive: true`. A
+  Sonnet builder through the `Agent` tool (explicit `model: sonnet`) stayed inside its two files;
+  the director's own test run passed; `maestro-ledger --cli claude-agent` wrote the row and the
+  commit went through `maestro-lock exec`. The completion reported tokens (40 180), tool uses (3)
+  and duration, but **no model**: `--served` is optional since, and `model_served` is `null`.
+- agy Argon critic with `--json-schema` (`gemini-4-argon-medium`, plan mode, brief by paths):
+  `SUCCESS`, `structured_output` passed `maestro-validate --envelope agy` (verdict approve).

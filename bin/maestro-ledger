@@ -6,7 +6,7 @@
 #                 [--effort E] [--round R] [--outcome TEXT] [--verdict V]
 #                 [--effective-config JSON|TEXT] [--service-tier TIER] [--run ID] [--host H] [--dry-run]
 #   maestro-ledger --gen N --cli claude-agent --stage <stage> --transport native --family claude
-#                 --model <alias> --served <model id> --agent-id <id> --total-tokens N
+#                 --model <alias> [--served <model id>] --agent-id <id> --total-tokens N
 #                 [--tool-uses N] [--duration-ms N] [--status success|error] [other options as above]
 #       An Agent-tool call (interactive Claude Code) has no job: its numbers come from the
 #       subagent's completion (total tokens, tool uses, duration — the harness reports no split
@@ -83,8 +83,8 @@ num() { [[ -z "$2" || "$2" =~ ^[0-9]+$ ]] || mae_die "maestro-ledger: $1 must be
 num --total-tokens "$total_opt"; num --tool-uses "$tool_uses"; num --duration-ms "$dur_ms"
 if [[ "$cli" == claude-agent ]]; then
   [[ -z "$job" ]] || mae_die "maestro-ledger: an Agent-tool call has no job (drop --job)"
-  [[ -n "$served_opt" && -n "$agent_id" && -n "$total_opt" ]] \
-    || mae_die "maestro-ledger --cli claude-agent needs --served, --agent-id and --total-tokens (from the completion)"
+  [[ -n "$agent_id" && -n "$total_opt" ]] \
+    || mae_die "maestro-ledger --cli claude-agent needs --agent-id and --total-tokens (from the completion); --served when it names the model"
   J="$SD/jobs/.none"; out=/dev/null
 else
   [[ -n "$job" ]] || mae_die "maestro-ledger needs --job"
@@ -129,7 +129,7 @@ case "$cli" in
     sid="$agent_id"
     usage="$(jq -cn --argjson t "$total_opt" '{input_tokens: null, cached_input_tokens: null,
                      cache_write_input_tokens: null, output_tokens: null, reasoning_tokens: null, total_tokens: $t}')"
-    served="$(jq -cn --arg m "$served_opt" '$m')"
+    served="$(if [[ -n "$served_opt" ]]; then jq -cn --arg m "$served_opt" '$m'; else echo null; fi)"
     status="${status_opt:-success}"; denied=null
     dur="$(if [[ -n "$dur_ms" ]]; then jq -n --argjson d "$dur_ms" '$d / 1000'; else echo null; fi)" ;;
   *) mae_die "maestro-ledger: --cli is codex, agy, claude-cli, claude-sdk or claude-agent" ;;

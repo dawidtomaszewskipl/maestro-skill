@@ -338,7 +338,7 @@ Expected values per role (`--root` = the checkout, or the worktree of a parallel
 - If Codex moves rollouts into its history database (`codex migrate-rollouts`, off by default),
   this check finds no file and says `MISSING`: see `docs/troubleshooting.md`.
 
-**The Agent tool**: the completion's model against the frozen id. **agy** has no served-model
+**The Agent tool**: the completion's model against the frozen id when the completion names it (Claude Code 2.1.325's completion reports tokens, tool uses and duration only — measured 2026-11-14 — so the identity rests on the explicit `model`; ledger `model_served` is `null`). **agy** has no served-model
 field: the requested slug is recorded.
 
 ## Progress sampling

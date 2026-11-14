@@ -332,7 +332,9 @@ has the exact lines. The invariants:
   `claude -p` and `api` — `maestro-identity claude <out> …` on the `init` event
   (tools, MCP servers, plugins and `plugin_errors`, permission mode, model,
   `apiKeySource`); the Agent tool — the completion's model against the frozen
-  id; agy — no served-model field, the requested slug is recorded. Anything but
+  id when the completion names one (Claude Code 2.1.325 reports only tokens, tool uses and
+  duration: the identity rests on the explicit `model`, and the report says "served: not
+  reported"); agy — no served-model field, the requested slug is recorded. Anything but
   `OK` stops the worker; a writer's output goes through the dirty-exit protocol.
 - **Read-only roles leave no trace.** Around every external critic, gate or
   reviewer call: `maestro-fp snapshot` / `compare`; a change in the checkout or
@@ -543,8 +545,8 @@ its output with `"$MAESTRO/bin/maestro-ledger" --gen N --job <job> --stage
 --model <requested> [--effort …] [--outcome …] [--verdict …]` — it reads tokens,
 duration, session id and served model from the job's own output. An Agent-tool
 call has no job: `maestro-ledger --gen N --cli claude-agent --stage …
---transport native --family claude --model <alias> --served <completion's
-model> --agent-id <id> --total-tokens N --tool-uses N --duration-ms N`
+--transport native --family claude --model <alias> [--served <completion's
+model>] --agent-id <id> --total-tokens N --tool-uses N --duration-ms N`
 (`docs/ledger.md`, including the `transport-switch` outcome). An `api` row
 carries `cost_usd` (the SDK's estimate, not an invoice); the report shows the
 run's `api` spend next to the token table. Never write a ledger row by hand;
