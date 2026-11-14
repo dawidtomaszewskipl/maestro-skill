@@ -193,18 +193,38 @@ if group T4 "jobs"; then
   gen="$(L acquire --run r --token t --host test | jq -r .fence)"
   run() { "$B/maestro-run" --gen "$gen" --run r --role build "$@"; }
   st() { "$B/maestro-wait" "$1" --peek; }
+  # ud <job> [options…]: maestro-wait --until-done → $ud_out, $ud_rc, $ud_s (seconds it took).
+  ud() { local t0; t0="$(date +%s)"; ud_rc=0; ud_out="$("$B/maestro-wait" "$1" --until-done "${@:2}")" || ud_rc=$?; ud_s=$(( $(date +%s) - t0 )); }
   run --job j0 -- bash -c 'exit 0' >/dev/null; sleep 1.5
   jqt "exit 0 → exited 0" "$("$B/maestro-wait" j0 --max 10)" '.state == "exited" and .code == "0"'
+  jqt "meta.json: run, host from the lock record, no empty strings" "$(cat .maestro/jobs/j0/meta.json)" \
+    '.run_id == "r" and .host == "test" and .session_key == null'
+  jqt "… and the ledger row takes run and host from it" \
+    "$("$B/maestro-ledger" --dry-run --job j0 --stage build --cli codex --transport codex --family openai --model m)" \
+    '.run_id == "r" and .host == "test" and .exit_code == "0"'
   run --job j1 -- bash -c 'exit 3' >/dev/null
   jqt "non-zero → exited 3" "$("$B/maestro-wait" j1 --max 10)" '.state == "exited" and .code == "3"'
+  # --until-done: no cap of its own (MAESTRO_WAIT_MAX does not apply), the final state, exit 0.
+  run --job ju0 -- bash -c 'sleep 4; exit 7' >/dev/null
+  MAESTRO_WAIT_MAX=0 ud ju0
+  jqt "--until-done: an exiting job → its final state" "$ud_out" '.state == "exited" and .code == "7"'
+  eq "… exit 0, one line, after the job ended (MAESTRO_WAIT_MAX ignored)" "0 1 1" "$ud_rc $(wc -l <<<"$ud_out") $(( ud_s >= 3 ))"
+  out="$("$B/maestro-wait" ju0 --until-done --peek 2>&1)" && rc=0 || rc=$?
+  eq "--until-done with --peek is refused" 2 "$rc"
   run --job j2 -- no-such-command-xyz >/dev/null
   jqt "launch failure" "$(st j2)" '.state == "exited" and .code == "launch-failed"'
   out="$(run --job j1 -- true 2>&1)"; eq "duplicate job id refused" 1 "$(grep -c 'never reused' <<<"$out")"
   printf '#!/bin/bash\n(sleep 90 &)\nexit 0\n' > "$REPO/linger.sh"; chmod +x "$REPO/linger.sh"
   run --job j3 -- ./linger.sh >/dev/null; sleep 3
   jqt "exit 0 with a surviving descendant → lingering" "$(st j3)" '.state == "lingering" and (.live_members | length) == 1'
+  ud j3
+  jqt "--until-done returns on lingering (only maestro-kill ends it)" "$ud_out" '.state == "lingering"'
+  eq "… exit 0, at once" "0 1" "$ud_rc $(( ud_s < 5 ))"
   run --job j4 -- bash -c 'sleep 30' >/dev/null; sleep 1.5
   jqt "running" "$(st j4)" '.state == "running"'
+  ud j4 --max 3
+  jqt "--until-done keeps waiting while running" "$ud_out" '.state == "running"'
+  eq "… for the whole --max, then exit 3 (no final state)" "3 1" "$ud_rc $(( ud_s >= 3 ))"
   pid4="$(jq -r .pid .maestro/jobs/j4/meta.json)"; kill -9 "$pid4"; sleep 2.5
   jqt "leader killed by a signal → exited signal:9" "$(st j4)" '.state == "exited" and .code == "signal:9"'
   # Orphaned: the wrapper and the leader die, a member survives.
@@ -213,6 +233,9 @@ if group T4 "jobs"; then
   w5="$(jq -r .wrapper_pid .maestro/jobs/j5/meta.json)"; p5="$(jq -r .pid .maestro/jobs/j5/meta.json)"
   kill -9 "$w5" "$p5"; sleep 1
   jqt "leader and wrapper gone, member alive → orphaned" "$(st j5)" '.state == "orphaned"'
+  ud j5
+  jqt "--until-done returns on orphaned" "$ud_out" '.state == "orphaned"'
+  eq "… exit 0, at once" "0 1" "$ud_rc $(( ud_s < 5 ))"
   # Kill: lingering member is terminated; result done.
   r1="$("$B/maestro-kill" j3 --gen "$gen" --grace 1)"; sleep 1.5
   r2="$("$B/maestro-kill" j3 --gen "$gen" --grace 1)"
@@ -323,6 +346,9 @@ if group T4 "jobs"; then
     "$(MAESTRO_PROC="$WORK/noproc" "$B/maestro-kill" j10 --gen "$gen")" '.result == "blocked"'
   # Unreadable /proc → uncertain.
   jqt "unreadable /proc → uncertain" "$(MAESTRO_PROC="$WORK/noproc" "$B/maestro-wait" j10 --peek)" '.state == "uncertain"'
+  MAESTRO_PROC="$WORK/noproc" ud j10
+  jqt "--until-done returns on uncertain without a live leader" "$ud_out" '.state == "uncertain" and (.leader_alive // false) == false'
+  eq "… exit 0, at once" "0 1" "$ud_rc $(( ud_s < 5 ))"
   # A live leader does not outrank an unreadable member. Fake /proc with pids above pid_max (no
   # real process can be signalled): leader L alive, recorded member L+1 alive, and a recovered
   # process L+2 in the job's group whose stat was readable during the group scan but is not when
@@ -345,6 +371,9 @@ if group T4 "jobs"; then
   t0="$(date +%s)"; o18="$(MAESTRO_PROC="$UP" "$B/maestro-wait" j18 --max 3)"
   jqt "… maestro-wait keeps blocking while the leader lives" "$o18" '.state == "uncertain"'
   if (( $(date +%s) - t0 >= 3 )); then ok "… for the whole --max"; else bad "… for the whole --max" "returned after $(( $(date +%s) - t0 )) s"; fi
+  MAESTRO_PROC="$UP" ud j18 --max 3
+  jqt "--until-done keeps waiting on uncertain with a live leader" "$ud_out" '.state == "uncertain" and .leader_alive == true'
+  eq "… for the whole --max, then exit 3" "3 1" "$ud_rc $(( ud_s >= 3 ))"
   jqt "… maestro-kill → blocked, nothing signalled" \
     "$(MAESTRO_PROC="$UP" "$B/maestro-kill" j18 --gen "$gen" --grace 1)" '.result == "blocked"'
   if [[ -e .maestro/jobs/j18/kill.state ]]; then bad "… kill.state unchanged" "$(cat .maestro/jobs/j18/kill.state)"; else ok "… kill.state unchanged"; fi

@@ -153,14 +153,21 @@ if [[ "${1:-}" == "__locked" ]]; then
     pid="$(cat "$J/leader.pid")"; st="$(mae_pid_starttime "$pid")"; pgid="$(mae_pid_pgid "$pid")"
     largv="$(mae_pid_cmdline "$pid")"
   fi
+  # host and session_key: the environment, else the lock record (this step runs inside the fence,
+  # so the record is the launching director's); never "" — maestro-ledger reads meta.json first.
+  lhost=""; lskey=""
+  if [[ -f "$SD/lock" ]]; then
+    IFS=$'\x1f' read -r lhost lskey < <(jq -r '[(.host // ""), (.session_key // "")] | join("\u001f")' "$SD/lock" 2>/dev/null || true) || true
+  fi
   jq -n --arg job "$job" --arg run "$run" --arg role "$role" --arg kind "$kind" --arg cwd "$cwd" \
-    --arg at "$(mae_now)" --arg host "${MAESTRO_HOST:-}" --arg skey "${MAESTRO_SESSION_KEY:-}" \
+    --arg at "$(mae_now)" --arg host "${MAESTRO_HOST:-$lhost}" --arg skey "${MAESTRO_SESSION_KEY:-$lskey}" \
     --arg pid "$pid" --arg pgid "$pgid" --arg st "$st" --arg largv "$largv" \
     --arg wpid "$(cat "$J/wrapper.pid" 2>/dev/null || true)" \
     --argjson t "$(json_list "${tests[@]+"${tests[@]}"}")" \
     --argjson r "$(json_list "${runners[@]+"${runners[@]}"}")" \
     --args '{job_id: $job, run_id: $run, role: $role, kind: $kind, cwd: $cwd, started_at: $at,
-             host: $host, session_key: $skey, cmd: $ARGS.positional, test_cmds: $t, test_runners: $r,
+             host: (if $host == "" then null else $host end),
+             session_key: (if $skey == "" then null else $skey end), cmd: $ARGS.positional, test_cmds: $t, test_runners: $r,
              pid: ($pid|tonumber? // null), pgid: ($pgid|tonumber? // null),
              pid_starttime: (if $st == "" then null else $st end),
              leader_argv: (if $largv == "" then null else $largv end),

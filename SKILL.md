@@ -313,11 +313,14 @@ ledger, lock) — for the user coming back, or for you after a compaction.
 has the exact lines. The invariants:
 
 - **Every external model turn and every test run is a job you wait for
-  without ending your turn.** Interactive: the Bash tool's `run_in_background:
-  true` (never `&`, `nohup`, `setsid`, `disown`). Headless:
-  `"$MAESTRO/bin/maestro-run" --gen N --job <run_id>.<role>.r<round>.a<attempt>
-  --run <run_id> --role <role> [--test-cmd …] -- "$MAESTRO/bin/maestro-env" --
-  <line>` (it owns the redirection), then `maestro-wait <job>` in a loop.
+  without ending your turn**, in both modes: `"$MAESTRO/bin/maestro-run" --gen
+  N --job <run_id>.<role>.r<round>.a<attempt> --run <run_id> --role <role>
+  [--test-cmd …] -- "$MAESTRO/bin/maestro-env" -- <line>` in the foreground (it
+  owns the redirection and returns at once). Then wait — interactive: one Bash
+  call with `run_in_background: true`, `"$MAESTRO/bin/maestro-wait" <job>
+  --until-done` (its notification wakes you; `lingering`/`orphaned` →
+  `maestro-kill` in the same turn); headless: `maestro-wait <job> --max 540`
+  in a loop. Never `&`, `nohup`, `setsid`, `disown` of your own.
   **Never end your turn while a job is `running`, `lingering`, `orphaned`, or
   `uncertain` with `leader_alive: true`**; ask nothing meanwhile. The one
   exception is `blocked`: report it and stop with the lock kept.
@@ -496,11 +499,11 @@ implementer (`docs/cascade.md`).
 
 - Claude Code caps a foreground command at 600 s: foreground only for what ends
   in seconds.
-- **Never yield with a live worker.** Interactive: a worker found without a
-  harness task gets `until ! kill -0 <PID>; do sleep 20; done` armed in the
-  background first; sample progress every 5 min with `Monitor` or a background
-  `sleep 300`. Headless: the `maestro-wait` loop (it records
-  `last_progress_at` across calls).
+- **Never yield with a live worker.** Interactive: a live job without a
+  background `maestro-wait <job> --until-done` task gets one re-armed first;
+  sample progress every 5 min (a background `sleep 300` or `Monitor`) with
+  `maestro-wait <job> --peek` or `maestro-status`. Headless: the
+  `maestro-wait` loop (it records `last_progress_at` across calls).
 - A hang is no progress for `max(15 min, 2 × T_slow)` — read the job's files,
   then `maestro-kill <job> --gen N` (again until `done` or `blocked`; it waits
   for protected tests and signals the rest one by one). **A hang never applies
