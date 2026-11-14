@@ -12,7 +12,7 @@
 #
 #   maestro-roles --row6 < {eligible: [slot…], director_family, director_line}
 #       rubric row 6 (a change smaller than the handoff): self when the director's family and line
-#       are known and self is eligible, else the first eligible of sonnet, sol, gemini, grok, else halt.
+#       are known and self is eligible, else the first eligible of sonnet, sol, gemini, else halt.
 #
 #   maestro-roles --transports < input.json
 # Input:  {slot, order: [transport…], available: {transport: bool}, denied: [transport…],
@@ -33,10 +33,10 @@ if [[ "${1:-}" == "--row6" ]]; then
     (.eligible // []) as $el
     | if .director_family and .director_line and (($el | index("self")) != null)
       then {implementer: "self", reason: "rubric row 6"}
-      else ([ "sonnet", "sol", "gemini", "grok" ][] | . as $x | select(($el | index($x)) != null)) as $f
+      else ([ "sonnet", "sol", "gemini" ][] | . as $x | select(($el | index($x)) != null)) as $f
            | {implementer: $f, reason: "rubric row 6: self not eligible (director family or line unknown)"}
       end' | { read -r l || true; if [[ -n "${l:-}" ]]; then printf '%s\n' "$l"; else
-      echo '{"implementer":null,"reason":"rubric row 6: self not eligible and none of sonnet, sol, gemini, grok eligible","stop":{"row":2}}'; fi; }
+      echo '{"implementer":null,"reason":"rubric row 6: self not eligible and none of sonnet, sol, gemini eligible","stop":{"row":2}}'; fi; }
   exit 0
 fi
 
@@ -87,23 +87,22 @@ exec jq -c '
   def fam($s): if $s == "self" then ($in.director_family // "unknown")
     elif ($s | IN("opus","fable","sonnet","haiku")) then "claude"
     elif ($s | IN("astra","sol","luna","terra")) then "openai"
-    elif ($s | IN("argon","gemini")) then "google" elif $s == "grok" then "xai" else "unknown" end;
+    elif ($s | IN("argon","gemini")) then "google" else "unknown" end;
 ($in.eligible // []) as $el
 | (fam($in.builder)) as $bf
 | (if $in.drafter then fam($in.drafter) else null end) as $df
 | ([$bf, $df] | map(select(. != null))) as $excl
 | ($el | map(fam(.)) | unique | map(select(. != "unknown"))) as $fams
-| { claude: {critic: ["sol","astra","argon","gemini","grok"], hs: ["astra","sol","argon","gemini","grok"], second: ["google","xai","openai"]},
-    openai: {critic: ["opus","argon","gemini","grok","sonnet"],
-             hs: ((if $in.fable_budget then ["fable"] else [] end) + ["opus","argon","gemini","grok"]),
-             second: ["google","xai","claude"]},
-    google: {critic: ["sol","opus","grok"], hs: ["astra","fable","opus","grok"], second: ["openai","claude","xai"]},
-    xai:    {critic: ["sol","opus","argon","gemini"], hs: ["astra","fable","opus","argon","gemini"], second: ["openai","claude","google"]} } as $T
+| { claude: {critic: ["sol","astra","argon","gemini"], hs: ["astra","sol","argon","gemini"], second: ["google","openai"]},
+    openai: {critic: ["opus","argon","gemini","sonnet"],
+             hs: ((if $in.fable_budget then ["fable"] else [] end) + ["opus","argon","gemini"]),
+             second: ["google","claude"]},
+    google: {critic: ["sol","opus"], hs: ["astra","fable","opus"], second: ["openai","claude"]} } as $T
 | def ok($s): ($el | index($s)) != null and (($excl | index(fam($s))) == null);
   def first_of($l): [ $l[] | select(ok(.)) ] | first // null;
   def slot_of_family($f): {openai: ["sol","astra","luna"], claude: ["opus","fable","sonnet"],
-                           google: ["argon","gemini"], xai: ["grok"]}[$f] // [] | first_of(.);
-  def prov($s): if ($s | IN("grok","argon")) then ["\($s) is provisional (unmeasured)"] else [] end;
+                           google: ["argon","gemini"]}[$f] // [] | first_of(.);
+  def prov($s): if $s == "argon" then ["\($s) is provisional (unmeasured)"] else [] end;
 
 # --- the builder family (and for self, the line) must be known -------------------------------------
 if $bf == "unknown" or ($in.builder == "self" and line("self") == null) then
@@ -147,8 +146,7 @@ elif ($fams | length) == 1 then
        (if (line($in.builder) // "" | IN("sonnet","opus")) then ["fable","opus","sonnet"] else ["opus","fable","sonnet"] end)
      elif $f == "openai" then
        (if line($in.builder) == "astra" then ["sol","luna"] else ["astra","sol","luna"] end)
-     elif $f == "google" then ["argon","gemini"]
-     else [] end) as $order
+     else ["argon","gemini"] end) as $order
   | ([ $order[] | . as $x | select(($el | index($x)) != null and ($used | index($x)) == null) ] | first // null) as $c
   | if $c == null then
       {critics: [], reviewer: null, degraded: $f, notes: [],

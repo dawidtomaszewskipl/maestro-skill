@@ -4,8 +4,8 @@
 #   maestro-catalog refresh [--gen N] [--fixtures DIR] [--out FILE]
 #       Read every source without a model turn and write .maestro/catalog.json (or FILE):
 #       codex `codex debug models` (fallback: $CODEX_HOME/models_cache.json, then
-#       `codex debug models --bundled`), agy `agy models`, cursor `agent --list-models`.
-#       --fixtures DIR reads DIR/codex-models.json, DIR/agy-models.txt, DIR/cursor-models.txt
+#       `codex debug models --bundled`) and agy `agy models`.
+#       --fixtures DIR reads DIR/codex-models.json and DIR/agy-models.txt
 #       instead (a missing file is an acquisition failure), and DIR/codex-cache.json for the
 #       fallback path (tests). With --gen the sources are read outside the lock (they are
 #       network calls) and only the write of the result runs inside the fence; a superseded
@@ -31,8 +31,9 @@
 # mode, host, and the session key when an account is unknown). Positive: fresh < 7 days;
 # negative (denied): fresh < 24 hours.
 #
-# Slots and their lines: opus fable sonnet haiku (Claude: agy, cursor; native has no list),
-# astra sol luna terra (codex), gemini (agy), argon (agy, cursor), grok (cursor).
+# Slots and their lines: opus fable sonnet haiku (Claude: agy; native has no list),
+# astra sol luna terra (codex), gemini = gemini-<v>-hydrogen or gemini-<v>-flash (agy; at one
+# version Hydrogen wins), argon (agy).
 set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/_lib.sh"
 
@@ -46,25 +47,19 @@ def vcmp($a; $b):
       | if $x < $y then -1 elif $x > $y then 1 else 0 end)
   | (map(select(. != 0)) | first) // 0;
 def efforts_re: "(low|medium|high|xhigh|max)";
-# One catalog entry → {slot, version, effort, fast} or null. Anything else is "unmatched".
+# One catalog entry → {slot, version, effort, rank} or null. Anything else is "unmatched".
+# rank orders two lines of one slot at the same version (gemini: hydrogen 1 over flash 0).
 def classify($transport):
   . as $s
   | if $transport == "codex" then
       (capture("^gpt-(?<v>[0-9]+(\\.[0-9]+)*)-(?<line>astra|sol|luna|terra)$") // null)
-      | if . then {slot: .line, version: (.v | vparse), effort: null, fast: false} else null end
+      | if . then {slot: .line, version: (.v | vparse), effort: null, rank: 0} else null end
     elif $transport == "agy" then
-      ( (capture("^gemini-(?<v>[0-9]+(\\.[0-9]+)*)-(?<line>flash|argon)(-(?<e>low|medium|high))?$")
-          | {slot: (if .line == "flash" then "gemini" else "argon" end), version: (.v | vparse), effort: .e, fast: false})
+      ( (capture("^gemini-(?<v>[0-9]+(\\.[0-9]+)*)-(?<line>hydrogen|flash|argon)(-(?<e>low|medium|high|xhigh|max))?$")
+          | {slot: (if .line == "argon" then "argon" else "gemini" end), version: (.v | vparse), effort: .e,
+             rank: (if .line == "hydrogen" then 1 else 0 end)})
         // (capture("^claude-(?<line>opus|sonnet|fable|haiku)-(?<v>[0-9]+(-[0-9]+)*)-(?<e>low|medium|high|xhigh|max)$")
-          | {slot: .line, version: (.v | vparse), effort: .e, fast: false})
-        // null )
-    elif $transport == "cursor" then
-      ( (capture("^grok-(?<v>[0-9]+(\\.[0-9]+)*)(-(?<e>low|medium|high|xhigh|max))?(?<f>-fast)?$")
-          | {slot: "grok", version: (.v | vparse), effort: .e, fast: (.f != null)})
-        // (capture("^gemini-(?<v>[0-9]+(\\.[0-9]+)*)-argon(-(?<e>low|medium|high))?$")
-          | {slot: "argon", version: (.v | vparse), effort: .e, fast: false})
-        // (capture("^claude-(?<line>opus|sonnet|fable|haiku)-(?<v>[0-9]+(-[0-9]+)*)-(?<e>low|medium|high|xhigh|max)(?<f>-fast)?$")
-          | {slot: .line, version: (.v | vparse), effort: .e, fast: (.f != null)})
+          | {slot: .line, version: (.v | vparse), effort: .e, rank: 0})
         // null )
     else null end;
 # Build the per-slot candidate lists for one transport from a list of {slug, efforts?}.
@@ -77,9 +72,7 @@ def lines_of($transport):
                | map({ key: .[0].slot,
                        value: ( group_by(.version | map(tostring) | join("."))
                                 | map({ version: .[0].version,
-                                        slugs: ( map(select(.fast | not))
-                                                 | map({key: (.effort // "default"), value: .slug}) | from_entries ),
-                                        fast_slugs: ( map(select(.fast))
+                                        slugs: ( sort_by(.rank)
                                                  | map({key: (.effort // "default"), value: .slug}) | from_entries ),
                                         catalog_efforts: (map(.catalog_efforts) | map(select(. != null)) | first // null) })
                               ) })
@@ -177,7 +170,7 @@ case "$sub" in
       fi
     fi
 
-    # --- agy and cursor: "slug<TAB or ' - '>label" lines, banners skipped ---------------------
+    # --- agy: "slug<TAB>label" lines, banners skipped -------------------------------------------
     read_list() {  # $1 = name, $2 = fixture file, $3… = command
       local name="$1" fx="$2"; shift 2
       if [[ -n "$fixtures" ]]; then
@@ -187,22 +180,19 @@ case "$sub" in
         command -v "$1" >/dev/null 2>&1 || return 1
         "$MAESTRO_BIN/maestro-env" -- "$@" 2>/dev/null || return 1
       fi > "$tmpd/$name.txt"
-      # A model line starts with a lower-case slug token followed by a tab or " - ".
-      grep -E '^[a-z0-9][a-z0-9.\-]*(	| - )' "$tmpd/$name.txt" \
-        | sed -E 's/^([a-z0-9][a-z0-9.\-]*)(	| - ).*/\1/' | jq -R '{slug: .}' | jq -sc .
+      # A model line starts with a lower-case slug token followed by a tab.
+      grep -E '^[a-z0-9][a-z0-9.\-]*	' "$tmpd/$name.txt" \
+        | sed -E 's/^([a-z0-9][a-z0-9.\-]*)	.*/\1/' | jq -R '{slug: .}' | jq -sc .
     }
-    agy_list='null' agy_err="" cursor_list='null' cursor_err=""
+    agy_list='null' agy_err=""
     agy_list="$(read_list agy agy-models.txt agy models)" || { agy_list='null'; agy_err="agy models failed"; }
     [[ "$agy_list" == "[]" ]] && { agy_list='null'; agy_err="agy models: no model lines"; }
-    cursor_list="$(read_list cursor cursor-models.txt agent --list-models)" || { cursor_list='null'; cursor_err="agent --list-models failed"; }
-    [[ "$cursor_list" == "[]" ]] && { cursor_list='null'; cursor_err="agent --list-models: no model lines"; }
 
     prev='{}'
     [[ -f "$out" ]] && prev="$(jq -c '.resolved // {}' "$out" 2>/dev/null || echo '{}')"
 
     jq -n --argjson cx "$codex_list" --argjson cm "$codex_meta" --arg ce "$codex_err" \
           --argjson ag "$agy_list" --arg ae "$agy_err" \
-          --argjson cu "$cursor_list" --arg cue "$cursor_err" \
           --argjson prev "$prev" --arg at "$(mae_now)" \
       "$JQ_LIB$JQ_SORT"'
       def build($list; $t):
@@ -213,9 +203,8 @@ case "$sub" in
         end;
       { generated_at: $at,
         sources: { codex: ($cm + {error: (if $ce == "" then null else $ce end)}),
-                   agy: {error: (if $ae == "" then null else $ae end)},
-                   cursor: {error: (if $cue == "" then null else $cue end)} },
-        transports: { codex: build($cx; "codex"), agy: build($ag; "agy"), cursor: build($cu; "cursor") },
+                   agy: {error: (if $ae == "" then null else $ae end)} },
+        transports: { codex: build($cx; "codex"), agy: build($ag; "agy") },
         codex_efforts: (if $cx == null then null else ($cx | map({key: .slug, value: {efforts, default_effort}}) | from_entries) end),
         previous: $prev,
         resolved: {} }' > "$tmpd/catalog.json"
@@ -258,7 +247,7 @@ case "$sub" in
         # A slug excluded from automatic resolution may be pinned only if it still belongs to the
         # line of the slot (gpt-<v>-sol-preview for sol, claude-opus-… for opus) — never another model.
         def line_re: {astra: "^gpt-[0-9.]+-astra(-|$)", sol: "^gpt-[0-9.]+-sol(-|$)", luna: "^gpt-[0-9.]+-luna(-|$)",
-                      terra: "^gpt-[0-9.]+-terra(-|$)", gemini: "^gemini-[0-9.]+-flash(-|$)", argon: "^gemini-[0-9.]+-argon(-|$)", grok: "^grok-[0-9.]+(-|$)",
+                      terra: "^gpt-[0-9.]+-terra(-|$)", gemini: "^gemini-[0-9.]+-(hydrogen|flash)(-|$)", argon: "^gemini-[0-9.]+-argon(-|$)",
                       opus: "^claude-opus-[0-9]", fable: "^claude-fable-[0-9]", sonnet: "^claude-sonnet-[0-9]",
                       haiku: "^claude-haiku-[0-9]"}[$slot] // "^$";
         ((($tr.unmatched // []) | index($ps)) as $i | if $i != null and ($ps | test(line_re)) then $i else null end) as $excluded_hit

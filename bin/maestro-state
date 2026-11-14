@@ -15,9 +15,9 @@
 #       accept the file as it is now (an audit entry marked adopted, with the reason). Only on the
 #       user's explicit decision after they inspected the file — never under --unattended, never
 #       by the director's own judgment: it is how an edit made outside maestro becomes legitimate.
-#       Refused ({result: "refused"}, exit 1) when maestro-host reports a headless host (claude -p,
-#       codex exec, agent -p, agy -p): no user there could have inspected the file. An interactive
-#       host running --unattended is not detectable here; that rule stays with the director.
+#       Refused ({result: "refused"}, exit 1) when maestro-host reports a headless Claude Code
+#       (claude -p): no user there could have inspected the file. An interactive Claude Code
+#       running --unattended is not detectable here; that rule stays with the director.
 #
 # <file> is relative to .maestro/ and must be bookkeeping: CHECKPOINT.md, ledger.jsonl, or
 # tasks/<id>/CHECKPOINT-entry.json. Inside the fence (maestro-lock exec) it first verifies the

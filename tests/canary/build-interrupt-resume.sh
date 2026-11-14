@@ -8,7 +8,7 @@ E="$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)/bin/maestro-env"
 TASK='add a function repeat to lib/str.sh: repeat <text> <n> prints <text> n times joined by single spaces (n=0 prints an empty line); when n is not a non-negative integer it prints an error to stderr and returns 2; with tests in tests/test_str.sh'
 cd "$D" || exit 2
 "$E" -- claude -p --model sonnet --permission-mode acceptEdits --allowedTools "Bash Read Write Edit Glob Grep Skill" \
-  --output-format stream-json --verbose "/maestro --unattended --model=sonnet --critic=grok --rounds=3 --tests=covering $TASK" \
+  --output-format stream-json --verbose "/maestro --unattended --model=sonnet --critic=sol --rounds=3 --tests=covering $TASK" \
   < /dev/null > "$V/v11-cc-build-1.jsonl" 2> "$V/v11-cc-build-1.err" &
 dir=$!
 echo "$(date +%T) director pid $dir"

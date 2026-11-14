@@ -2,7 +2,7 @@
 # maestro-validate — envelope, verdict extraction and schema check for every CLI
 # (docs/commands.md, "Validating a verdict").
 #
-#   maestro-validate <schema.json> <file> --envelope codex|agy|claude|cursor|raw [--role read-only|writer]
+#   maestro-validate <schema.json> <file> --envelope codex|agy|claude|raw [--role read-only|writer]
 #
 # 1. Envelope (envelope failure is not an invalid verdict):
 #    codex   the -o file is the answer text
@@ -10,7 +10,6 @@
 #            null (agy fills it when --json-schema is given), else response; the chosen text non-empty
 #    claude  stream-json/json: the `result` event with subtype "success", is_error false, and for
 #            read-only roles permission_denials == [] → structured_output if present, else result
-#    cursor  stream-json/json: the `result` event with subtype "success", is_error false → result
 #    raw     the file itself
 # 2. Extraction: strip one surrounding Markdown fence; exactly ONE top-level JSON object must
 #    parse; leading prose is allowed, trailing non-whitespace is not. toolAction/toolSummary keys
@@ -49,12 +48,12 @@ case "$envelope" in
       text="$(jq -r '.response // ""' "$file")"
     fi
     [[ -n "$text" ]] || fail envelope "agy response is empty" ;;
-  claude|cursor)
+  claude)
     res="$(last_result)"
     [[ -n "$res" ]] || fail envelope "no result event"
     [[ "$(jq -r .subtype <<<"$res")" == success && "$(jq -r .is_error <<<"$res")" == false ]] \
       || fail envelope "result: subtype $(jq -r .subtype <<<"$res"), is_error $(jq -r .is_error <<<"$res")"
-    if [[ "$envelope" == claude && "$role" == read-only ]]; then
+    if [[ "$role" == read-only ]]; then
       [[ "$(jq '(.permission_denials // []) | length' <<<"$res")" == 0 ]] \
         || fail envelope "permission_denials on a read-only role: $(jq -c '[.permission_denials[].tool_name]' <<<"$res")"
     fi

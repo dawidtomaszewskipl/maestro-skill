@@ -58,36 +58,41 @@ if group T2 "catalog"; then
   eq "[7] > [6,10]" 1 "$(cmp_ 7 6.10)"
   eq "6.9 < 6.10"  -1 "$(cmp_ 6.9 6.10)"
 
-  # This machine's catalogs (2026-10-11).
-  M="$FX/catalogs/machine-2026-10-11"
+  # This machine's catalogs (2026-11-14: Codex 0.169.0, agy 1.5.9).
+  M="$FX/catalogs/machine-2026-11-14"
   out="$(MAESTRO_STATE="$WORK/c1" "$B/maestro-catalog" refresh --fixtures "$M" --out "$WORK/c1/catalog.json")"
   jqt "machine: sol newest 6.1" "$out" '.slots.codex.sol[0] == "6.1"'
   jqt "machine: astra 6" "$out" '.slots.codex.astra == ["6"]'
-  jqt "machine: gemini 3.8 first" "$out" '.slots.agy.gemini[0] == "3.8"'
-  jqt "machine: agy opus 5.5" "$out" '.slots.agy.opus == ["5.5"]'
-  jqt "machine: grok 4.7 (cursor-grok-* excluded)" "$out" '.slots.cursor.grok == ["4.7"]'
-  jqt "machine: cursor fable 5.1 first" "$out" '.slots.cursor.fable[0] == "5.1"'
+  jqt "machine: gemini 4 (Hydrogen) before 3.8 (Flash)" "$out" '.slots.agy.gemini == ["4","3.8"]'
+  jqt "machine: argon 4, agy opus and sonnet 5.5" "$out" '.slots.agy.argon == ["4"] and .slots.agy.opus == ["5.5"] and .slots.agy.sonnet == ["5.5"]'
+  jqt "machine: only codex and agy are sources" "$out" '(.sources | keys) == ["agy","codex"] and (.slots | keys) == ["agy","codex"]'
   cat_="$WORK/c1/catalog.json"
-  jqt "machine: cursor-grok-4.6-high is unmatched" "$(cat "$cat_")" '.transports.cursor.unmatched | index("cursor-grok-4.6-high") != null'
-  jqt "machine: thinking duplicates unmatched" "$(cat "$cat_")" '.transports.cursor.unmatched | index("claude-opus-5-thinking-high") != null'
+  jqt "machine: hydrogen slugs up to xhigh" "$(cat "$cat_")" \
+    '.transports.agy.slots.gemini[0].slugs == {"high":"gemini-4-hydrogen-high","xhigh":"gemini-4-hydrogen-xhigh","medium":"gemini-4-hydrogen-medium","low":"gemini-4-hydrogen-low"}'
+  jqt "machine: orchestrator and gpt-oss unmatched" "$(cat "$cat_")" \
+    '(.transports.agy.unmatched | index("gemini-pro-orchestrator-g1-pro") != null) and (.transports.agy.unmatched | index("gpt-oss-120b-medium") != null)'
   jqt "machine: codex identity from the cache" "$(cat "$cat_")" '.sources.codex.identity == "fixture-identity"'
+  pickm() { MAESTRO_STATE="$WORK/c1" "$B/maestro-catalog" pick "$@" --catalog "$cat_"; }
+  jqt "machine: pick gemini xhigh → hydrogen" "$(pickm gemini agy --effort xhigh)" '.slug == "gemini-4-hydrogen-xhigh" and .version == "4"'
+  jqt "machine: argon has no xhigh" "$(pickm argon agy --effort xhigh)" '.action == "none"'
+  jqt "machine: flash 3.8 by pin" "$(pickm gemini agy --pin 3.8 --effort high)" '.slug == "gemini-3.8-flash-high"'
+  jqt "machine: hydrogen by exact slug" "$(pickm gemini agy --pin-slug gemini-4-hydrogen-low)" '.slug == "gemini-4-hydrogen-low"'
+  jqt "machine: orchestrator cannot be pinned to gemini" "$(pickm gemini agy --pin-slug gemini-pro-orchestrator-g1-pro)" '.action == "none" and (.reason | test("not a gemini model"))'
 
   # Synthetic catalogs: integer generations, multi-digit components, excluded suffixes.
   S="$WORK/syn"; mkdir -p "$S"
   jq -n '{models: ([ "gpt-6.1-sol","gpt-6.10-sol","gpt-6.9-sol","gpt-7-sol","gpt-6.2-sol-preview","gpt-6-astra","gpt-reserve" ]
                     | map({slug: ., visibility: "list", supported_reasoning_levels: [{effort: "low"},{effort: "medium"}]}))}' > "$S/codex-models.json"
-  printf 'Fetching available models...\ngemini-3.8-flash-high\tG\ngemini-4-flash-high\tG4\ngemini-4-flash-preview-high\tP\ngemini-4-argon-low\tA\ngemini-4-argon-high\tA\ngemini-4-argon-preview-high\tAP\nclaude-opus-5-10-high\tO\nclaude-opus-5-5-high\tO\n' > "$S/agy-models.txt"
-  printf 'Available models\n\ngrok-4.7-high - Grok\ngrok-5-high - Grok 5\ngrok-5-high-fast - Grok 5 Fast\ngrok-6 - Grok 6 (no effort suffix)\ncursor-grok-9-high - X\ngemini-4-argon-medium - Gemini 4 Argon Medium\n\nTip: …\n' > "$S/cursor-models.txt"
+  printf 'Fetching available models...\ngemini-3.8-flash-high\tG\ngemini-4-flash-high\tG4\ngemini-4-hydrogen-high\tH4\ngemini-4-flash-low\tG4l\ngemini-4-flash-preview-high\tP\ngemini-4-argon-low\tA\ngemini-4-argon-high\tA\ngemini-4-argon-preview-high\tAP\nclaude-opus-5-10-high\tO\nclaude-opus-5-5-high\tO\n' > "$S/agy-models.txt"
   out="$(MAESTRO_STATE="$WORK/c2" "$B/maestro-catalog" refresh --fixtures "$S" --out "$WORK/c2/catalog.json")"
   jqt "synthetic: sol order 7, 6.10, 6.9, 6.1" "$out" '.slots.codex.sol == ["7","6.10","6.9","6.1"]'
   jqt "synthetic: gemini 4 before 3.8" "$out" '.slots.agy.gemini == ["4","3.8"]'
-  jqt "synthetic: argon is its own line, not gemini" "$out" '.slots.agy.argon == ["4"] and .slots.cursor.argon == ["4"]'
+  jqt "synthetic: argon is its own line, not gemini" "$out" '.slots.agy.argon == ["4"]'
+  jqt "synthetic: at one version Hydrogen wins an effort, Flash fills the rest" "$(cat "$WORK/c2/catalog.json")" \
+    '.transports.agy.slots.gemini[0].slugs == {"high":"gemini-4-hydrogen-high","low":"gemini-4-flash-low"}'
   jqt "synthetic: opus 5.10 before 5.5" "$out" '.slots.agy.opus == ["5.10","5.5"]'
-  jqt "synthetic: grok 6 (no effort suffix) first, then 5, fast kept apart" "$out" '.slots.cursor.grok == ["6","5","4.7"]'
   jqt "synthetic: preview and dated slugs unmatched" "$(cat "$WORK/c2/catalog.json")" \
     '(.transports.codex.unmatched | index("gpt-6.2-sol-preview") != null) and (.transports.agy.unmatched | index("gemini-4-flash-preview-high") != null) and (.transports.agy.unmatched | index("gemini-4-argon-preview-high") != null)'
-  jqt "synthetic: fast slugs recorded separately" "$(cat "$WORK/c2/catalog.json")" \
-    '.transports.cursor.slots.grok[1].fast_slugs.high == "grok-5-high-fast" and .transports.cursor.slots.grok[1].slugs.high == "grok-5-high" and .transports.cursor.slots.grok[0].slugs.default == "grok-6"'
   # Bundled fallback: no live catalog and no cache.
   Bd="$WORK/bundled"; mkdir -p "$Bd"
   jqt "no live catalog, no cache, no bundled → acquisition failure" \
@@ -101,7 +106,6 @@ if group T2 "catalog"; then
   out="$(MAESTRO_STATE="$WORK/c3" "$B/maestro-catalog" refresh --fixtures "$E" --out "$WORK/c3/catalog.json")"
   jqt "banner-only agy = acquisition failure" "$out" '.sources.agy.error != null and .slots.agy == null'
   jqt "malformed codex = acquisition failure" "$out" '.sources.codex.error != null and .slots.codex == null'
-  jqt "missing cursor fixture = acquisition failure" "$out" '.sources.cursor.error != null'
   # Stale cache fallback.
   C="$WORK/cache"; mkdir -p "$C"
   jq -n '{identity: "x", client_version: "0.0.1", fetched_at: "2020-01-01T00:00:00Z",
@@ -127,12 +131,11 @@ if group T2 "catalog"; then
   jqt "pick: exact pin of an excluded slug (preview)" "$(pick sol codex --pin-slug gpt-6.2-sol-preview)" \
     '.slug == "gpt-6.2-sol-preview" and .excluded == true and .identity.tag == "gpt-6.2-sol-preview"'
   jqt "pick: exact pin of a slug the catalog does not list → none" "$(pick sol codex --pin-slug gpt-9-sol-preview)" '.action == "none"'
-  jq '.transports.cursor.unmatched += ["kimi-k3-high"]' "$P/catalog.json" > "$P/ck.json"
-  jqt "pick: an excluded slug of another model cannot be pinned to grok" \
-    "$(MAESTRO_STATE="$P" "$B/maestro-catalog" pick grok cursor --pin-slug kimi-k3-high --catalog "$P/ck.json")" '.action == "none" and (.reason | test("not a grok model"))'
-  jqt "pick: effort with no slug → none" "$(pick gemini agy --effort xhigh)" '.action == "none"'
+  jq '.transports.agy.unmatched += ["kimi-k3-high"]' "$P/catalog.json" > "$P/ck.json"
+  jqt "pick: an excluded slug of another model cannot be pinned to gemini" \
+    "$(MAESTRO_STATE="$P" "$B/maestro-catalog" pick gemini agy --pin-slug kimi-k3-high --catalog "$P/ck.json")" '.action == "none" and (.reason | test("not a gemini model"))'
+  jqt "pick: effort with no slug → none" "$(pick gemini agy --effort max)" '.action == "none"'
   jqt "pick: argon high on agy" "$(pick argon agy --effort high)" '.action == "probe" and .slug == "gemini-4-argon-high"'
-  jqt "pick: argon on cursor" "$(pick argon cursor --effort medium)" '.slug == "gemini-4-argon-medium"'
   jqt "pick: an argon preview can be pinned to argon" "$(pick argon agy --pin-slug gemini-4-argon-preview-high)" '.excluded == true and .slug == "gemini-4-argon-preview-high"'
   jqt "pick: an argon slug cannot be pinned to gemini" "$(pick gemini agy --pin-slug gemini-4-argon-preview-high)" '.action == "none" and (.reason | test("not a gemini model"))'
   jqt "pick: line without candidates → none + previous" \
@@ -150,35 +153,28 @@ if group T3 "host detection"; then
     printf '%s\0' "$@" > "$r/$p/cmdline"
     ln -s "$exe" "$r/$p/exe"
   }
-  host() { env -i PATH="$PATH" HOME="$HOME" MAESTRO_PROC="$1" MAESTRO_HOST_START_PID="$2" CODEX_HOME="$WORK/nocodex" "${@:3}" "$B/maestro-host"; }
-  CC=/home/u/.local/share/claude/versions/2.1.296
-  CX=/home/u/.codex/packages/standalone/releases/0.162.1/bin/codex
-  NODE=/home/u/.local/share/cursor-agent/versions/2026.10.01/node
+  host() { env -i PATH="$PATH" HOME="$HOME" MAESTRO_PROC="$1" MAESTRO_HOST_START_PID="$2" "${@:3}" "$B/maestro-host"; }
+  CC=/home/u/.local/share/claude/versions/2.1.325
+  CX=/home/u/.codex/packages/standalone/releases/0.169.0/bin/codex
   R="$WORK/proc1"; mkproc "$R" 100 1 "$CC" claude; mkproc "$R" 200 100 /usr/bin/bash bash
   jqt "claude-code interactive" "$(host "$R" 200 CLAUDECODE=1 CLAUDE_CODE_SESSION_ID=s1)" \
     '.host == "claude-code" and .interactive == true and .session_key == "s1" and .director_family == "claude"'
   R="$WORK/proc2"; mkproc "$R" 100 1 "$CC" claude; mkproc "$R" 300 100 "$CX" codex exec -m x; mkproc "$R" 400 300 /usr/bin/bash bash
-  jqt "codex inside claude code (inherited CLAUDECODE is not a conflict)" \
-    "$(host "$R" 400 CLAUDECODE=1 CODEX_THREAD_ID=t1)" '.host == "codex" and .interactive == false and .session_key == "t1"'
-  R="$WORK/proc3"; mkproc "$R" 100 1 "$CC" claude; mkproc "$R" 300 100 "$NODE" /home/u/.local/bin/agent /home/u/.local/share/cursor-agent/versions/2026.10.01/index.js -p x; mkproc "$R" 400 300 /usr/bin/bash bash
-  jqt "cursor inside claude code" "$(host "$R" 400 CLAUDECODE=1 CURSOR_AGENT=1 CURSOR_CONVERSATION_ID=c1)" \
-    '.host == "cursor" and .interactive == false and .session_key == "c1"'
+  jqt "codex directing inside claude code → unsupported" \
+    "$(host "$R" 400 CLAUDECODE=1 CODEX_THREAD_ID=t1)" '.host == "unsupported" and .director_family == null and (.evidence | any(test("codex")))'
   R="$WORK/proc4"; mkproc "$R" 300 1 "$CX" codex; mkproc "$R" 350 300 "$CC" claude -p hi; mkproc "$R" 400 350 /usr/bin/bash bash
-  jqt "claude -p inside codex" "$(host "$R" 400 CODEX_THREAD_ID=t1 CLAUDECODE=1)" '.host == "claude-code" and .interactive == false'
-  jqt "nearest host without its marker → unknown" "$(host "$R" 400 CODEX_THREAD_ID=t1)" '.host == "unknown"'
-  jqt "markers only, exactly one" "$(host "$WORK/none" 400 CODEX_THREAD_ID=t1)" '.host == "codex" and (.evidence | any(test("markers-only")))'
-  jqt "markers only, several → unknown" "$(host "$WORK/none" 400 CODEX_THREAD_ID=t1 CLAUDECODE=1)" '.host == "unknown"'
+  jqt "claude -p started from a codex shell → claude-code, headless" "$(host "$R" 400 CODEX_THREAD_ID=t1 CLAUDECODE=1)" '.host == "claude-code" and .interactive == false'
+  jqt "nearest claude without CLAUDECODE → unknown" "$(host "$R" 400 CODEX_THREAD_ID=t1)" '.host == "unknown"'
+  jqt "markers only, CLAUDECODE alone → claude-code" "$(host "$WORK/none" 400 CLAUDECODE=1)" '.host == "claude-code" and .interactive == null and (.evidence | any(test("markers-only")))'
+  jqt "markers only, another CLI's marker too → unknown" "$(host "$WORK/none" 400 CODEX_THREAD_ID=t1 CLAUDECODE=1)" '.host == "unknown"'
+  jqt "markers only, a codex marker alone → unknown" "$(host "$WORK/none" 400 CODEX_THREAD_ID=t1)" '.host == "unknown"'
   jqt "zero signals → unknown" "$(host "$WORK/none" 400)" '.host == "unknown"'
-  # Measured 2026-10-11: Cursor's sandbox hides the Cursor process; the nearest visible host was
-  # the Claude Code daemon that launched it.
+  # A sandbox can hide the CLI that really runs this shell; the nearest visible one is then an outer one.
   R="$WORK/proc6"; mkproc "$R" 100 1 "$CC" claude daemon run; mkproc "$R" 200 100 /usr/bin/bash bash
-  jqt "hidden cursor under a visible claude: markers of both → unknown" \
-    "$(host "$R" 200 CLAUDECODE=1 CURSOR_AGENT=1 CURSOR_CONVERSATION_ID=c1)" '.host == "unknown" and (.evidence | any(test("incomplete")))'
-  R="$WORK/proc7"; mkproc "$R" 100 1 /usr/bin/bash bash
-  jqt "hidden cursor, only its markers → cursor (markers-only)" \
-    "$(host "$R" 100 CURSOR_AGENT=1 CURSOR_CONVERSATION_ID=c1)" '.host == "cursor"'
+  jqt "hidden codex under a visible claude: markers of both → unknown" \
+    "$(host "$R" 200 CLAUDECODE=1 CODEX_THREAD_ID=t1)" '.host == "unknown" and (.evidence | any(test("incomplete")))'
   R="$WORK/proc5"; mkproc "$R" 500 1 /home/u/.local/bin/agy agy; mkproc "$R" 510 500 /usr/bin/bash bash
-  jqt "agy ancestor without its marker → unknown" "$(host "$R" 510)" '.host == "unknown"'
+  jqt "agy directing → unsupported" "$(host "$R" 510 ANTIGRAVITY_AGENT=1 ANTIGRAVITY_CONVERSATION_ID=s)" '.host == "unsupported"'
   # Identity of a pid: start time, gone, or unreadable — never unreadable read as gone.
   ID="$WORK/procid"; mkdir -p "$ID/900"; printf '900 (x) S 1 900 900 0 -1 0 0 0 0 0 0 0 0 20 0 1 0 0 4242 0 0\n' > "$ID/900/stat"
   mkdir -p "$ID/901"; printf 'x\n' > "$ID/901/stat"; chmod 000 "$ID/901/stat"
@@ -186,10 +182,6 @@ if group T3 "host detection"; then
   eq "pid identity: entry present, stat unreadable → unreadable" unreadable "$(MAESTRO_PROC="$ID" bash -c '. "$1/_lib.sh"; mae_pid_identity 901' _ "$B")"
   eq "pid identity: no entry → gone" gone "$(MAESTRO_PROC="$ID" bash -c '. "$1/_lib.sh"; mae_pid_identity 902' _ "$B")"
   chmod 600 "$ID/901/stat"
-  jqt "agy ancestor with its marker (measured: ANTIGRAVITY_AGENT, ANTIGRAVITY_CONVERSATION_ID)" \
-    "$(host "$R" 510 ANTIGRAVITY_AGENT=1 ANTIGRAVITY_CONVERSATION_ID=sess)" '.host == "agy" and .session_key == "sess" and .interactive == true'
-  R="$WORK/proc8"; mkproc "$R" 500 1 /home/u/.local/bin/agy agy -p hi; mkproc "$R" 510 500 /usr/bin/bash bash
-  jqt "agy print mode is headless" "$(host "$R" 510 ANTIGRAVITY_AGENT=1 ANTIGRAVITY_CONVERSATION_ID=s)" '.host == "agy" and .interactive == false'
 fi
 
 # =============================================================================================
@@ -387,7 +379,6 @@ if group T5 "verdict validation"; then
   jqt "agy structured_output null → falls back to response" "$(v agy-structured-null.json agy)" '.valid'
   jqt "agy structured_output with denied_actions → envelope failure" "$(v agy-structured-denied.json agy)" '.valid == false and .stage == "envelope"'
   jqt "agy structured_output with status CANCELED → envelope failure" "$(v agy-structured-canceled.json agy)" '.valid == false and .stage == "envelope"'
-  jqt "cursor stream-json with prose prefix → valid" "$(v cursor-stream.jsonl cursor)" '.valid'
   jqt "claude structured_output → valid" "$(v claude-structured.jsonl claude)" '.valid'
   jqt "claude read-only role with a permission denial → envelope failure" "$(v claude-denied.jsonl claude read-only)" '.valid == false and .stage == "envelope"'
   jqt "claude error result → envelope failure" "$(v claude-error.jsonl claude)" '.valid == false and .stage == "envelope"'
@@ -414,8 +405,8 @@ fi
 
 # =============================================================================================
 if group T7 "role resolution"; then
-  ALL='["opus","fable","sonnet","haiku","astra","sol","luna","terra","argon","gemini","grok","self"]'
-  NOARGON='["opus","fable","sonnet","haiku","astra","sol","luna","terra","gemini","grok","self"]'
+  ALL='["opus","fable","sonnet","haiku","astra","sol","luna","terra","argon","gemini","self"]'
+  NOARGON='["opus","fable","sonnet","haiku","astra","sol","luna","terra","gemini","self"]'
   roles() { "$B/maestro-roles" <<<"$1"; }
   jqt "claude build → sol" "$(roles '{"builder":"opus","eligible":'"$ALL"'}')" '.critics == ["sol"] and .reviewer == "sol"'
   jqt "claude build, high stakes → astra + argon" "$(roles '{"builder":"opus","high_stakes":true,"eligible":'"$ALL"'}')" '.critics == ["astra","argon"]'
@@ -425,8 +416,10 @@ if group T7 "role resolution"; then
   jqt "openai build, hs, no fable budget → opus + argon" "$(roles '{"builder":"sol","high_stakes":true,"eligible":'"$ALL"'}')" '.critics == ["opus","argon"]'
   jqt "google build → sol" "$(roles '{"builder":"gemini","eligible":'"$ALL"'}')" '.critics == ["sol"]'
   jqt "argon build is google: argon and gemini never critique it" "$(roles '{"builder":"argon","high_stakes":true,"eligible":'"$ALL"'}')" '.critics == ["astra","opus"]'
-  jqt "xai build → sol, hs second critic claude" "$(roles '{"builder":"grok","high_stakes":true,"eligible":'"$ALL"'}')" '.critics == ["astra","opus"]'
-  jqt "grok as critic is provisional" "$(roles '{"builder":"opus","eligible":["opus","grok"]}')" '.critics == ["grok"] and (.notes | any(test("provisional")))'
+  jqt "three families: cascade (luna) + high stakes → one google critic, no second, said" "$(roles '{"builder":"opus","drafter":"luna","high_stakes":true,"eligible":'"$ALL"'}')" \
+    '.critics == ["argon"] and (.notes | any(test("no second critic")))'
+  jqt "three families: google build, hs → openai then claude" "$(roles '{"builder":"gemini","high_stakes":true,"eligible":'"$ALL"'}')" '.critics == ["astra","opus"]'
+  jqt "three families: openai build, hs, google out → one claude critic" "$(roles '{"builder":"sol","high_stakes":true,"eligible":["opus","sol","astra"]}')" '.critics == ["opus"] and (.notes | any(test("no second critic")))'
   jqt "cascade removes the drafter family" "$(roles '{"builder":"opus","drafter":"luna","eligible":'"$ALL"'}')" '.critics == ["argon"]'
   jqt "gemini drafter removes argon too" "$(roles '{"builder":"opus","drafter":"gemini","eligible":'"$ALL"'}')" '.critics == ["sol"]'
   jqt "cascade unsatisfiable → stop" "$(roles '{"builder":"opus","drafter":"luna","eligible":["opus","luna","sonnet"]}')" '.stop.remedy == "drop the cascade or change the drafter"'
@@ -440,18 +433,16 @@ if group T7 "role resolution"; then
   jqt "google only, one line → stop" "$(roles '{"builder":"gemini","eligible":["gemini"]}')" '.stop != null'
   jqt "google only: gemini build → argon (degraded)" "$(roles '{"builder":"gemini","eligible":["argon","gemini"]}')" '.critics == ["argon"] and .degraded == "google"'
   jqt "google only: argon build → gemini (degraded)" "$(roles '{"builder":"argon","eligible":["argon","gemini"]}')" '.critics == ["gemini"] and .degraded == "google"'
-  jqt "xai only → stop" "$(roles '{"builder":"grok","eligible":["grok"]}')" '.stop != null'
   jqt "named critic from the builder family → stop" "$(roles '{"builder":"opus","named_critics":["sonnet"],"eligible":'"$ALL"'}')" '.stop != null'
   jqt "two named critics, one family, high stakes → stop" "$(roles '{"builder":"opus","high_stakes":true,"named_critics":["sol","astra"],"eligible":'"$ALL"'}')" '.stop != null'
-  jqt "named critics win over policy" "$(roles '{"builder":"opus","named_critics":["grok"],"policy_critic":"gemini","eligible":'"$ALL"'}')" '.critics == ["grok"]'
+  jqt "named critics win over policy" "$(roles '{"builder":"opus","named_critics":["argon"],"policy_critic":"gemini","eligible":'"$ALL"'}')" '.critics == ["argon"]'
   jqt "policy critic used when legal" "$(roles '{"builder":"opus","policy_critic":"gemini","eligible":'"$ALL"'}')" '.critics == ["gemini"]'
   jqt "policy critic from the builder family is dropped" "$(roles '{"builder":"opus","policy_critic":"sonnet","eligible":'"$ALL"'}')" '.critics == ["sol"]'
   jqt "self with unknown director family → stop" "$(roles '{"builder":"self","director_family":null,"eligible":["sol"]}')" '.stop != null'
   jqt "self as a known claude director (family and line) → sol" "$(roles '{"builder":"self","director_family":"claude","director_line":"opus","eligible":["self","sol"]}')" '.critics == ["sol"]'
   jqt "self with known family but unknown line → stop" "$(roles '{"builder":"self","director_family":"claude","eligible":["self","sol"]}')" '.stop != null'
-  jqt "openai-only, an Astra director building as self → sol, not astra" "$(roles '{"builder":"self","director_family":"openai","director_line":"astra","eligible":["self","astra","sol"]}')" '.critics == ["sol"] and .degraded == "openai"'
-  jqt "named critic not available → stop" "$(roles '{"builder":"opus","named_critics":["grok"],"eligible":["opus","sol"]}')" '.stop.reason | test("not available")'
-  jqt "high stakes, one named critic → a second family added" "$(roles '{"builder":"opus","high_stakes":true,"named_critics":["sol"],"eligible":["opus","sol","gemini","grok"]}')" '.critics == ["sol","gemini"]'
+  jqt "named critic not available → stop" "$(roles '{"builder":"opus","named_critics":["argon"],"eligible":["opus","sol"]}')" '.stop.reason | test("not available")'
+  jqt "high stakes, one named critic → a second family added" "$(roles '{"builder":"opus","high_stakes":true,"named_critics":["sol"],"eligible":["opus","sol","gemini"]}')" '.critics == ["sol","gemini"]'
   jqt "named argon critic of a claude build" "$(roles '{"builder":"opus","named_critics":["argon"],"eligible":'"$ALL"'}')" '.critics == ["argon"] and .reviewer == "argon" and (.notes | any(test("argon is provisional")))'
   r6() { "$B/maestro-roles" --row6 <<<"$1"; }
   jqt "row 6: self when the director is known" "$(r6 '{"eligible":["self","sonnet"],"director_family":"claude","director_line":"opus"}')" '.implementer == "self"'
@@ -465,24 +456,26 @@ if group T7 "role resolution"; then
   jqt "older native pin: a probe serving exactly claude-opus-5 is accepted" "$("$B/maestro-catalog" native-verify claude-opus-5 "$WORK/pin-exact.jsonl")" '.accepted == true'
   jqt "older native pin: an alias serving claude-opus-5-5 is rejected (no alias fallback)" "$("$B/maestro-catalog" native-verify claude-opus-5 "$WORK/pin-alias.jsonl")" '.accepted == false and .served == "claude-opus-5-5"'
   tr_() { "$B/maestro-roles" --transports <<<"$1"; }
-  O='"order":["native","agy","cursor"]'
-  jqt "transports: first eligible" "$(tr_ '{"slot":"opus",'"$O"',"available":{"native":true,"agy":true,"cursor":true}}')" '.action == "use" and .transport == "native"'
-  jqt "transports: first-use quota on native → agy" "$(tr_ '{"slot":"opus",'"$O"',"available":{"native":false,"agy":true,"cursor":true}}')" '.transport == "agy" and .skipped == ["native"]'
-  jqt "transports: runtime quota, agy denied → switch to cursor (same version)" "$(tr_ '{"slot":"opus",'"$O"',"available":{"native":true,"agy":true,"cursor":true},"denied":["agy"],"event":"runtime-failure","failed":"native","frozen_version":"5.5","versions":{"agy":"5.5","cursor":"5.5"}}')" '.action == "switch" and .transport == "cursor"'
-  jqt "transports: next serves another version → swap, row 5" "$(tr_ '{"slot":"opus",'"$O"',"available":{"agy":false,"cursor":true},"event":"runtime-failure","failed":"native","frozen_version":"5.5","versions":{"cursor":"5"}}')" '.action == "swap" and .row == 5'
+  O='"order":["native","agy","api"]'
+  jqt "transports: first eligible" "$(tr_ '{"slot":"opus",'"$O"',"available":{"native":true,"agy":true,"api":true}}')" '.action == "use" and .transport == "native"'
+  jqt "transports: first-use quota on native → agy" "$(tr_ '{"slot":"opus",'"$O"',"available":{"native":false,"agy":true,"api":false}}')" '.transport == "agy" and .skipped == ["native","api"]'
+  jqt "transports: runtime quota, agy denied → switch to api (same version)" "$(tr_ '{"slot":"opus",'"$O"',"available":{"native":true,"agy":true,"api":true},"denied":["agy"],"event":"runtime-failure","failed":"native","frozen_version":"5.5","versions":{"agy":"5.5","api":"5.5"}}')" '.action == "switch" and .transport == "api"'
+  jqt "transports: next serves another version → swap, row 5" "$(tr_ '{"slot":"opus",'"$O"',"available":{"agy":false,"api":true},"event":"runtime-failure","failed":"native","frozen_version":"5.5","versions":{"api":"5"}}')" '.action == "swap" and .row == 5'
   jqt "transports: forced @agy failing at run time never falls through" "$(tr_ '{"slot":"opus",'"$O"',"available":{"agy":true},"forced":"agy","event":"runtime-failure","failed":"agy"}')" '.action == "halt" and .row == 5'
   jqt "transports: forced @agy unavailable → halt row 2" "$(tr_ '{"slot":"opus",'"$O"',"available":{"agy":false},"forced":"agy"}')" '.action == "halt" and .row == 2'
   jqt "transports: forced @agy denied by policy → used with a warning" "$(tr_ '{"slot":"opus",'"$O"',"available":{"agy":true},"denied":["agy"],"forced":"agy"}')" '.action == "use" and (.reason | test("warning"))'
-  jqt "transports: explicit --model, all transports denied → first available" "$(tr_ '{"slot":"fable","order":["native","cursor"],"available":{"native":true,"cursor":true},"denied":["native","cursor"],"explicit":true}')" '.action == "use" and .transport == "native"'
+  jqt "transports: explicit --model, all transports denied → first available" "$(tr_ '{"slot":"fable","order":["native","api"],"available":{"native":true,"api":true},"denied":["native","api"],"explicit":true}')" '.action == "use" and .transport == "native"'
   jqt "transports: nothing eligible → halt row 2" "$(tr_ '{"slot":"haiku","order":["native"],"available":{"native":false}}')" '.action == "halt" and .row == 2'
   jqt "transports: @transport the slot does not have → halt" "$(tr_ '{"slot":"haiku","order":["native"],"available":{},"forced":"agy"}')" '.action == "halt"'
-  OA='"order":["native","agy","cursor","api"]'
-  jqt "transports: api fallback — native quota at run time, agy and cursor out → switch to api" \
-    "$(tr_ '{"slot":"opus",'"$OA"',"available":{"native":true,"agy":false,"cursor":false,"api":true},"event":"runtime-failure","failed":"native","frozen_version":"5.5","versions":{"api":"5.5"}}')" \
+  OA='"order":["native","agy","api"]'
+  jqt "transports: api fallback — native quota at run time, agy out → switch to api" \
+    "$(tr_ '{"slot":"opus",'"$OA"',"available":{"native":true,"agy":false,"api":true},"event":"runtime-failure","failed":"native","frozen_version":"5.5","versions":{"api":"5.5"}}')" \
     '.action == "switch" and .transport == "api"'
-  jqt "transports: api last — never chosen while native is available" "$(tr_ '{"slot":"opus",'"$OA"',"available":{"native":true,"agy":true,"cursor":true,"api":true}}')" '.transport == "native"'
+  jqt "transports: api last — never chosen while native is available" "$(tr_ '{"slot":"opus",'"$OA"',"available":{"native":true,"agy":true,"api":true}}')" '.transport == "native"'
   jqt "transports: --sdk (forced api) failing at run time never falls back to the subscription" \
     "$(tr_ '{"slot":"opus",'"$OA"',"available":{"native":true,"api":true},"forced":"api","event":"runtime-failure","failed":"api"}')" '.action == "halt" and .row == 5'
+  jqt "transports: fable (native → api) quota at run time, no api → swap row 5" \
+    "$(tr_ '{"slot":"fable","order":["native","api"],"available":{"native":true,"api":false},"event":"runtime-failure","failed":"native","frozen_version":"5.2"}')" '.action == "swap" and .row == 5'
   jqt "transports: haiku with api fallback → api after native" \
     "$(tr_ '{"slot":"haiku","order":["native","api"],"available":{"native":false,"api":true}}')" '.action == "use" and .transport == "api"'
 fi
@@ -532,9 +525,9 @@ if group T8 "lock"; then
     "$(ANTHROPIC_API_KEY=k ANTHROPIC_AUTH_TOKEN=t ANTHROPIC_BASE_URL=u "$B/maestro-env" -- env | grep -c '^ANTHROPIC_' || true)"
   # catalog refresh --gen: sources read outside the lock, the write inside the fence.
   jqt "catalog refresh --gen writes the catalog" \
-    "$("$B/maestro-catalog" refresh --gen "$g" --fixtures "$FX/catalogs/machine-2026-10-11")" '.slots.codex.sol[0] == "6.1"'
+    "$("$B/maestro-catalog" refresh --gen "$g" --fixtures "$FX/catalogs/machine-2026-11-14")" '.slots.codex.sol[0] == "6.1"'
   h0="$(sha256sum .maestro/catalog.json | cut -c1-64)"
-  out="$("$B/maestro-catalog" refresh --gen "$f1" --fixtures "$FX/catalogs/machine-2026-10-11" 2>&1; echo "rc=$?")"
+  out="$("$B/maestro-catalog" refresh --gen "$f1" --fixtures "$FX/catalogs/machine-2026-11-14" 2>&1; echo "rc=$?")"
   if [[ "$out" == *"rc=4"* && "$(sha256sum .maestro/catalog.json | cut -c1-64)" == "$h0" ]]; then
     ok "catalog refresh with a superseded fence leaves the catalog untouched"
   else bad "catalog refresh with a superseded fence refused" "$out"; fi
@@ -683,11 +676,13 @@ if group T10 "ledger rows from job output"; then
   REPO="$(new_repo)"; cd "$REPO" || exit 2
   g="$("$B/maestro-lock" acquire --run r --token t --host test | jq -r .fence)"
   mkdir -p .maestro/jobs/j1 .maestro/jobs/j2
-  cp "$FX/verdicts/cursor-stream.jsonl" .maestro/jobs/j1/out; printf 0 > .maestro/jobs/j1/exit
-  printf '{"run_id":"r","host":"codex"}' > .maestro/jobs/j1/meta.json
-  row="$("$B/maestro-ledger" --dry-run --job j1 --stage critique --cli cursor-agent --transport cursor --family xai --model grok-4.7-medium)"
-  jqt "cursor row: usage, served model, run and host from meta" "$row" \
-    '.input_tokens == 1 and .output_tokens == 1 and .model_served == "Grok 4.7 256K Medium" and .run_id == "r" and .host == "codex" and .exit_code == "0"'
+  printf '%s\n' '{"type":"system","subtype":"init","model":"claude-sonnet-5-5","session_id":"c1"}' \
+    '{"type":"result","subtype":"success","is_error":false,"result":"x","session_id":"c1","duration_ms":2000,"usage":{"input_tokens":5,"cache_read_input_tokens":2,"cache_creation_input_tokens":1,"output_tokens":3},"modelUsage":{"claude-sonnet-5-5":{}}}' > .maestro/jobs/j1/out
+  printf 0 > .maestro/jobs/j1/exit
+  printf '{"run_id":"r","host":"claude-code"}' > .maestro/jobs/j1/meta.json
+  row="$("$B/maestro-ledger" --dry-run --job j1 --stage critique --cli claude-cli --transport native --family claude --model sonnet)"
+  jqt "claude -p row: usage, served model, run and host from meta" "$row" \
+    '.input_tokens == 5 and .output_tokens == 3 and .model_served == "claude-sonnet-5-5" and .run_id == "r" and .host == "claude-code" and .exit_code == "0"'
   printf '{"type":"thread.started","thread_id":"t1"}\n{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":4,"output_tokens":3,"reasoning_output_tokens":1}}\n' > .maestro/jobs/j2/out
   row="$("$B/maestro-ledger" --dry-run --job j2 --stage build --cli codex --transport codex --family openai --model gpt-6.1-sol)"
   jqt "codex row: usage, session, total" "$row" '.session_id == "t1" and .input_tokens == 10 and .reasoning_tokens == 1 and .total_tokens == 13'
@@ -751,7 +746,7 @@ if group T10 "ledger rows from job output"; then
   jqt "api row: usage, served model, cost_usd from total_cost_usd" "$row" \
     '.cli == "claude-sdk" and .transport == "api" and .input_tokens == 12000 and .cached_input_tokens == 30000
      and .model_served == "claude-opus-5-5" and .cost_usd == 0.4125 and .session_id == "sdk1" and .duration_s == 42'
-  jqt "non-api rows carry cost_usd null" "$("$B/maestro-ledger" --dry-run --job j1 --stage critique --cli cursor-agent --transport cursor --family xai --model m)" '.cost_usd == null'
+  jqt "non-api rows carry cost_usd null" "$("$B/maestro-ledger" --dry-run --job j1 --stage critique --cli claude-cli --transport native --family claude --model m)" '.cost_usd == null'
   "$B/maestro-ledger" --gen "$g" --job k1 --stage critique --cli claude-sdk --transport api --family claude --model claude-opus-5-5 >/dev/null
   "$B/maestro-ledger" --gen "$g" --job k1 --stage build --cli claude-sdk --transport api --family claude --model claude-opus-5-5 >/dev/null
   "$B/maestro-ledger" --gen "$g" --job k2 --stage build --cli claude-sdk --transport api --family claude --model claude-opus-5-5 >/dev/null

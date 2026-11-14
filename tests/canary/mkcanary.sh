@@ -20,5 +20,5 @@ T
 printf '%s\n' '# strlib' 'Tiny bash string helpers. Tests: `bash tests/test_str.sh`.' > README.md
 git add -A; git -c user.email=canary@maestro -c user.name=canary commit -qm "strlib: upper"
 "$SRC/install.sh" "$D" >/dev/null
-printf '.agents/\n.claude/\n.cursor/\n' >> "$(git rev-parse --absolute-git-dir)/info/exclude"
+printf '.claude/\n' >> "$(git rev-parse --absolute-git-dir)/info/exclude"
 bash tests/test_str.sh >/dev/null && echo "ready: $D"

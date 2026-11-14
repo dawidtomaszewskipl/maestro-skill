@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # maestro-ledger — build a complete ledger row from a job's output and append it (docs/ledger.md).
 #
-#   maestro-ledger --gen N --job <id> --stage <stage> --cli codex|agy|claude-cli|claude-sdk|cursor-agent
-#                 --transport native|agy|cursor|codex|api --family <family> --model <requested>
+#   maestro-ledger --gen N --job <id> --stage <stage> --cli codex|agy|claude-cli|claude-sdk
+#                 --transport native|agy|codex|api --family <family> --model <requested>
 #                 [--effort E] [--round R] [--outcome TEXT] [--verdict V]
 #                 [--effective-config JSON|TEXT] [--service-tier TIER] [--run ID] [--host H] [--dry-run]
 #   maestro-ledger --gen N --cli claude-agent --stage <stage> --transport native --family claude
@@ -22,7 +22,7 @@
 # mode, so its job directories have no meta.json. Usage is taken from the CLI's own fields —
 # codex: the last turn.completed.usage; agy: the envelope's usage (cumulative per conversation: kept raw in raw_cumulative); claude-cli:
 # the result event's usage and modelUsage; claude-sdk (the api transport, maestro-sdk): the same
-# event stream, plus cost_usd from result.total_cost_usd; cursor-agent: the result event's usage and init.model.
+# event stream, plus cost_usd from result.total_cost_usd.
 # Codex resumes and agy conversations report CUMULATIVE usage: the raw counters go into
 # raw_cumulative and the token fields get the delta against the previous row of the same session.
 # Missing numbers are null, never estimated. Appends through maestro-state (audited); --dry-run
@@ -125,15 +125,6 @@ case "$cli" in
     status="$(jq -r '.subtype // "none"' <<<"$res")"; denied="$(jq -c '[(.permission_denials // [])[].tool_name]' <<<"$res")"
     dur="$(jq -c 'if .duration_ms then .duration_ms / 1000 else null end' <<<"$res")"
     if [[ "$cli" == claude-sdk ]]; then cost="$(jq -c '.total_cost_usd // null' <<<"$res")"; fi ;;
-  cursor-agent)
-    res="$(jq -c 'select(.type == "result")' "$out" 2>/dev/null | tail -1)"; [[ -n "$res" ]] || res='{}'
-    sid="$(jq -r '.session_id // empty' <<<"$res")"
-    usage="$(jq -c '(.usage // {}) | {input_tokens: .inputTokens, cached_input_tokens: .cacheReadTokens,
-                     cache_write_input_tokens: .cacheWriteTokens, output_tokens: .outputTokens, reasoning_tokens: null}' <<<"$res")"
-    served="$(jq -c 'select(.type == "system" and .subtype == "init") | .model' "$out" 2>/dev/null | head -1)"
-    [[ -n "$served" ]] || served=null
-    status="$(jq -r '.subtype // "none"' <<<"$res")"; denied=null
-    dur="$(jq -c 'if .duration_ms then .duration_ms / 1000 else null end' <<<"$res")" ;;
   claude-agent)
     sid="$agent_id"
     usage="$(jq -cn --argjson t "$total_opt" '{input_tokens: null, cached_input_tokens: null,
@@ -141,7 +132,7 @@ case "$cli" in
     served="$(jq -cn --arg m "$served_opt" '$m')"
     status="${status_opt:-success}"; denied=null
     dur="$(if [[ -n "$dur_ms" ]]; then jq -n --argjson d "$dur_ms" '$d / 1000'; else echo null; fi)" ;;
-  *) mae_die "maestro-ledger: --cli is codex, agy, claude-cli, claude-sdk, cursor-agent or claude-agent" ;;
+  *) mae_die "maestro-ledger: --cli is codex, agy, claude-cli, claude-sdk or claude-agent" ;;
 esac
 
 # Cumulative counters (codex resume, agy conversation). Per COUNTER: the baseline is the last
