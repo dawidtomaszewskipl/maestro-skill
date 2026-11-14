@@ -173,7 +173,8 @@ it loops `maestro-wait` in the foreground. A Claude worker on the `Agent` tool (
   returns:
   - `exited`/`lost` → read the job;
   - `lingering`/`orphaned` → act in the same turn (`--peek`, then `maestro-kill`); re-arming
-    would return at once;
+    would return at once. `maestro-kill` → `waiting-tests` (or `refused`, a test job): wait on the
+    sampler and `--peek` again;
   - `uncertain` → `--peek` again; with a live leader re-arm, otherwise `maestro-kill` answers
     `blocked`;
   - exit 3 (you passed `--max`) → still running: re-arm.

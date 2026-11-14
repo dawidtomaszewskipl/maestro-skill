@@ -21,7 +21,7 @@ Read this before the first external launch of a run. `SKILL.md` keeps the invari
 
   maestro-run creates the job directory, owns stdout, stderr and stdin (the line carries **no
   redirection of its own**), prints the job JSON and returns at once. Test runs go the same way,
-  with `--kind test` and without `maestro-env`. Then wait:
+  with `--kind test`. Then wait:
   - **interactive Claude Code**: one Bash call with `run_in_background: true`:
 
     ```bash
