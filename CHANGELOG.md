@@ -58,10 +58,14 @@ checks became helpers.** Breaking: read "Migration" before upgrading.
 - SKILL.md 46 → 35 KB and `docs/hosts.md` 28 → 16 KB; the fixed brief text moved to
   `docs/briefs.md`, splits to `docs/worktrees.md`, measurement history to `docs/evidence.md`.
 - Tests: T12 (docs consistency, ban on the removed names), T13 identity, T14 preflight, T15 flags;
-  370 pass.
-- `maestro-state adopt` refuses under a headless Claude Code (`claude -p`): no user there could have
-  inspected the file. An interactive Claude Code running `--unattended` cannot be told apart and
-  stays the director's rule.
+  378 pass. A /code-review pass found ten defects in the branch before release; all fixed.
+- `maestro-state adopt` refuses unless `maestro-host` reports an interactive Claude Code (headless
+  `claude -p`, or another agent CLI): no user there could have inspected the file. An interactive
+  Claude Code running `--unattended` cannot be told apart and stays the director's rule.
+- Live canary (`tests/canary/build-interrupt-resume.sh`, headless Sonnet director, `--critic=sol`):
+  the first run stopped correctly at the critique cap (`needs-decision`, row 3); resumed with the
+  build option, the director was killed while the build job ran, and `--resume --unattended`
+  reconciled the finished job, checked its identity, ran the tests and committed.
 
 ### Migration from 1.x
 - Run `./install.sh` (add `--sdk` for the api transport). It replaces the 1.x symlink and names
