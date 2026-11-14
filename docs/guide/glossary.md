@@ -3,8 +3,8 @@
 ## Terms
 
 **Assignment line** — the one line printed before the plan that names the builder, critics,
-reviewer, their exact models and roads, the efforts, rounds, tests, sandbox level, host and
-families — each with the reason for the choice. Your one-word override starts here.
+reviewer, their exact models and roads, the efforts, rounds, tests, sandbox level, mode
+(interactive or headless) and families — each with the reason for the choice. Your one-word override starts here.
 
 **Brief** — the written instructions a worker gets: the plan, boundaries, conventions, what "done"
 looks like, how to answer. Workers start cold, so the brief is all they know.
@@ -36,13 +36,13 @@ test, commit, report.
 `gemini`).
 
 **Edits-only** — a worker that can change files but not run commands: anything through agy,
-`claude -p` or the API, and a Cursor builder whose reach check failed. The director runs its
+`claude -p` or the API, and a Codex builder whose reach check failed. The director runs its
 tests.
 
 **Effort** — how hard a model thinks on a call: `low`, `medium`, `high`, `xhigh`, `max`. Set per
 stage; clamped to what the road supports.
 
-**Family** — the company behind a model: Claude, OpenAI, Google, xAI.
+**Family** — the company behind a model: Claude, OpenAI, Google.
 
 **Fence** — a secret the lock gives the director; every change to the repository or to `.maestro/`
 must present it, so a superseded director cannot write anything.
@@ -54,10 +54,11 @@ a cross-family critic.
 integrity, or a migration that changes or drops existing data. Brings a stronger builder, a
 second critic and a recommended review.
 
-**Host** — the assistant maestro runs in: Claude Code, Codex, Cursor's `agent`, or agy.
+**Host** — the assistant maestro runs in: always Claude Code since 2.0.0, interactive or headless
+(`claude -p`).
 
 **Job** — a worker's turn or a test run launched so that the director can wait for it without
-ending its own turn; outside Claude Code, a detached process maestro polls.
+ending its own turn; in a headless Claude Code, a detached process maestro polls.
 
 **Ledger** — `.maestro/ledger.jsonl`, one line per model call with model, tokens and time; the
 source of the report's cost table.
@@ -74,7 +75,7 @@ preferences such as denied slots, pinned versions, families switched off.
 **Probe** — one cheap call ("Reply with exactly: OK") that proves the account can use a model on a
 road. Remembered for seven days.
 
-**Provisional** — a model the ledger has not measured enough: Grok, Argon. Marked in every
+**Provisional** — a model the ledger has not measured enough: Argon. Marked in every
 assignment line.
 
 **Reviewer** — with `--review`, a cross-family model that reads the finished diff against the
@@ -83,7 +84,7 @@ plan.
 **Run** — one `/maestro` invocation from interview to report, with its own id, checkpoint and
 ledger rows.
 
-**Sandbox rung** — the permission level a Codex or Cursor worker runs at, from "repository
+**Sandbox rung** — the permission level a Codex worker runs at, from "repository
 writable, no network" up to "no sandbox", climbed only after a failed check and announced.
 
 **Slot** — a short name for a model line: `opus`, `sol`, `gemini`, … Resolved to a concrete model
@@ -92,7 +93,7 @@ at the start of each run.
 **Swap** — replacing a worker with a different model mid-run (limits with no road left, a crash,
 your call), with critics re-checked. A **switch** keeps the same model on another road.
 
-**Transport** (road) — the CLI that serves a model: native, agy, cursor, codex, api.
+**Transport** (road) — the CLI that serves a model: native, agy, codex, api.
 `opus@agy` names a slot on a road.
 
 **Unattended** (`--unattended`) — a run with nobody to answer: gaps become assumptions, decisions

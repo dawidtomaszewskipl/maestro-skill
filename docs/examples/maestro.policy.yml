@@ -4,8 +4,8 @@
 # ~/.config/maestro/policy.yml (your own defaults). Precedence:
 #   command-line flags  >  repo maestro.policy.yml  >  ~/.config/maestro/policy.yml  >  skill defaults
 # Every key is optional. Slot names are the --model values:
-#   sonnet opus fable haiku astra sol luna terra argon gemini grok self
-# Transports: native agy cursor codex api (a slot@transport pair names one).
+#   sonnet opus fable haiku astra sol luna terra argon gemini self   (bin/slots.json)
+# Transports: native agy codex api (a slot@transport pair names one).
 # Effort values: low medium high xhigh max (ultra for OpenAI only); clamped per transport.
 
 # Slots the director never picks on its own. An explicit --model still wins,
@@ -28,9 +28,9 @@ cascade_drafter: luna
 # Plan-critique cap, 1-8 (default 2). --rounds on the command line beats it.
 critique_rounds: 2
 
-# Per-stage effort. A stage takes one value, or per-family values (openai/google/xai/claude)
-# when the families need different levels (agy stops at high, Grok at xhigh; a single higher
-# value is clamped and marked (clamped)).
+# Per-stage effort. A stage takes one value, or per-family values (openai/google/claude)
+# when the families need different levels (Argon and Flash stop at high, Hydrogen at xhigh;
+# a single higher value is clamped and marked (clamped)).
 effort:
   critique: medium
   high_stakes_critique:
@@ -44,23 +44,19 @@ effort:
 # `on` lifts a lower-precedence `off`, it cannot make an absent CLI available).
 families:
   google: off
-  # xai: on        # Grok through Cursor; on by default when `agent` is installed and signed in
-  # claude: on     # can be switched off too (maestro's director is whatever host runs it)
+  # claude: on     # Claude workers can be switched off too (the director is always Claude Code)
 
 # Transports the director never picks on its own (an explicit slot@transport still wins).
 transports:
   deny:
-    - fable@cursor     # Cursor's Fable models are "NO ZDR"
-    - opus@cursor
+    - opus@agy         # Opus only through Claude Code itself (and api)
+    - sonnet@api
 
 # Pin a line instead of following the newest model (docs/catalog.md, "Pins").
 pin:
   sol: "6.1"                         # every transport of the slot must serve 6.1
   # opus:                           # exact slug on one transport, the others off
   #   native: claude-opus-5-5
-
-# Allow Cursor's -fast variants (default false).
-cursor_fast: false
 
 # Claude through the Agent SDK on an API key (the Max plan's monthly API credit; docs/workers.md).
 # --sdk uses it for every Claude slot; fallback: true also makes it the last transport a Claude

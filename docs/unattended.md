@@ -99,46 +99,45 @@ Every gap is classified **before** it is resolved, and only row 1 becomes an ass
 
 The coverage baseline, built by searching SKILL.md and every `docs/*.md` for ask, question, halt,
 confirm, "hand … over", "user's call" and "user picks" — the command is under "Reproducing the
-search". Every reachable point has one outcome. The line numbers in A1–A21 refer to an older
-revision of SKILL.md and are kept only as a trace; the **section names are the reference** (A16a,
-A17 and A22–A32 cite sections only). Every `--unattended` pointer sentence in SKILL.md names its
-entry here.
+search". Every reachable point has one outcome. The **section names are the reference**; line
+numbers are not kept, because SKILL.md changes. Every `--unattended` pointer sentence in SKILL.md
+names its entry here.
 
 | # | Source | Ask point today | `--unattended` outcome |
 | --- | --- | --- | --- |
-| A1 | SKILL.md "Flags" :32–36 and its illegal combinations :69–76; "Stage 0" step 1 :239 | unknown flag or value, illegal combination | validation stop ("Where a stop is recorded") |
-| A2 | SKILL.md "Flags", plain words :78–84 | plain-word mapping ambiguous or rule-breaking | validation stop |
-| A3 | SKILL.md "Flags", `--critic` and `--reviewer` :42–48 | named critic or reviewer from the builder's family; two named critics from one family on high stakes | stop, row 2 (configuration authority) |
-| A4 | SKILL.md "Setup" :93–109; docs/setup.md "Questions" :28–72 | setup questionnaire | unreachable: `--setup` + `--unattended` is illegal (A1; SKILL.md :72–73, docs/setup.md :7–9) |
-| A5 | SKILL.md "Setup" :102–103, "Stage 0" step 5 :267–271; docs/policy.md:58; docs/setup.md:31–33 | failed model probe | stop, row 2 (no silent substitution); the setup re-ask is unreachable (A4) |
-| A6 | SKILL.md "The cross-family rule" :212–219; docs/cascade.md "Drafters" :34–40 | cascade family rule cannot be met | stop, row 2 |
-| A7 | SKILL.md "The cross-family rule" :221–230 | Claude-only routing with no eligible critic or reviewer | stop, row 2 |
-| A8 | docs/policy.md "What halts" :61–74; SKILL.md "Stage 0" step 4 :253–258 | illegal policy; denied effective implementer; a flag requires an unavailable family | stop, row 2 |
-| A9 | docs/workers.md:39; SKILL.md "Stage 0" step 4 :256–258 | `--model` naming an unavailable family | stop, row 2 |
-| A10 | SKILL.md "The loop" step 1 :400–406; "Briefs", "Test scope" :361–362; "Building a `--plan-only` plan" :570–571 | interview questions; test scope; a planned plan's open decisions | classification first (row 1 → assumption, otherwise stop) |
-| A11 | SKILL.md "Briefs" :374–377 and :385–396; docs/workers.md:97–99; docs/checkpoint.md:60 | worker assumptions and worker questions | brief clause, assumption audit, classification |
-| A12 | SKILL.md "Flags", high-stakes guard :86–91 | recommend `--review` | unchanged: a recommendation in the assignment line and the report; nothing added |
-| A13 | SKILL.md "The loop" step 4 :424–430, caps :483–487 | critique cap, critic `reject` | stop, row 3 |
-| A14 | SKILL.md "The loop" step 7 :460–463, caps :483–487 | fix-loop cap | stop, row 4 |
-| A15 | SKILL.md "Flags", `--plan-only` :55–58; "The loop" step 4 :431–435 | `--plan-only` hand-over | not a stop: the plan-only report is the normal result, with the assumption list |
+| A1 | SKILL.md "Flags" and its illegal combinations; "Stage 0" step 1 | unknown flag or value, illegal combination | validation stop ("Where a stop is recorded") |
+| A2 | SKILL.md "Flags", plain words | plain-word mapping ambiguous or rule-breaking | validation stop |
+| A3 | SKILL.md "Flags", `--critic` and `--reviewer` | named critic or reviewer from the builder's family; two named critics from one family on high stakes | stop, row 2 (configuration authority) |
+| A4 | SKILL.md "Setup"; docs/setup.md "Questions" | setup questionnaire | unreachable: `--setup` + `--unattended` is illegal (A1; SKILL.md, docs/setup.md) |
+| A5 | SKILL.md "Setup", "Stage 0" step 5; docs/policy.md; docs/setup.md | failed model probe | stop, row 2 (no silent substitution); the setup re-ask is unreachable (A4) |
+| A6 | SKILL.md "The cross-family rule"; docs/cascade.md "Drafters" | cascade family rule cannot be met | stop, row 2 |
+| A7 | SKILL.md "The cross-family rule" | Claude-only routing with no eligible critic or reviewer | stop, row 2 |
+| A8 | docs/policy.md "What halts"; SKILL.md "Stage 0" step 4 | illegal policy; denied effective implementer; a flag requires an unavailable family | stop, row 2 |
+| A9 | docs/workers.md; SKILL.md "Stage 0" step 4 | `--model` naming an unavailable family | stop, row 2 |
+| A10 | SKILL.md "The loop" step 1; "Briefs", "Test scope"; "Building a `--plan-only` plan" | interview questions; test scope; a planned plan's open decisions | classification first (row 1 → assumption, otherwise stop) |
+| A11 | SKILL.md "Briefs" and; docs/workers.md; docs/checkpoint.md | worker assumptions and worker questions | brief clause, assumption audit, classification |
+| A12 | SKILL.md "Flags", high-stakes guard | recommend `--review` | unchanged: a recommendation in the assignment line and the report; nothing added |
+| A13 | SKILL.md "The loop" step 4, caps | critique cap, critic `reject` | stop, row 3 |
+| A14 | SKILL.md "The loop" step 7, caps | fix-loop cap | stop, row 4 |
+| A15 | SKILL.md "Flags", `--plan-only`; "The loop" step 4 | `--plan-only` hand-over | not a stop: the plan-only report is the normal result, with the assumption list |
 | A16a | SKILL.md "Time and the watchdog" (safety stops, dirty-exit); "Launching workers" (transport switch); docs/hosts.md "Transport switch"; docs/catalog.md "Precedence" | safety stop; quota or limit exhaustion | safety stop → row 5, exactly as today. Quota or unavailability of a Claude slot's transport → the transport-switch transaction, automatically (the user configured the order; no stop), onto the **next eligible transport serving the same model id** — denied and unavailable transports are skipped, never switched onto (`maestro-roles --transports`). Row 5 only when no such transport remains (a later one serves another version, or none is left) or a forced `@transport` failed |
-| A16b | SKILL.md "Time and the watchdog", dirty-exit :511–519 | dirty-exit after a crash, kill or tree mismatch | not a stop by itself. Recovery keeps the outcome that triggered it: an audit stop stays row 2; a crash continues or swaps as today (A17, A18); a tree mismatch is inspected and its keep/reset decision recorded as today. A mismatch the director cannot attribute to a known worker is row 2, because someone else changed the tree |
+| A16b | SKILL.md "Time and the watchdog", dirty-exit | dirty-exit after a crash, kill or tree mismatch | not a stop by itself. Recovery keeps the outcome that triggered it: an audit stop stays row 2; a crash continues or swaps as today (A17, A18); a tree mismatch is inspected and its keep/reset decision recorded as today. A mismatch the director cannot attribute to a known worker is row 2, because someone else changed the tree |
 | A17 | SKILL.md "Time and the watchdog", swap | swap: limits, the user's call, a crashed host; no eligible critic after a swap | limits with no transport left → row 5 stop (with one left it is A16a's switch, not a swap); the user's call is unreachable (no user); a crashed host → swap as today; no eligible critic → stop, row 2 |
-| A18 | SKILL.md "Time and the watchdog" :506–510 | out-of-scope decline → one rewritten brief, then reroute; transient API failure | unchanged (the director's existing authority); transient API failure → continue, unchanged |
-| A19 | SKILL.md "Checkpoint and resume" :550–563; docs/checkpoint.md "Decisions", candidates :132–145, "Resume procedure" step 1 :152–155 | a checkpoint exists when a new (non-resume) task starts; several candidates on resume | new task over an unfinished run → stop recorded in `pending-decision.md`; several candidates → "Candidates on resume" |
-| A20 | SKILL.md "Building a `--plan-only` plan" :565–578; docs/checkpoint.md "Resume procedure" step 6 :192–193 | build a planned plan?; no eligible critics for it | "Candidates on resume"; no eligible critics → stop, row 2 |
-| A21 | docs/cascade.md "Protocol" step 3 :49–56 and step 7 :70–79, "Abort classification" :83–99, "Drafter appendix" :101–117 | drafter `DRAFT_ABORT` → automatic escalation | the drafter appendix gains the authority clause; the director classifies the abort reason before escalating: an authority gap is row 2 with no escalation; capability or context keeps the existing escalation |
-| A22 | SKILL.md "Flags", `--unattended`; docs/hosts.md "Detection" | a headless director (`claude -p`, `codex exec`, `agent -p`) — nobody can answer | without `--unattended`: validation stop; with it: the run proceeds under this matrix |
-| A23 | SKILL.md "Stage 0" step 0; docs/hosts.md "Detection" | host `unknown` | stop, row 2 (`--host=` is the answer) |
-| A24 | SKILL.md "Checkpoint and resume"; docs/hosts.md "Resume across hosts", "Director identity" | a resume in a different host, director family or model line; the director's identity changing between dispatches so that a `self` or degraded-mode assignment becomes illegal | stop, row 2 |
-| A25 | SKILL.md "Stage 0" step 3a; docs/hosts.md "Capability checks" | a capability the run needs is missing (state, git metadata, model reach, tests, visual); a host permission prompt denied | stop, row 2 (changing the host's configuration is the user's authority) |
+| A18 | SKILL.md "Time and the watchdog" | out-of-scope decline → one rewritten brief, then reroute; transient API failure | unchanged (the director's existing authority); transient API failure → continue, unchanged |
+| A19 | SKILL.md "Checkpoint and resume"; docs/checkpoint.md "Decisions", candidates, "Resume procedure" step 1 | a checkpoint exists when a new (non-resume) task starts; several candidates on resume | new task over an unfinished run → stop recorded in `pending-decision.md`; several candidates → "Candidates on resume" |
+| A20 | SKILL.md "Building a `--plan-only` plan"; docs/checkpoint.md "Resume procedure" step 6 | build a planned plan?; no eligible critics for it | "Candidates on resume"; no eligible critics → stop, row 2 |
+| A21 | docs/cascade.md "Protocol" step 3 and step 7, "Abort classification", "Drafter appendix" | drafter `DRAFT_ABORT` → automatic escalation | the drafter appendix gains the authority clause; the director classifies the abort reason before escalating: an authority gap is row 2 with no escalation; capability or context keeps the existing escalation |
+| A22 | SKILL.md "Flags", `--unattended`; docs/hosts.md "Detection" | a headless director (`claude -p`): nobody can answer | without `--unattended`: validation stop; with it: the run proceeds under this matrix |
+| A23 | SKILL.md "Stage 0" step 0; docs/hosts.md "Detection" | host `unknown` or `unsupported` (since 2.0.0 maestro directs only from Claude Code) | stop, row 2: the remedy is starting `/maestro` from Claude Code |
+| A24 | SKILL.md "Checkpoint and resume"; docs/hosts.md "Director identity"; docs/checkpoint.md "Resume procedure" step 0 | a resume whose checkpoint records another host or a slot or transport removed in 2.0.0; a resume under a different director model line; the director's identity changing between dispatches so that a `self` or degraded-mode assignment becomes illegal | stop, row 2 |
+| A25 | SKILL.md "Stage 0" step 3a; docs/hosts.md "Capability checks" | a capability the run needs is missing (`maestro-preflight` `stops`: state, git metadata, model reach; tests, visual); a Bash permission prompt denied | stop, row 2 (changing Claude Code's configuration is the user's authority) |
 | A26 | SKILL.md "Stage 0" step 0; docs/hosts.md "Lock" | the checkout's lock is held by a live director, or another run's jobs are still alive | stop, row 2 |
 | A27 | SKILL.md "Launching workers"; docs/hosts.md "Jobs" | a job ends `blocked` (members that cannot be classified or killed) | not a decision: the run ends with `result: blocked`, the lock kept and the members listed; the same with or without `--unattended` |
-| A28 | SKILL.md "The cross-family rule", degraded modes | one eligible family with a single line (Google, xAI) | stop, row 2 (extends A7) |
+| A28 | SKILL.md "The cross-family rule", degraded modes | one eligible family with a single eligible line (Google with only one of `argon`, `gemini`) | stop, row 2 (extends A7) |
 | A29 | SKILL.md "Stage 0" step 5; docs/catalog.md "Resolution" | the newest candidate is denied and an older one passes; a renamed line kept on its previous slug | recorded assumption, row 1 (announced in the Assign line and the report); no candidate passing → row 2 (A5) |
 | A30 | SKILL.md "Launching workers"; docs/commands.md "Validating a verdict" | a named critic's verdict invalid after the re-ask | stop, row 2 (the named critic cannot be replaced silently); an unnamed critic moves to the next eligible one |
 | A31 | SKILL.md "Stage 0" step 4a; docs/catalog.md "Sources", "Pins" | a transport's catalog cannot be acquired; a pinned version or slug missing from the catalog | the transport is ineligible; a flag or pin that needs it → row 2 (as A8, A9) |
-| A32 | SKILL.md "Roster", rubric row 6 | `self` ineligible (director model unknown) and none of `sonnet`, `sol`, `gemini`, `grok` eligible | stop, row 2 |
+| A32 | SKILL.md "Roster", rubric row 6 | `self` ineligible (director model unknown) and none of `sonnet`, `sol`, `gemini` eligible | stop, row 2 |
 
 ### Reproducing the search
 
@@ -148,19 +147,18 @@ grep -n -i -E "\bask|question|halt|confirm|hand(s|ed)? .{0,40}over|user's call|u
 ```
 
 The search was re-run over SKILL.md, `docs/hosts.md` and `docs/catalog.md` on 2026-10-11: the ask
-points added then are A22–A32; the remaining hits are "confirm" in director checks
-(`docs/hosts.md`, "Marker confirmation", transport switch step 1), "how it asks the user" (the
-adapter table) and the routing-precedence table's halts (A8, A9, A16a).
+points added then are A22–A32; the remaining hits are "confirm" in director checks (`docs/hosts.md`,
+transport switch step 1), "Ask the user" (the adapter table) and the routing-precedence table's
+halts (A8, A9, A16a).
 
-A hit inside an `--unattended` pointer sentence (SKILL.md :36, :63–67, :97, :228–229, :256–258,
-:388–396, :401–406, :478–481, :528–530) belongs to the entry that sentence names. Every other hit
-is either in the table above or listed here as not an ask point:
+A hit inside an `--unattended` pointer sentence of SKILL.md belongs to the entry that sentence
+names. Every other hit is either in the table above or listed here as not an ask point:
 
 | Hit | Why it is not an ask point |
 | --- | --- |
-| SKILL.md:8 | the skill description ("explicitly asks for the multi-model loop") |
-| SKILL.md:54, :95–96, :104 | `--setup` and its contract: A4, unreachable |
-| SKILL.md:145 | "only when the user picks it" — a routing preference in the rubric, not a question |
+| SKILL.md, the description | "explicitly asks for maestro" |
+| SKILL.md "Flags" and "Setup" on `--setup` | `--setup` and its contract: A4, unreachable |
+| SKILL.md "Roster", the rubric | "only when the user picks it": a routing preference, not a question |
 | docs/setup.md:3–4, :28–71 | the setup questionnaire: A4, unreachable |
 | docs/commands.md:29, :174, :212 | "confirmed cause", a brief that "asks for", "confirm what" a worker runs with — no user |
 | docs/policy.md:27 | "because you asked" — explains a flag that beats a deny |
@@ -449,19 +447,19 @@ audit log page` (`.a continue`, `.b archive-and-start`, `refers_to` R).
 | 45 | `/maestro --unattended --modle=sonnet --cascade add a factory for invoices` · repo `families: {openai: off}`, `cascade_drafter: luna` · none · the factory | validation stop `d-T-1` (`.a start: --model=sonnet --cascade`). `… --resume --unattended d-T-1.a` → policy fails (the effective drafter is in a family switched off, A8) → `d-T-1` to `history` with `failed_rule: policy`; new `current` `d-T-2`: `.a start: --model=sonnet --cascade=haiku`, `.b start: --model=sonnet`; stop. Then `… d-T-2.a` → valid → the run starts and the file is deleted | A1, A8 |
 | 46 | checkpoint of 19 (`d-R-5` open, `fix_cap: 3`; the plan approved by `sol`) · `/maestro --resume --unattended d-R-5.b` (`model=astra, fix_cap=4`) | validated before the decision is cleared: `fix_cap=4` is above the 3 fix rounds run; critic and reviewer `sol` now share the builder's family → reviewer `opus`, and one critique round of the current plan by an eligible cross-family critic before Astra's first turn; step 5 probe for `astra`, step 8 reach probe (Astra writes). All pass → `flags` get `--model=astra` and the checkpoint `fix_cap: 4` (`flag_sources` `d-R-5` for both), the critique round runs, then Astra gets the brief plus the current `git diff` for fix round 4 — the last one `fix_cap` allows | A14, A17 |
 | 47 | as 46, but the run named `--critic=sol` · answer `d-R-5.b` | a named critic from the new builder's family (A3) → failed validation: `d-R-5` to `history` with `failed_rule: cross-family (named critic)`; `fix_cap` stays 3. New `current` `d-R-6` in the checkpoint's `decisions`: `.a model=astra, critic=opus, fix_cap=4`, `.b model=astra, critic=gemini, fix_cap=4`, `.c` one more fix round with `sonnet` (`fix_cap=4`), `.d` stop and hand the diagnosis over; stop | A3, A14 |
-| 48 | `/maestro --unattended --model=opus add audit fields to orders` in Codex as host · none · `stage: build`, `opus@native` (`claude -p`) mid-build · the change | `claude -p` ends with Claude's quota error after editing two files; agy serves `claude-opus-5-5` (the frozen id) → transport switch, no stop: termination confirmed, dirty-exit keeps the edits, a fresh edits-only brief with the diff goes to `agy --model claude-opus-5-5-medium`, ledger `transport-switch`; critics unchanged (same family) | A16a |
-| 49 | as 48, but `transports: {deny: [opus@agy]}` and Cursor's Claude quota exhausted | no eligible next transport → row 5, A16a, exactly as a quota stop today | A16a, A17 |
+| 48 | `claude -p "/maestro --unattended --model=opus add audit fields to orders"` · none · `stage: build`, `opus@native` (`claude -p`) mid-build · the change | `claude -p` ends with Claude's quota error after editing two files; agy serves `claude-opus-5-5` (the frozen id) → transport switch, no stop: termination confirmed, dirty-exit keeps the edits, a fresh edits-only brief with the diff goes to `agy --model claude-opus-5-5-medium`, ledger `transport-switch`; critics unchanged (same family) | A16a |
+| 49 | as 48, but `transports: {deny: [opus@agy]}` and no `api` (no `--sdk`, no `api.fallback`) | no eligible next transport → row 5, A16a, exactly as a quota stop today | A16a, A17 |
 | 50 | `claude -p "/maestro --model=sonnet fix the typo in the footer"` (headless, no `--unattended`) | validation stop, A22: nobody can answer; the remedy names `--unattended` | A22 |
-| 51 | `/maestro --unattended …` launched from a nested setup where both `CODEX_THREAD_ID` and `CLAUDECODE` are set and the ancestry is hidden | `maestro-host` says `unknown` → row 2, A23; the decision offers `--host=codex` and `--host=claude-code` | A23 |
-| 52 | `--resume --unattended` of a run started in Claude Code, now invoked from Codex | host changed → row 2, A24 (adapter, `self`, critics to re-check) | A24 |
-| 53 | `/maestro --unattended --model=opus …` in Codex without `danger-full-access` | step 3a: model reach from the director's shell fails (network) → row 2, A25, remedy "start Codex with `--sandbox danger-full-access`" | A25 |
+| 51 | `/maestro --unattended …` launched from a nested setup where both `CODEX_THREAD_ID` and `CLAUDECODE` are set and the ancestry is hidden | `maestro-host` says `unknown` → row 2, A23; the remedy is starting `/maestro` from Claude Code itself | A23 |
+| 52 | `--resume --unattended` of a 1.4 checkpoint that records `host: codex` and a critic on a removed slot | row 2, A24: the decision offers discarding the checkpoint and starting again | A24 |
+| 53 | `claude -p "/maestro --unattended --model=sol …"` under a Bash sandbox that blocks `git worktree add` on a split | `maestro-preflight --worktree` lists the git write in `stops` → row 2, A25, remedy "allow the repository's `.git` or run without the sandbox" | A25 |
 | 54 | `/maestro --unattended …` while another director holds the checkout's lock (live pid) | row 2, A26 | A26 |
-| 55 | `--resume --unattended` where a previous Cursor builder left a process `maestro-kill` cannot end | `result: blocked`, lock kept, members listed — not a decision, A27 | A27 |
-| 56 | `/maestro --unattended --model=gemini …` with `families: {claude: off, openai: off, xai: off}` | one eligible family with one line → row 2, A28 | A28 |
+| 55 | `--resume --unattended` where a previous builder left a process `maestro-kill` cannot end | `result: blocked`, lock kept, members listed — not a decision, A27 | A27 |
+| 56 | `/maestro --unattended --model=gemini …` with `families: {claude: off, openai: off}` and `deny: [argon]` | one eligible family with one line → row 2, A28 | A28 |
 | 57 | `/maestro --unattended --model=sol …` · the catalog lists `gpt-6.2-sol`, its probe says the account cannot use it; `gpt-6.1-sol` passes | row 1, A29: `sol=gpt-6.1-sol (gpt-6.2-sol listed, denied for this account)` recorded as an assumption; the run continues | A29 |
-| 58 | `/maestro --unattended --critic=grok …` · Grok's verdict has two JSON objects, and again after the re-ask | named critic → row 2, A30 | A30 |
-| 59 | `/maestro --unattended --model=grok …` · `agent --list-models` fails (signed out) | the cursor transport is ineligible and a flag needs it → row 2, A31 (as A9) | A31 |
-| 60 | `/maestro --unattended fix the typo in the footer` in Cursor (director model unknown) with `families: {claude: off, openai: off, google: off}` and Grok's quota exhausted | rubric row 6: `self` ineligible, no fallback eligible → row 2, A32 | A32 |
+| 58 | `/maestro --unattended --critic=argon …` · Argon's verdict has two JSON objects, and again after the re-ask | named critic → row 2, A30 | A30 |
+| 59 | `/maestro --unattended --model=argon …` · `agy models` fails (signed out) | the agy transport is ineligible and a flag needs it → row 2, A31 (as A9) | A31 |
+| 60 | `/maestro --unattended fix the typo in the footer` from a director that cannot state its own model line, with `families: {openai: off, google: off}` and `deny: [sonnet]` | rubric row 6: `self` ineligible, no fallback eligible → row 2, A32 | A32 |
 
 The cross-family reviewer checks three things:
 
@@ -470,4 +468,4 @@ The cross-family reviewer checks three things:
 - no source line in the inventory search is missing from the table.
 
 This repository has no automated harness for the matrix; the end-to-end canaries (`tests/canary/`,
-`docs/hosts.md` "End-to-end canaries") exercise some of its stops on real runs.
+`docs/evidence.md` "End-to-end canaries") exercise some of its stops on real runs.

@@ -4,55 +4,52 @@
 
 The OpenAI and agy facts below were first checked against **Codex CLI 0.153.4** and **Antigravity
 CLI 1.1.27** on 2026-09-06 and re-checked up to Codex 0.159.2 (2026-09-30). The parts maestro
-changes were re-checked on **2026-10-11** with **Codex CLI 0.162.1**, **agy 1.3.3**,
-**Cursor agent 2026.10.01** and **Claude Code 2.1.296**; those statements say so. On **2026-10-28**
-the parts that changed were re-checked against **Codex 0.165.0**, **agy 1.4.8**, **Cursor agent
-2026.10.22** and **Claude Code 2.1.312** (help diffs of old and new binaries, release notes, probes
-and the measurements named below). Catalogs and flag
+changes were re-checked on **2026-10-11** with **Codex CLI 0.162.1**, **agy 1.3.3** and **Claude
+Code 2.1.296**, on **2026-10-28** against **Codex 0.165.0**, **agy 1.4.8** and **Claude Code
+2.1.312**, and on **2026-11-14** against **Codex 0.169.0**, **agy 1.5.9** and **Claude Code
+2.1.325** (help diffs of old and new binaries, `agy changelog`, Claude Code's changelog, the live
+catalogs; those statements say so). Catalogs and flag
 sets move: maestro reads the catalogs live (`docs/catalog.md`) and re-checks a flag with `--help`
 rather than trusting a table that has aged.
 
 ## Family is decided by the model, not by the CLI
 
-Two catalogs host other vendors' models next to their own (measured 2026-10-28):
+agy's catalog hosts other vendors' models next to Google's own (measured 2026-11-14, agy 1.5.9;
+the fixture is `tests/fixtures/catalogs/machine-2026-11-14/agy-models.txt`):
 
 ```
-$ agy models                                  $ agent --list-models (excerpt)
-gemini-4-argon-high     Gemini 4 Argon        grok-4.7-high - Grok 4.7  High
-gemini-3.8-flash-high   Gemini 3.8 Flash      claude-opus-5-5-high - Claude Opus 5.5 1M High
-claude-opus-5-5-high    Claude Opus 5.5       claude-fable-5-1-high - Claude Fable 5.1 1M (NO ZDR)
-claude-sonnet-5-5-high  Claude Sonnet 5.5     gemini-4-argon-high - Gemini 4 Argon High
-gpt-oss-120b-medium     GPT-OSS 120B          gpt-5.6-sol-high, kimi-k3-high, deepseek-v41-flash-…, …
+$ agy models
+gemini-4-argon-{low,medium,high}            Gemini 4 Argon
+gemini-4-hydrogen-{low,medium,high,xhigh}   Gemini 4 Hydrogen
+gemini-pro-orchestrator-g1-pro              Orchestrator (Argon)
+gemini-3.8-flash-{low,medium,high}          Gemini 3.8 Flash
+claude-opus-5-5-{low,medium,high}           Claude Opus 5.5
+claude-sonnet-5-5-{low,medium,high}         Claude Sonnet 5.5
+gpt-oss-120b-medium                         GPT-OSS 120B
 ```
 
-(agy listed Gemini 3.7 and 3.6 Flash and 3.1 Pro on 2026-10-11; by 2026-10-28 they are gone.)
+(agy listed Gemini 3.7 and 3.6 Flash and 3.1 Pro on 2026-10-11; by 2026-10-28 they were gone.
+Hydrogen appeared between 2026-10-28 and 2026-11-14.)
 
-So a slot's family follows the **model** it resolves to, whatever CLI serves it: `opus@agy` and
-`opus@cursor` are Claude, exactly like `opus` through the Agent tool. maestro uses agy's and
-Cursor's Claude models as further **transports** of the Claude slots (SKILL.md, "Roster"), and
-Cursor's Grok as the xAI family. Cursor's GPT and Gemini Flash models are older than what codex and agy
-serve and are not transports; Cursor's `gemini-<v>-argon-<effort>` is the second transport of
-`argon` (the same version agy serves, listed on both since 2026-10-16); Kimi, GLM, Composer, Muse
-(including `muse-wonder-1.0-*`) and DeepSeek (`deepseek-v41-flash-1017-*`, new by 2026-10-28) have
-no slot. Cursor's `--model` takes catalog slugs only: the bracket form `grok-4.7[effort=low]` that
-the 2026.10.22 bundle mentions is refused (`Cannot use this model`, measured 2026-10-28 for Grok and
-Claude; evidence: maestro run docs-20261028-0134, `M3-cursor-bracket.txt`). Every Cursor Fable model
-is marked "NO ZDR" (no zero data retention) — a repository whose policy needs ZDR denies
-`fable@cursor` (`transports.deny`).
+So a slot's family follows the **model** it resolves to, whatever CLI serves it: `opus@agy` is
+Claude, exactly like `opus` through the Agent tool. maestro uses agy's Claude models as a further
+**transport** of the Claude slots (SKILL.md, "Roster"). The orchestrator entry and GPT-OSS have no
+slot (they stay `unmatched` in the catalog and can never be pinned to a slot).
 
-An `agy` or `agent` call with no `--model` runs the account default, and Codex falls back to
+An `agy` call with no `--model` runs the account default, and Codex falls back to
 `~/.codex/config.toml`. If that default is from another family, "Google critiqued the Claude plan"
 was Claude critiquing Claude, and nothing in the output says so.
 
 **Availability is detected, not assumed.** Stage 0 checks three different things, all free of model
-turns: installation (`command -v codex|agy|agent|claude`), sign-in (`codex login status` — prints
-`Logged in using ChatGPT` and exits 0; `agy models` succeeding, since it fetches the catalog;
-`agent status --format json` — `isAuthenticated: true`, the account in `userInfo.email`; `claude auth
-status`) and
-health (`codex doctor --summary`, exit 0 with `0 fail`, **run where the worker will run** — the same
+turns: installation (`command -v codex|agy|claude`), sign-in (`codex login status` — prints
+`Logged in using ChatGPT` and exits 0; `agy models` succeeding, since it fetches the catalog; `claude
+auth status` — `loggedIn: true`, and since Claude Code 2.1.318 `loginExpiresAt`, which
+`maestro-preflight` turns into a warning when the login ends within a day) and
+health (`codex doctor --summary`, exit 0 with `0 fail` — on 0.169 the line reads `21 ok · 0 warn ·
+0 fail ok` —, **run where the worker will run** — the same
 signed-in install fails doctor inside a sandbox with unreachable endpoints). A health failure makes the
 worker unavailable in that environment, not signed out; none of the checks proves entitlement to a
-particular model. The cross-family rule then resolves among the families that are actually there; with
+particular model. `bin/maestro-preflight` runs all of these in one call. The cross-family rule then resolves among the families that are actually there; with
 Claude alone every external role is a different Claude model than the implementer and the run is marked
 degraded. A `--model` naming an unavailable family halts with a question. A policy file
 (`docs/policy.md`) can also switch a family off.
@@ -66,7 +63,9 @@ verified behaviour — omitting `--model` is the real risk).
 ### Models
 
 maestro resolves the OpenAI lines live (`docs/catalog.md`); the table below is the catalog as
-measured on 0.159.2 (2026-09-30), kept for its per-model notes. On 2026-10-11 `codex debug models`
+measured on 0.159.2 (2026-09-30), kept for its per-model notes. On 2026-11-14 (0.169.0) the live
+catalog resolves `sol` → `gpt-6.1-sol` (its probe passed the same day), `astra` → `gpt-6-astra`, `luna` → `gpt-6-luna`, `terra` →
+`gpt-6.1-terra`, with nothing unmatched (fixture `machine-2026-11-14`). On 2026-10-11 `codex debug models`
 (0.162.1) listed the same `visibility: list` slugs except that `gpt-5.5` is now hidden; `sol`
 resolved to `gpt-6.1-sol`, `astra` to `gpt-6-astra`, `luna` to `gpt-6-luna`, `terra` to
 `gpt-5.6-terra`. On 2026-10-28 (0.165.0) the live catalog also lists **`gpt-6.1-terra`** ("GPT-6.1
@@ -166,6 +165,8 @@ own list stops at `max`. `none` is rejected. Effort goes on the command line as
 | `--enable` / `--disable <feature>` | Shorthand for `-c features.<name>=…`. Nothing maestro needs to toggle: exec sessions carry multi-agent tools but are instructed not to spawn sub-agents unless asked, and maestro briefs never ask; `ultra`'s automatic delegation stays unused. |
 | `--ignore-rules` | Skips the user's and the project's execpolicy `.rules` — a safety net maestro does not remove. |
 | `--dangerously-bypass-hook-trust`, `--dangerously-bypass-approvals-and-sandbox` | Not rungs; they drop protections meant for already-sandboxed hosts. |
+| `--trust` (exec, resume, review; new by 0.169) | Saves trust for the project **persistently**, MCP commands outside the sandbox included. Never: it changes the user's Codex state beyond the run. |
+| `--cyber-access-program` (new by 0.169) | Selects a cyber access programme; rollouts record `cyber_access_program: "standard"` in `turn_context`. maestro never passes it, and `maestro-identity codex` treats anything but `standard` (or absent) as a mismatch. |
 
 The rest of DevDay 2026 is outside `codex exec`, so maestro has nothing to adopt from it: reusable
 **cloud development environments** and **Dots** (always-on agents with their own cloud computer)
@@ -177,8 +178,9 @@ Review** is covered under "Review" below.
 **`codex exec resume` has a different flag set** (0.159.2): `-m`, `-c`, `--json`, `-o`,
 `--output-schema`, `--ignore-user-config`, `-i`/`--image`, `--last`, `--all`, `--ephemeral`,
 `--enable`/`--disable`, `--strict-config`, `--ignore-rules`, `--skip-git-repo-check`,
-`--thread-source`, `--worktree` and the two `--dangerously-…` flags — but **not** `-s`, `--color`,
-`-C`, `--add-dir`, `--approve-for-me`. Sandbox goes through `-c 'sandbox_mode="workspace-write"'`;
+`--thread-source`, `--worktree`, `--trust`, `--cyber-access-program` (0.169) and the two
+`--dangerously-…` flags — but **not** `-s`, `--color`, `-C`, `--add-dir`, `--approve-for-me`
+(still true on 0.169.0). Sandbox goes through `-c 'sandbox_mode="workspace-write"'`;
 the working directory is the shell's. The id may be a UUID or a thread name. Two sessions in August each lost two 8–10-minute windows to
 `error: unexpected argument '-s' found`.
 
@@ -252,7 +254,12 @@ through `-c 'projects."<path>".trust_level="trusted"'`, the project's `model_rea
 applied with the user config (the user's `xhigh` won) nor without it (2026-09-30).
 
 The **effective** configuration is not a matter of trust: after every launch and resume the director
-reads it back from the session's rollout file (`docs/commands.md`, "Effective-config check").
+reads it back from the session's rollout file with `maestro-identity codex` (`docs/commands.md`,
+"Effective-config check"). Rollouts on disk here are from 0.166; the `turn_context` shape of 0.169
+is the same as far as a fresh probe shows. 0.169 also ships `migrate-rollouts` and a
+`thread_history_1.sqlite`, the start of a move from rollout `.jsonl` files to a paginated history
+(the `background_paginated_rollout_migration` feature is still off): when it lands, the
+effective-config check and the served-model column of the ledger need a new source.
 
 ## Google — `agy`
 
@@ -260,20 +267,22 @@ reads it back from the session's rollout file (`docs/commands.md`, "Effective-co
 
 | Flag | Why it matters |
 | --- | --- |
-| `--model <slug>` | Mandatory on every call (family). The slug embeds the effort (`gemini-3.8-flash-high`). |
-| `--effort low\|medium\|high` | Session effort. Must agree with the slug — `…-high` with `--effort medium` contradicts itself. |
+| `--model <slug>` | Mandatory on every call (family). The slug embeds the effort (`gemini-4-hydrogen-high`). |
+| `--effort low\|medium\|high\|xhigh\|max` | Session effort (the range grew to `max` by 1.5.9). Must agree with the slug — `…-high` with `--effort medium` contradicts itself — so maestro clamps to the efforts the model's slugs list: Hydrogen `low…xhigh`, Argon, Flash and agy's Claude models `low…high`. |
 | `--mode plan` | Read-only planning mode — the critic setting. |
 | `--mode accept-edits` | Auto-approves edits, keeps other prompts — the build setting. |
 | `--add-dir <repo>` | **Required for project skills and rules.** Print mode does not treat cwd as the workspace: without `--add-dir` the worker sees only the 5 built-in skills. |
-| `--print-timeout` | **Always set it.** It defaulted to 5 minutes up to 1.1.x; 1.2.8 defaults to `0`, which waits until the turn completes. Expiry returns `status:"ERROR"`, `error:"timeout waiting for response"`, exit 1 (there is no `TIMEOUT` status). |
-| `--output-format json` | One envelope written whole at exit: `{conversation_id, status, response, duration_seconds, num_turns, usage, denied_actions?, json_schema?, structured_output?}`. |
-| `--json-schema <schema-or-path>` | Schema enforced on the answer; the parsed object also arrives as `structured_output` (documented on Antigravity's headless page, present in every schema envelope maestro has kept since 1.3.x). `maestro-validate --envelope agy` reads `structured_output` first, `response` otherwise. Up to 1.3.x agy added `toolAction` and `toolSummary` keys to the object in `response`; since 1.4.0 it does not (the validator still drops them). |
+| `--print-timeout` | **Always set it.** It defaulted to 5 minutes up to 1.1.x; 1.2.8 defaults to `0`, which waits until the turn completes (and since 1.5.0 also for background tasks). Since **1.5.0** expiry exits **3**, prints an `AGY_ERROR` line and `[agy] print timeout after …` on stderr; before, it was `status:"ERROR"`, exit 1. A stuck `-p` run exits within 30 s since 1.5.5. |
+| `--output-format json` | One envelope written whole at exit: `{conversation_id, status, response, duration_seconds, num_turns, usage, denied_actions?, finished_reason?, json_schema?, structured_output?}`. `finished_reason` (1.4.11) is omitted on a normal finish and `print_timeout`, `interrupted` or `error` otherwise; `maestro-validate --envelope agy` rejects any value. |
+| `--json-schema <schema-or-path>` | Schema enforced on the answer; the parsed object also arrives as `structured_output` (documented on Antigravity's headless page, present in every schema envelope maestro has kept since 1.3.x). `maestro-validate --envelope agy` reads `structured_output` first, `response` otherwise. Up to 1.3.x agy added `toolAction` and `toolSummary` keys to the object in `response`; since 1.4.0 it does not (the validator still drops them). Up to 1.5.7 a follow-up through `--conversation` could answer in plain text despite the schema; 1.5.8 fixed it. |
 | `--log-file <path>` | Writes this run's CLI log to `<path>` while it runs (measured on 1.4.8: the file appeared and grew before the envelope was written). maestro puts it in the job directory and hands it to `maestro-wait --also`, instead of guessing the newest `~/.gemini/antigravity-cli/log/cli-*.log` (evidence: maestro run docs-20261028-0134, `2.2-log-midrun.txt`). |
-| `--mode auto` | Preview: edits auto-approved and commands run in agy's terminal sandbox (workspace and temp only, no network). **Not available on this account** (measured 2026-10-28 on 1.4.8, `-p`: stderr `warning: --mode auto is not available for this account; continuing in the default mode`, the log says the rollout flag is off; the command was then denied and nothing ran; evidence: maestro run docs-20261028-0134, `M1-agy-auto.txt`). Not offered on Business/Enterprise accounts at all. maestro does not use it; agy builders stay edits-only. |
+| `--mode auto` | Preview: edits auto-approved and commands run in agy's terminal sandbox (workspace and temp only, no network). **Not available on this account** (measured 2026-10-28 on 1.4.8, `-p`: stderr `warning: --mode auto is not available for this account; continuing in the default mode`, the log says the rollout flag is off; the command was then denied and nothing ran; evidence: maestro run docs-20261028-0134, `M1-agy-auto.txt`). Not offered on Business/Enterprise accounts at all. Since **1.5.7 Auto is the default mode** wherever it is available, headless included; on this account the log still says "auto mode is unavailable, falling back to default" (2026-11-14). maestro passes `--mode` on every line (the `/skills` listing included, `--mode plan`), so the default never decides; agy builders stay edits-only. |
 | `--input-format stream-json` | NDJSON prompts on stdin; **requires `--output-format stream-json`**. Observed on 1.1.27: stdout is `{"event":"init","conversation_id":…,"init":{"model","cwd","tools":[…]}}` followed by `{"event":"result","result":{…the same envelope as `--output-format json`…}}`; input lines must carry an `"event"` field (a `{"type":"user",…}` message is rejected with `stream input message is missing the "event" field`). A different mode with a different parser; not used by maestro. |
 | `--conversation <id>` | Resume by id. `-c`/`--continue` means "most recent conversation" — a race as soon as two runs exist. |
-| `--dangerously-skip-permissions` | Approves everything. Was blocked once by Claude Code's own auto-mode classifier; `--mode` settings are what maestro uses. |
+| `--dangerously-skip-permissions` | Approves everything (since 1.5.2 still blocked on the system denylist). Was blocked once by Claude Code's own auto-mode classifier; `--mode` settings are what maestro uses. |
 | `--agent <name>` | Run a custom agent; its Markdown frontmatter can preload `skills:` — an option, not used by maestro. |
+| `--disable-slash-commands` | **Not used.** It would stop a prompt that starts with `/` from expanding a skill, but on 1.5.9 it also disables the mode: `warning: --mode plan has no effect while slash command expansion is disabled.` (measured 2026-11-14) — a critic would silently lose plan mode and a builder accept-edits. Briefs simply never start with `/`. |
+| `--settings`, `--project`, `--new-project`, `--remote-agent` | One-off settings (`permissions.allow` without editing `~/.gemini`), project selection and remote agents. Not used: maestro's lines do not depend on agy settings or projects. |
 
 ### Headless permissions — the one that bites
 
@@ -290,10 +299,13 @@ prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in 
 
 Consequences:
 
-Everything below holds for both Google lines on agy, Flash (`gemini`) and Argon (`argon`). The
-measurements in the table are Flash's; Argon has since run as a plan critic (2026-10-16, 2026-10-28:
+Everything below holds for both Google slots on agy, `gemini` (Hydrogen, else Flash) and `argon`.
+The measurements in the table are Flash's; Argon has since run as a plan critic (2026-10-16, 2026-10-28:
 reads the repository itself, no denial, a valid verdict first time) and stays provisional until the
-ledger has more than critiques.
+ledger has more than critiques. Hydrogen is new (2026-11-14): Google has not announced it — press
+reports call it a codename for Gemini 4 Flash. Its first probe passed on 2026-11-14
+(`gemini-4-hydrogen-low` → `SUCCESS`, response `OK`, no `finished_reason`; `gemini-4-argon-low` the
+same); it has not built or critiqued yet.
 
 - A Gemini **critic, gate or reviewer** reads the repository itself, in plan mode: its brief gives
   paths inside `$REPO` and allows file tools there, forbidding commands, MCP and anything outside
@@ -313,7 +325,7 @@ ledger has more than critiques.
   conversation with the inline variant (whole brief quoted; above ~100 KB split, or another family).
 - A Gemini **builder** is edits-only. Its brief says so; the director runs tests and builds. One
   attempted command ends the turn with an empty response and `denied_actions: [{action:
-  "command"}]`, exit 0 — status `CANCELED` up to 1.3.x, `SUCCESS` on 1.4.8 (measured 2026-10-28), so
+  "command"}]`, exit 0 — status `CANCELED` up to 1.3.x, `SUCCESS` since 1.4.8 (measured 2026-10-28), so
   the `denied_actions` check, not the status, is what catches it.
 - `denied_actions` is **absent** when nothing was denied — treat a missing key as `[]`.
 - To let a Gemini worker run specific commands, `permissions.allow` rules (`command(<target>)`) in
@@ -322,7 +334,8 @@ ledger has more than critiques.
 
 ### Payload check, every call
 
-`status == "SUCCESS"` · `response != ""` · `(denied_actions ?? []) == []` · for schema calls:
+`status == "SUCCESS"` · `response != ""` (or `structured_output` set) · `(denied_actions ?? []) == []`
+· no `finished_reason` · for schema calls:
 strip Markdown fences, drop `toolAction`/`toolSummary`, `JSON.parse`, validate. Any non-`SUCCESS`
 status invalidates the `conversation_id` — the history may hold an orphaned tool call; the
 follow-up is a new conversation carrying the current `git diff`.
@@ -356,9 +369,10 @@ whole `SKILL.md` in input tokens).
 
 ## Claude
 
-Five transports serve the Claude lines (SKILL.md, "Roster"): the `Agent` tool (only in an
-interactive Claude Code), `claude -p` (everywhere else, and for an exact native id), agy, Cursor,
-and `api` (the Agent SDK on an API key, below).
+Four transports serve the Claude lines (SKILL.md, "Roster"): the `Agent` tool (only in an
+interactive Claude Code), `claude -p` (a headless director, and for an exact native id), agy (Opus
+and Sonnet), and `api` (the Agent SDK on an API key, below). Fable and Haiku have no agy transport,
+so a native quota hit on them switches only to `api` — when it is not on, it is a swap or a stop.
 
 ### The Agent tool
 
@@ -375,16 +389,21 @@ Notes on the models, as measured or published at the time (they age; the ledger 
 | Line | Notes |
 | --- | --- |
 | `opus` | Opus 5.5 (`claude-opus-5-5`, 2026-09): $4 / $20 per MTok, cache reads $0.20. Gains mostly on multistep work in a real codebase and on code review, fewer tokens per finished task, much more accurate reading of screenshots, charts and diagrams. Thinking always on. |
-| `fable` | Fable 5.1: most capable and most expensive ($10 / $50). Long turns on hard tasks. Keep it for the hardest correctness and large UI redesigns. |
+| `fable` | Fable 5.2 (`claude-fable-5-2`, the default Fable since Claude Code 2.1.321; saved Fable 5.1 choices move to it): most capable and most expensive ($8 / $40 per MTok), 1M context. Long turns on hard tasks. Keep it for the hardest correctness and large UI redesigns. Natively `claude -p --model fable` served `claude-fable-5-2` (probe, `init.model`, 2026-11-14). |
 | `sonnet` | Mechanical, convention-heavy builds. Sonnet 5.5 in every catalog on 2026-10-11. |
 | `haiku` | Bulk edits without judgment; Claude-only cascade drafter. Haiku 5.5 (`claude-haiku-5-5`, measured through `claude -p --model haiku`). |
 
-Claude Code's per-model effort setting (`modelSettings` in `settings.json`) is keyed by model id;
-whether it reaches subagents is unverified — maestro treats Agent-tool effort as unknown.
+Agent-tool effort: since Claude Code 2.1.317 a subagent on a different model than the session runs at
+that model's saved or default effort, not the session's, and 2.1.316 added
+`CLAUDE_CODE_SUBAGENT_EFFORT` (an environment variable for every subagent of the session, not a
+per-call setting). maestro passes no effort on the Agent tool and records it as the model's default
+(unknown in numbers).
 
 ### `claude -p`
 
-Measured on Claude Code 2.1.296 (2026-10-11, haiku):
+Measured on Claude Code 2.1.296 (2026-10-11, haiku); every flag below is unchanged on 2.1.325
+(2026-11-14). `--permission-mode` choices are now `acceptEdits`, `auto`, `bypassPermissions`,
+`manual` (formerly `default`), `dontAsk`, `plan`.
 
 | Flag | What it does for maestro |
 | --- | --- |
@@ -395,7 +414,7 @@ Measured on Claude Code 2.1.296 (2026-10-11, haiku):
 | `--permission-mode dontAsk\|acceptEdits\|plan\|…` | Critics `dontAsk` with the read tools pre-approved (measured: a `Read` succeeded); builders `acceptEdits`. `bypassPermissions` is never used. |
 | `--strict-mcp-config` (no `--mcp-config`) | No MCP server at all (`init.mcp_servers: []`). |
 | `--setting-sources ""` | No user, project or local settings — no hooks from them. Accepted, and the subscription login still worked (`apiKeySource: "none"`). |
-| `--output-format stream-json --verbose` | `system/init` first — `{model, session_id, tools, mcp_servers, plugins, permissionMode, apiKeySource}` — then events, then `result {subtype, is_error, result, structured_output?, permission_denials, modelUsage, usage, session_id}`. The session id is known before the work starts. |
+| `--output-format stream-json --verbose` | `system/init` first — `{model, session_id, tools, mcp_servers, plugins, plugin_errors (2.1.323), permissionMode, apiKeySource}` — then events, then `result {subtype, is_error, result, structured_output?, permission_denials, modelUsage, usage, session_id}`. The session id is known before the work starts. |
 | `--json-schema '<schema>'` | Structured output; the verdict arrives as `result.structured_output`. |
 | `--resume <session_id>` | Continues a session. Every safety flag of the role is repeated on it. |
 
@@ -403,9 +422,17 @@ Measured on Claude Code 2.1.296 (2026-10-11, haiku):
 `CLAUDE_CODE_PLUGIN_DIRS` and loaded a non-builtin plugin that ships `hooks.json` — into a
 "read-only" critic. `bin/maestro-env` removes it (and every other `CLAUDE_*` variable except
 `CLAUDE_CONFIG_DIR`, including `CLAUDE_EFFORT`, which would override `--effort`); with it removed
-`init.plugins` held only Claude Code's builtin plugins. maestro checks `init` on every launch and
-kills a session whose tools, MCP servers, plugins (anything not `@builtin`) or permission mode are
-not the requested ones.
+`init.plugins` held only Claude Code's builtin plugins. maestro checks `init` on every launch with
+`maestro-identity claude` and kills a session whose model, tools, MCP servers, plugins (anything not
+`@builtin`), `plugin_errors` (any), permission mode or `apiKeySource` are not the requested ones.
+Since 2.1.314 `--setting-sources ""` also keeps out the settings that slipped through before
+(auto-mode rules, consents); since 2.1.323 `-p` warns on stderr when settings block the requested
+model; several "exit 0 on failure" cases exit 1 since 2.1.314–2.1.321.
+
+**`--restricted`** keeps file tools inside the working directories and drops the command tools.
+It would bound a read-only critic's `Read` to the repository; it is **not adopted** until a probe
+shows exactly that on this account (a critic's reach is held today by the brief and the fingerprint
+check).
 
 **Edits-only by default.** A `claude -p` builder gets `--tools "Read,Edit,Write,Glob,Grep"` — no
 Bash — and the director runs the tests. A denied Edit or Write fails the turn; a denied Bash on an
@@ -440,8 +467,9 @@ below; on an API key it is the billing path.)
 
 `bin/maestro-sdk` runs `sdk/runner.mjs` (Node ≥ 18, `@anthropic-ai/claude-agent-sdk` pinned in
 `sdk/package-lock.json`, installed by `install.sh --sdk`). Measured with SDK 0.3.286 (bundled
-Claude Code 2.1.286) on 2026-10-15, and re-measured after the bump to **SDK 0.3.312** (bundled
-Claude Code **2.1.312**, the version the SDK's `init.claude_code_version` reports) on 2026-10-28:
+Claude Code 2.1.286) on 2026-10-15, re-measured after the bump to SDK 0.3.312 on 2026-10-28, and
+pinned to **SDK 0.3.325** (bundles Claude Code **2.1.325**, the version the SDK's
+`init.claude_code_version` reports) for 2.0.0. The 2026-10-28 measurement:
 one tool-less probe on `claude-haiku-5-5` returned `OK` with `apiKeySource: "ANTHROPIC_API_KEY"`,
 `tools: []`, `mcp_servers: []`, 403 input and 4 output tokens, estimated `total_cost_usd`
 0.0000423 (evidence: maestro run docs-20261028-0134, `2.1-sdk-probe.txt`):
@@ -457,7 +485,7 @@ one tool-less probe on `claude-haiku-5-5` returned `OK` with `apiKeySource: "ANT
 | `--resume <session_id>` | Continues the session; every flag of the role repeated. |
 | key | `~/.config/maestro/anthropic-api-key` (or `$MAESTRO_API_KEY_FILE`), refused unless a regular file of yours with mode 600; given only to the SDK's child process — never argv, stdout or `.maestro/`. Inherited `ANTHROPIC_*`, `CLAUDE_CODE_OAUTH_TOKEN` and `CLAUDE_CODE_USE_*` are dropped first. |
 | `init.apiKeySource` | Measured `"ANTHROPIC_API_KEY"`. Anything else and the runner aborts at once (exit 3): an `api` worker never falls back to a login. |
-| output | Every SDK message as one JSON line: `system/init` … `result {subtype, is_error, result, structured_output?, permission_denials, usage, modelUsage, total_cost_usd, session_id}`. `maestro-validate --envelope claude` and `maestro-ledger --cli claude-sdk` read it. |
+| output | Every SDK message as one JSON line: `system/init` … `result {subtype, is_error, result, structured_output?, permission_denials, usage, modelUsage, total_cost_usd, session_id}`. `maestro-validate --envelope claude`, `maestro-identity claude --api` and `maestro-ledger --cli claude-sdk` read it. |
 | bad key | `result.subtype: "success"` with `is_error: true` and `result: "Invalid API key …"` (measured): exit 1, the envelope check fails. Classify it as unavailability, not quota. |
 
 **Capabilities**: the same as `claude -p` — a builder is edits-only (`Read,Edit,Write,Glob,Grep`),
@@ -472,44 +500,10 @@ shows only in the Console (Usage / Billing).
 ### Claude through agy
 
 `agy --model claude-opus-5-5-<effort>` (and `claude-sonnet-5-5-<effort>`), efforts `low|medium|high`
+(the slugs agy lists, 2026-11-14)
 — the same lines as Gemini otherwise: headless print mode denies every command, so an agy Claude
 builder is edits-only and an agy Claude critic reads the repository the same way as a Gemini one. agy has no
 Fable and no Haiku. The envelope has no served-model field.
-
-### Claude through Cursor
-
-`agent -p --model claude-opus-5-5-<effort>` (`low…max`; also `fable-5-1`, `sonnet-5-5`,
-`haiku-5-5`), the same mechanics as Grok below. On 2026-10-11 the Cursor account's Claude quota was
-exhausted, so these slugs probe unavailable there; maestro marks them ineligible until a probe
-passes, and verifies the `init.model` mapping on that first successful probe.
-
-## xAI — Cursor `agent`
-
-Measured on agent 2026.10.01 (2026-10-11, `grok-4.7-low`/`-medium`):
-
-| Flag / behaviour | Measured |
-| --- | --- |
-| `-p` | Headless, all tools. A shell command not on the allowlist is `Rejected:` and the run continues (`is_error: false`). |
-| `--output-format stream-json` | `system/init {model: "Grok 4.7 256K Low", session_id, permissionMode, apiKeySource, cwd}` first, `thinking` deltas, tool calls, then `result {subtype, is_error, result, session_id, request_id, usage{inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens}, duration_ms}`. `init.model` is a label: match family, version and effort and ignore decoration such as the context size. |
-| `--mode plan` | Refused a write even together with `--force` ("planning mode blocks changes"). Read-only roles use it. A critique run this way left the checkout fingerprint unchanged in six rounds. |
-| `--sandbox enabled` (no `--force`) | Commands run sandboxed: writes to the workspace and `/tmp` allowed, writes elsewhere (another directory under `$HOME`, `$HOME` itself) denied, outbound network refused by Cursor's proxy (`CONNECT tunnel failed, response 403`), `CURSOR_SANDBOX=native` set. |
-| `--sandbox disabled` (no `--force`) | Shell calls follow the allowlist (`~/.cursor/cli-config.json`, `<project>/.cursor/cli.json`); everything else `Rejected:`. |
-| **`--force` / `--yolo`** | **Turns the sandbox off entirely**: with `--force --sandbox enabled` a worker wrote outside the workspace, into `$HOME`, and reached the network. Never used by maestro except a per-run, user-approved rung 4. |
-| `--resume <session_id>` | Continues the session (same id returned). |
-| `init.model` labels | `grok-4.7-low/-medium/-high/-xhigh` → "Grok 4.7 256K Low/Medium/High/Extra High"; `claude-opus-5-5-medium` → "Claude Opus 5.5 300K Medium", `claude-sonnet-5-5-low` → "Claude Sonnet 5.5 300K Low" (V7, 2026-10-11). Normalise: family + version + effort, with "Extra High" = `xhigh`; ignore the context size. |
-| quota | Cursor's Claude slugs emit `init` and then `Error: You've hit your usage limit for Opus …` / `… for Sonnet …` — classified as **quota** (a transport problem: no walk-down, a transport switch or a stop), never as an account denial. |
-| `--trust` | Trusts the workspace without a prompt — needed headless. |
-| `--workspace <dir>` | The workspace (a worktree for a parallel writer). |
-| language | The result follows the user's language unless told otherwise; it opened with a prose sentence before the JSON in 2 of 7 critique rounds → `maestro-validate` allows leading prose. |
-| schema flag | None. The schema goes into the brief and `maestro-validate` checks the verdict. |
-
-Grok as a worker is **provisional** — unmeasured as a builder — and every Assign line says so until
-the ledger shows otherwise. As a critic in maestro's own plan review (seven rounds, 2026-10-11) it
-raised findings the other two critics confirmed later.
-
-Not used: `--worktree` (Cursor-managed under `~/.cursor/worktrees` — maestro makes its own),
-`--auto-review`, `--approve-mcps`, `--continue`, `--force` (above), `-fast` model variants unless
-policy `cursor_fast: true`.
 
 ## Not used, with the reason
 
@@ -518,7 +512,6 @@ policy `cursor_fast: true`.
 | **Codex SDK** (`@openai/codex-sdk`) | It spawns the `codex` binary with `--experimental-json` (documented, `sdk/typescript/src/exec.ts`) — the same thread, events and resume as `codex exec --json`, plus a Node dependency the skill does not otherwise need. |
 | **Claude Agent SDK on a subscription login** | For subscription billing `claude -p` gives the same session, events and resume without a Node runtime; and the SDK's terms ask for API-key authentication. On an API key it is the `api` transport (above). |
 | `claude --bare` | API-key-only authentication; for API billing the `api` transport is used (above). |
-| Cursor `--force`, `--yolo`, `--worktree`, `--auto-review`, `--approve-mcps` | Above. |
 | agy `--dangerously-skip-permissions` | maestro uses `--mode` settings; the flag approves everything. |
 
 ## Schemas

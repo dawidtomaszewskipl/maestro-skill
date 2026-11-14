@@ -20,16 +20,14 @@
 | Claude subagent | the Agent tool's completion: `total_tokens`, `tool_uses`, `duration_ms` and the model; no input/output split, so those fields are `null` — `maestro-ledger --cli claude-agent --served <model> --agent-id <id> --total-tokens N --tool-uses N --duration-ms N` (no job) |
 | `claude -p` | the `result` event: `usage.input_tokens`, `usage.cache_read_input_tokens` → `cached_input_tokens`, `usage.cache_creation_input_tokens` → `cache_write_input_tokens`, `usage.output_tokens`, `duration_ms`/1000; `model_served` = the `modelUsage` key(s) |
 | `api` (`maestro-sdk`) | as `claude -p` (the same event stream), plus `cost_usd` = `result.total_cost_usd` — the SDK's estimate from its bundled price table, not an invoice; `null` on every other CLI |
-| Cursor `agent -p` | the `result` event: `usage.inputTokens`, `usage.cacheReadTokens` → `cached_input_tokens`, `usage.cacheWriteTokens` → `cache_write_input_tokens`, `usage.outputTokens`, `duration_ms`/1000; `model_served` = `init.model` (a label) |
-| Codex, `effective_config` | the call's `turn_context` in the session rollout, as the effective-config check read it (`docs/commands.md`): `{model, effort, sandbox, approval_policy, approvals_reviewer, network, write_roots}`; `null` for non-Codex calls |
+| Codex, `effective_config` | the call's `turn_context` in the session rollout, as `maestro-identity codex` read it (`docs/commands.md`): its `effective_config` object `{model, effort, sandbox, approval_policy, approvals_reviewer, network, cyber_access_program}`; `null` for non-Codex calls |
 
-`cli` is one of `codex`, `agy`, `cursor-agent`, `claude-cli` (`claude -p`), `claude-sdk`
-(`maestro-sdk`), `claude-agent` (the Agent tool); `transport` the slot's transport (`native`, `agy`,
-`cursor`, `codex`, `api`); `host` the
-director's host; `job_id` the maestro job (null for an Agent-tool call). `run_id` and `host` come
+`cli` is one of `codex`, `agy`, `claude-cli` (`claude -p`), `claude-sdk` (`maestro-sdk`),
+`claude-agent` (the Agent tool); `transport` the slot's transport (`native`, `agy`, `codex`, `api`);
+`host` the director's host (`claude-code`); `job_id` the maestro job (null for an Agent-tool call). `run_id` and `host` come
 from the job's `meta.json`; an interactive Claude Code launches with the Bash tool's background mode,
 so its job directories have none, and `maestro-ledger` takes both from the lock record (or from
-`--run`/`--host`). Missing → `null`, never
+its run and host options). Missing → `null`, never
 estimated. `codex exec review` (a manual extra, not the cross reviewer)
 reports zero usage, so its token fields are `null`.
 

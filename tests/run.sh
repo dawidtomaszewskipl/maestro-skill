@@ -817,6 +817,19 @@ if group T12 "docs consistency"; then
   missing=""
   while read -r d; do [[ -e "$ROOT/$d" ]] || missing+="$d "; done < <(grep -ohE 'docs/[a-z/_-]+\.(md|json)' "$ROOT/SKILL.md" | sort -u)
   eq "every docs/ page SKILL.md names exists" "" "$missing"
+  # SKILL.md's roster table agrees with bin/slots.json (family and transport order of every slot)
+  roster="$(awk -F'|' '/^\| `[a-z]+` \|/ { gsub(/[` ]/, "", $2); gsub(/^ +| +$/, "", $4); gsub(/ /, "", $5); print $2 "|" tolower($4) "|" $5 }' "$ROOT/SKILL.md" | grep -v '^self|' | sort)"
+  want="$(jq -r 'del(._comment) | to_entries[] | "\(.key)|\(.value.family)|\(.value.transports | join("→"))"' "$B/slots.json" | sort)"
+  eq "SKILL.md roster = bin/slots.json" "$want" "$roster"
+  # Removed in 2.0.0: the third-party transport, its model line and family, non-Claude-Code hosts.
+  # Allowed: CHANGELOG history, maestro-host's detection of other agent CLIs (to refuse them),
+  # maestro-flags' message for the removed --host flag, and one "Removed in 2.0.0" line per page.
+  # shellcheck disable=SC2016  # a literal $maestro (Codex's skill trigger), case-sensitive: $MAESTRO is ours
+  hits="$(cd "$ROOT" && { git grep --untracked -niE 'cursor|grok|xai|agent -p|--host=' -- . \
+            ':!CHANGELOG.md' ':!bin/maestro-host' ':!tests/run.sh' ':!tests/fixtures'
+          git grep --untracked -nE '\$maestro\b' -- . ':!CHANGELOG.md' ':!tests/run.sh'; } \
+          | grep -vE 'Removed in 2\.0\.0|Usunięte w 2\.0\.0' | grep -vE '^bin/maestro-flags:.*--host was removed' || true)"
+  eq "nothing left of the removed transport and hosts" "" "$hits"
 fi
 
 # =============================================================================================

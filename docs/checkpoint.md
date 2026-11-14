@@ -3,26 +3,27 @@
 > **What this page is for.** The exact shape of the checkpoint file that lets an interrupted run be resumed, and the resume procedure. The plain overview is in [the guide](guide/how-it-works.md#when-something-goes-wrong).
 
 `.maestro/CHECKPOINT.md` is what makes a maestro run resumable after a quota wall, an API failure, a
-safety stop, a closed laptop or a host that ended its session. It is rewritten in place — never
+safety stop, a closed laptop or a Claude Code session that ended. It is rewritten in place — never
 appended — after every stage transition, at every worker launch (with the session id and the job
 id, the one write that saves resumability), at every worker finish, after each gate or fix round,
 and on any blocker. **It is written only through `"$MAESTRO/bin/maestro-state" --gen N write
 CHECKPOINT.md`**: that checks the file against its last audit entry first and refuses one changed
-by anything else (`docs/hosts.md`, "Read-only proof" in `docs/commands.md`).
+by anything else (`docs/commands.md`, "Read-only proof").
 
 ## Front matter
 
 ```yaml
 skill: maestro              # a checkpoint without it is not maestro's
 run_id: 2026-09-06T10-31-maestro-a1b2
-host: {name: codex, interactive: true, session_key: 01a1283f-…, host_pid: 102147, host_pid_starttime: "14828171"}
-director: {family: openai, model_line: sol, model_id: gpt-6.1-sol, source: "rollout turn_context"}
+host: {name: claude-code, interactive: true, session_key: 01a1283f-…, host_pid: 102147, host_pid_starttime: "14828171"}
+                           # name is always claude-code since 2.0.0: any other value stops a resume
+director: {family: claude, model_line: opus, model_id: claude-opus-5-5, source: "system prompt"}
 lock: {token: 9c0e…, generation: 3}   # the token is what --resume presents; the generation fences
 catalog:                   # frozen at stage 0 step 5 — sticky for the run; --resume re-probes these exact slugs
   sol:    {version: "6.1", transport: codex, slug: gpt-6.1-sol, source: live}
-  opus:   {version: "5.5", transport: native, slug: claude-opus-5-5, order: [native, agy, cursor]}
-  gemini: {version: "3.8", transport: agy, slug: gemini-3.8-flash-medium}
-  grok:   {version: "4.7", transport: cursor, slug: grok-4.7-medium, provisional: true}
+  opus:   {version: "5.5", transport: native, slug: claude-opus-5-5, order: [native, agy, api]}
+  gemini: {version: "4", transport: agy, slug: gemini-4-hydrogen-medium}
+  argon:  {version: "4", transport: agy, slug: gemini-4-argon-high, provisional: true}
 written_at: 2026-09-06T11:02:14+02:00
 task: "CRUD screens for the tags dictionary"
 flags: "--model=sol --review=cross --cascade --rounds=2 --tests=covering"
@@ -45,9 +46,9 @@ fix_cap: 3              # fix-loop cap: 3 unless an answered decision raised it 
 roster:
   implementer: {slot: sol, transport: codex, model_requested: gpt-6.1-sol, effort: medium}
   drafter:     {slot: luna, model_requested: gpt-6-luna, effort: medium}
-  critic:      {slot: gemini, transport: agy, model_requested: gemini-3.8-flash-medium, effort: medium}
+  critic:      {slot: argon, transport: agy, model_requested: gemini-4-argon-medium, effort: medium}
   second_critic: {slot: "", model_requested: "", effort: ""}
-  reviewer:    {slot: fable, transport: native, model_requested: claude-fable-5-1, effort: high}
+  reviewer:    {slot: fable, transport: native, model_requested: claude-fable-5-2, effort: high}
 codex: {config_mode: isolated, mode_reason: ""}   # the run default, decided at stage 0 step 3;
                          # pinned + the config.toml key that forced it. Never touched by a runtime refresh.
 sessions:
@@ -58,9 +59,7 @@ sessions:
                          # rollout_offset = the rollout's line count before the latest resume;
                          # a parallel worker: worktree: .maestro/worktrees/<part>, baseline: <SHA of its start
                          # commit or latest maestro-integrated commit>, fingerprint as for `tree`, run inside it
-  agy:   [{id: b538f8bb-9a0e-4978-bc3d-988ccef298eb, role: critic, slug: gemini-3.8-flash-medium, job: …}]
-  cursor: [{id: 65d9d73d-c2af-4e49-8102-08ee4bccb856, role: critic, slug: grok-4.7-medium, job: …,
-            init_model: "Grok 4.7 256K Medium"}]
+  agy:   [{id: b538f8bb-9a0e-4978-bc3d-988ccef298eb, role: critic, slug: gemini-4-argon-medium, job: …}]
   claude_cli: [{id: 7c51bcf8-…, role: build, model: claude-opus-5-5, tools: "Read,Edit,Write,Glob,Grep", job: …}]
   claude: []             # Agent-tool subagent ids, continued with SendMessage within the session;
                          # a worktree subagent as {id: …, worktree: <path>, baseline: <SHA>, fingerprint: …}
@@ -74,8 +73,8 @@ tree: {branch: feature/tags-crud, head: 3704e20…, fingerprint: 9f2c41…}
                            # rewritten with every checkpoint; fingerprint = sha256 of `git diff HEAD --binary`
                            # followed by each untracked file's path and sha256, in sorted order
 tests: {cmd: "vendor/bin/sail artisan test --compact", last_result: "1104/1104", duration_s: 412, T_slow_s: 417}
-runtime: {codex_version: 0.162.1, agy_version: 1.3.3, agent_version: 2026.10.01, claude_version: 2.1.296,
-          doctor_ok: true, probed_at: 2026-10-11T10:31:00+02:00}
+runtime: {codex_version: 0.169.0, agy_version: 1.5.9, claude_version: 2.1.325,
+          doctor_ok: true, probed_at: 2026-11-14T10:31:00+01:00}   # from maestro-preflight
 agy_log: {path: .maestro/jobs/<job>/agy.log, baseline_bytes: 4120}
 blockers: []               # [{kind: quota|api|safety-pause|question, who, at, detail}]
 decisions:                 # answer-required decisions (docs/unattended.md), apart from `blockers`;
@@ -174,8 +173,11 @@ on; a new non-resume invocation moves its
 0. **Lock, host, jobs.** Read `run_id` and the lock token from the checkpoint and take the
    lock with `maestro-lock acquire --resume` — it takes over only a **stale** owner (a live director
    keeps it: stop, attended ask / unattended row 2). Re-detect the host and your identity
-   (`maestro-host`); a different host, family or model line than `host` / `director` → attended:
-   say what changes and ask; unattended: row 2 (`docs/unattended.md` A24). Then reconcile every
+   (`maestro-host`). Stop loudly when the checkpoint is from before 2.0.0 in a way 2.0.0 cannot
+   continue: a `host` other than `claude-code`, or a roster, catalog or session that names a
+   slot or transport `bin/slots.json` no longer has. Say so, and offer to discard the checkpoint and
+   start again (unattended: row 2). A different model line than `director` → attended: say what
+   changes and ask; unattended: row 2 (`docs/unattended.md` A24). Then reconcile every
    recorded job (`maestro-wait <job> --peek`): `running` → back into the wait loop; `exited` /
    `lost` → its output is read or the dirty-exit protocol runs; `lingering` / `orphaned` →
    `maestro-kill`; still alive → `result: blocked`, lock kept. Nothing is dispatched before this.
@@ -183,8 +185,8 @@ on; a new non-resume invocation moves its
    `queued` task starts as a new run with its recorded flags; a `planned` task, or `plan_only:
    true`, is built (SKILL.md, "Building a `--plan-only` plan"); with several candidates, ask which
    (above). With none of these and no open decision there is nothing to resume.
-2. **Re-probe**: `codex doctor --summary`, `agy --version`, `agent status`, `claude auth status`,
-   the limits, and the frozen `catalog` slugs (each one's probe line — the catalog is **not**
+2. **Re-probe**: `maestro-preflight --gen N --resume` (codex, agy and claude health, without a
+   model turn), the limits, and the frozen `catalog` slugs (each one's probe line — the catalog is **not**
    re-resolved) — overwrite `runtime` (only `runtime`: the `codex` block, `catalog` and the
    session records are routing state). Never reason from a
    remembered limit. While a decision stays unanswered (step 3) the re-probe is only a check: it is
@@ -219,8 +221,8 @@ on; a new non-resume invocation moves its
    under the recorded configuration (`flags`, roster, `fix_cap`), continuing each worker as SKILL.md
    "Launching workers" says: Codex by thread UUID (also after an API or quota stop), from its
    session record — mode, rung tokens, and for a worktree worker from inside its worktree — agy by
-   id only after a `SUCCESS` turn, `claude -p` and Cursor by session id with every flag of the
-   role repeated, Claude subagents with `SendMessage` in the same session or anew after a restart.
+   id only after a `SUCCESS` turn, `claude -p` and `maestro-sdk` by session id with every flag of
+   the role repeated, Claude subagents with `SendMessage` in the same session or anew after a restart.
    A transport the frozen slot can no longer use → the transport switch (`docs/hosts.md`).
 6. A checkpoint with `plan_only: true` at `stage: report` is not resumed but built: SKILL.md,
    "Building a `--plan-only` plan".
@@ -238,6 +240,6 @@ change goes through a helper, inside the fence:
 | remove (a resolved `pending-decision.md`) | `maestro-state --gen N delete <file>` — recorded as absent, so the file can be created again later |
 | move one file away | `maestro-state --gen N archive <file> --to <name>` |
 | end of a run, or `archive-and-start` | `maestro-state --gen N rotate --to <run_id>` — verifies every audited file, moves `CHECKPOINT.md`, `pending-decision.md` and `audit.jsonl` to `.maestro/archive/<run_id>/`, and starts a fresh audit whose first entries are the current hashes of what stays (the ledger, the lock, the jobs) |
-| accept a file changed outside maestro | `maestro-state --gen N adopt <file> --reason "…"` — **only on the user's decision** after they inspected it; never under `--unattended` (a headless host — `claude -p`, `codex exec`, `agent -p`, `agy -p` — is refused by the script itself: `{result: "refused"}`, exit 1) |
+| accept a file changed outside maestro | `maestro-state --gen N adopt <file> --reason "…"` — **only on the user's decision** after they inspected it; never under `--unattended` (a headless Claude Code — `claude -p` — is refused by the script itself: `{result: "refused"}`, exit 1) |
 
 A file changed any other way stops the next write or `--resume` (row 2 under `--unattended`).

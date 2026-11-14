@@ -2,20 +2,18 @@
 
 ## Families and slots
 
-A **family** is the company behind a model: Claude (Anthropic), OpenAI (GPT), Google (Gemini),
-xAI (Grok). A **slot** is a short name for a model *line* within a family — `opus`, `sol`,
-`gemini`, `grok`. It is not a fixed version: `sol` means "the newest GPT Sol your account can
+A **family** is the company behind a model: Claude (Anthropic), OpenAI (GPT), Google (Gemini).
+A **slot** is a short name for a model *line* within a family — `opus`, `sol`, `gemini`. It is not a fixed version: `sol` means "the newest GPT Sol your account can
 use", found afresh at the start of each run and then kept for the whole run.
 
 | Family | Slots | Character |
 | --- | --- | --- |
-| Claude | `opus`, `fable`, `sonnet`, `haiku` | `fable` the strongest and most expensive, `opus` the all-rounder, `sonnet` for mechanical builds, `haiku` for bulk edits |
+| Claude | `opus`, `fable`, `sonnet`, `haiku` | `fable` (Fable 5.2 today) the strongest and most expensive, `opus` the all-rounder, `sonnet` for mechanical builds, `haiku` for bulk edits |
 | OpenAI | `astra`, `sol`, `luna`, `terra` | `astra` the strongest, `sol` the workhorse, `luna` fast and cheap, `terra` an older line used only when named |
-| Google | `argon`, `gemini` | `argon` the strongest, a critic and reviewer; `gemini` (Flash) fast and cheap |
-| xAI | `grok` | provisional (below) |
+| Google | `argon`, `gemini` | `argon` the strongest, a critic and reviewer; `gemini` fast and cheap — Gemini 4 Hydrogen today (said to be Gemini 4 Flash, not confirmed by Google), Gemini Flash before it |
 
-There is also `self`: the director itself, for a change smaller than the handoff — only when the
-director knows its own model, which Claude Code and Codex reveal and Cursor and agy do not.
+There is also `self`: the director itself (a Claude model in Claude Code), for a change smaller
+than the handoff.
 
 ## The roles
 
@@ -36,10 +34,11 @@ director knows its own model, which Claude Code and Codex reveal and Cursor and 
 Models of one family share blind spots, so **no critic and no reviewer may share the family of
 the builder whose code gets committed.** The director applies a fixed order and names it:
 
-- Claude builds → `sol` critiques; on a risky change `astra`, with `argon` or `grok` as the second
-  critic.
-- OpenAI builds → `opus` critiques (`fable` on a risky change when the budget allows).
-- Google or xAI builds → `sol` or `opus`.
+- Claude builds → `sol` critiques; on a risky change `astra`, with `argon` (else `gemini`) as the
+  second critic.
+- OpenAI builds → `opus` critiques (`fable` on a risky change when the budget allows), with `argon`
+  as the second critic on a risky change.
+- Google builds → `sol` critiques; on a risky change `astra`, with `opus` (or `fable`) second.
 - `astra` never critiques an OpenAI build, except when OpenAI is the only family present.
 
 You can override any role (`--critic=…`, `--reviewer=…`), but not the rule: a named critic from
@@ -48,7 +47,7 @@ the builder's family stops the run with a question instead of running.
 ## How the newest model is picked
 
 At the start of a run the director reads the model lists the CLIs publish — Codex's catalog,
-`agy models`, Cursor's `agent --list-models` — without spending a model call. For each slot it
+`agy models` — without spending a model call. For each slot it
 takes the newest version that matches the line's naming pattern (previews, dated builds and
 `-mini` variants are excluded, so a preview never becomes a worker unannounced). Native Claude has
 no list; its aliases (`opus`, `sonnet`, …) follow the newest model, and the director learns the
@@ -68,16 +67,16 @@ put.
 
 A **transport** is the CLI that serves a model. The family comes from the model, not from the
 CLI: Opus through agy is still Claude. Claude slots have several roads, tried in order — natively
-(a subagent in Claude Code, `claude -p` elsewhere), then agy, then Cursor, then the Agent SDK on
-an API key (`api`, only with `--sdk` or a policy that allows it). The other families have one road
-each: GPT through `codex exec`, Gemini through agy (Argon also through Cursor), Grok through
-Cursor.
+(a subagent in an interactive Claude Code, `claude -p` in a headless one), then agy (Opus and
+Sonnet only), then the Agent SDK on an API key (`api`, only with `--sdk` or a policy that allows
+it). Fable and Haiku have no agy road, so when their native limit runs out they continue only on
+`api` — without it the run stops or swaps the worker. The other families have one road each: GPT
+through `codex exec`, Gemini through agy.
 
 The road changes what a worker can do. A worker through agy, `claude -p` or `api` is
-**edits-only**: it can change files but not run commands, so the director runs the tests. A Cursor
-worker runs commands only inside Cursor's sandbox (no network, no home directory) and runs the
-tests only when a quick reach check passed. A Codex worker runs in Codex's sandbox with the
-repository writable and the network off.
+**edits-only**: it can change files but not run commands, so the director runs the tests. A Codex
+worker runs in Codex's sandbox with the repository writable and the network off, and runs the
+tests itself when a quick reach check passed.
 
 When a road hits its usage limit mid-run, the director moves the same model to the next road,
 rewrites the brief for that road's abilities, and records the switch in the ledger. `opus@agy`
@@ -85,9 +84,8 @@ forces one road and never switches.
 
 ## Provisional models
 
-`grok` and `argon` are marked **provisional** in every assignment line. Grok has found real bugs
-as a critic; neither has been measured as a builder by the ledger yet. Grok is also never a
-cascade drafter.
+`argon` is marked **provisional** in every assignment line: it has critiqued plans well, but the
+ledger has not measured it as a builder yet. It is also never a cascade drafter.
 
 ## When fewer families are available
 
@@ -96,7 +94,7 @@ without model calls — minus whatever a policy switches off. With **two** famil
 second critic on a risky change, and the report says so. With **one** family the critic and
 reviewer are a different model line of that family than the builder (Fable checks an Opus build,
 Opus checks a Fable build; Astra checks a Sol build), and the run is marked `degraded:
-same-family critique`. xAI alone has one line, so it cannot run alone.
+same-family critique`.
 
 ## Technical details
 

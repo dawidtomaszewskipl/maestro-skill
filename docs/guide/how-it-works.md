@@ -20,8 +20,8 @@ until there are no gaps.
 
 **Assignment.** It picks the builder, the critics and (if you asked for one) the reviewer, and
 prints one line with each choice and its reason: the rubric row that fired, a policy entry, your
-own words. The line also shows the exact model behind each name, the host it runs in and which
-model families are available. Say "let sol build" and it changes.
+own words. The line also shows the exact model behind each name, whether Claude Code runs
+interactively or headless, and which model families are available. Say "let sol build" and it changes.
 
 **Plan.** The director writes `PLAN.md`: what will change, where, which tests prove it, what is
 out of bounds.
@@ -92,7 +92,7 @@ tests.
 ## When something goes wrong
 
 - **A usage limit.** Routine, not a failure. A Claude slot continues on its next road to the same
-  model (natively, then agy, then Cursor, then the API credit if enabled) and the report says so.
+  model (natively, then agy for Opus and Sonnet, then the API credit if enabled) and the report says so.
   With no road left, the run writes its checkpoint and stops; `--resume` checks the limit again
   and continues.
 - **A model refuses.** A safety refusal is never retried: the run stops and reports. An ordinary
@@ -110,11 +110,11 @@ tests.
   and carries on.
 
 Everything a run knows is in `.maestro/CHECKPOINT.md`, rewritten at every step. That is what
-`--resume` reads — on the same host, or on another after telling you what changes.
+`--resume` reads — in the same Claude Code session or a new one, interactive or headless.
 
 ## Running without you
 
-`--unattended` is for a headless run (`claude -p`, `codex exec`, `agent -p`) or an overnight one.
+`--unattended` is for a headless run (`claude -p "/maestro --unattended …"`) or an overnight one.
 Small gaps — a naming choice, a missing detail that does not affect safety — become recorded
 assumptions and the run goes on. Anything that needs your authority — permissions, money, scope,
 what to do with existing data, a budget — stops the run cleanly with `result: needs-decision`,

@@ -2,8 +2,9 @@
 
 > **Do czego służy ta strona.** Lista sprawdzeń, których nie da się zautomatyzować — wymagają sesji interaktywnej, prawdziwego limitu albo oceny człowieka. Opis maestro po polsku: [README_pl.md](../README_pl.md); mapa dokumentacji: [docs/README.md](README.md).
 
-Automatyczne testy i pomiary z 11.10.2026 pokryły wszystkie cztery hosty, ale kilku rzeczy nie dało
-się sprawdzić bez Ciebie. Część wymaga sesji interaktywnej, część limitów, których nie da się
+Automatyczne testy i pomiary (ostatnio 14.11.2026, maestro 2.0.0: tylko Claude Code jako
+dyrygent, workerzy przez Claude Code, Codex i agy) pokryły większość przypadków, ale kilku rzeczy
+nie dało się sprawdzić bez Ciebie. Część wymaga sesji interaktywnej, część limitów, których nie da się
 zasymulować, a część to po prostu ocena, jak się z tym pracuje. Poniżej każdy przypadek krok po
 kroku.
 
@@ -32,27 +33,9 @@ i z maestro zainstalowanym w projekcie.
 
 Zwykle prowokuje prawdziwą uwagę krytyka o ustawieniach locale, więc widać, czy krytyka działa.
 
-**Cursor potrzebuje listy dozwolonych komend** (przypadki 4–6). W katalogu repozytorium:
-
-```bash
-mkdir -p .cursor
-jq -n --arg p "$PWD/.agents/skills/maestro" --arg g "$HOME/.agents/skills/maestro" '
-  {permissions: {
-     allow: ([$p, $g] | map(. as $m | ["host","lock","run","wait","kill","env","catalog","state","fp",
-                                        "validate","roles","ledger"] | map("Shell(\($m)/bin/maestro-\(.))")) | add)
-            + (["codex","agy","agent","claude","git","jq","bash","cat","ls","mkdir","printf","echo",
-                "grep","sed","head","tail","wc","date","sha256sum","readlink","dirname","command","test"]
-               | map("Shell(\(.))")),
-     deny: []}}' > .cursor/cli.json
-```
-
-`Shell(bash)` jest tu potrzebne, bo test to `bash tests/test_str.sh`, ale w praktyce otwiera
-wszystko, co da się zrobić przez `bash -c`. W prawdziwym projekcie wpisz zamiast niego swoją
-komendę testów. Nigdy nie uruchamiaj `agent` z `--force`.
-
 ## Kolejność
 
-Najwięcej powiedzą przypadki 1, 4, 5 i 11. Przypadki 2, 3 i 10 zrób przy okazji, gdy nadarzy się
+Najwięcej powiedzą przypadki 1, 3 i 6. Przypadki 2 i 5 zrób przy okazji, gdy nadarzy się
 sytuacja.
 
 ---
@@ -93,143 +76,42 @@ natywnie, a limit Claude Code się kończy.
 **Odeślij:** komunikat o przełączeniu i ścieżkę repozytorium. Jeśli zamiast tego run stanął
 z pytaniem, to też jest wynik.
 
-### 3. Claude przez Cursora (gdy odnowi się limit)
+### 3. Gemini 4 Hydrogen jako wykonawca
 
-**Cel:** droga Claude przez Cursora nie była sprawdzona, bo limit jest wyczerpany.
+**Cel:** Hydrogen (slot `gemini` od 2.0.0) przeszedł tylko próbę „OK”. Trzeba sprawdzić, czy umie
+zbudować zmianę jako worker, który tylko edytuje pliki (testy uruchamia dyrygent).
 
 **Gdzie:** interaktywny Claude Code w nowym repozytorium testowym.
 
 **Kroki:**
 ```text
-/maestro --model=sonnet@cursor --critic=sol --rounds=1 <zadanie>
+/maestro --model=gemini --critic=sol --rounds=1 --review=cross <zadanie>
 ```
 
 **Oczekuję:**
-- przy odnowionym limicie: `sonnet=… (cursor)`, budowa w piaskownicy Cursora, commit;
-- przy wyczerpanym limicie: run **staje z pytaniem** (`@cursor` wymusza drogę, więc maestro nie
-  może sam przejść na inną). Ciche przejście na inną drogę byłoby błędem.
+- przy wykonawcy pojawia się `gemini=gemini-4-hydrogen-… (agy)`;
+- worker tylko edytuje pliki, testy uruchamia dyrygent;
+- recenzja z innej rodziny niż Google, commit i raport.
 
-**Odeślij:** który wariant wystąpił i linię przydziału albo treść pytania.
+**Odeślij:** linię przydziału, liczbę rund poprawek i wynik testów.
 
-### 4. Grok jako wykonawca
+### 4. Dwa runy w jednym repozytorium
 
-**Cel:** Grok był mierzony tylko jako krytyk. Trzeba sprawdzić, czy umie zbudować i czy
-uruchamia testy w swojej piaskownicy.
-
-**Gdzie:** interaktywny Claude Code w nowym repozytorium testowym. Plik `.cursor/cli.json` nie jest
-tu potrzebny, bo dyrygentem jest Claude Code.
-
-**Kroki:**
-```text
-/maestro --model=grok --critic=sol --rounds=1 --review=cross <zadanie>
-```
-
-**Oczekuję:**
-- przy wykonawcy pojawia się `grok=grok-4.7-… (cursor) (provisional)`;
-- zmiana dotyczy tylko `lib/str.sh` i `tests/test_str.sh`;
-- testy przechodzą, a recenzent z innej rodziny ocenia wynik.
-
-**Odeślij:** czy kod był dobry przy pierwszym podejściu, ile było rund poprawek i czy testy
-uruchamiał Grok, czy dyrygent (to widać w raporcie).
-
-### 5. Dyrygent w Cursorze, interaktywnie
-
-**Cel:** sprawdzić codzienną pracę z Cursorem: pytania, monity o uprawnienia i to, że dyrygent nie
-buduje sam.
-
-**Gdzie:** nowe repozytorium testowe z `.cursor/cli.json` (patrz „Przygotowanie”), w terminalu:
-`agent`.
-
-**Kroki:**
-```text
-/maestro --model=sonnet --critic=grok --rounds=1 <zadanie>
-```
-Potem, w tej samej sesji, `/maestro --model=self <zadanie>`.
-
-**Oczekuję:**
-- host `cursor`, pytania zadawane zwykłym tekstem;
-- przy `--model=self` odmowa z wyjaśnieniem, że w Cursorze nie da się ustalić modelu dyrygenta;
-- brak monitów o komendy spoza listy. Jeśli jakiś monit się pojawi, to znaczy, że lista jest
-  niepełna.
-
-**Odeślij:** każdy monit o uprawnienie (jaka komenda) i swoje wrażenia z pytań.
-
-### 6. Dyrygent w agy, bez automatycznego zatwierdzania
-
-**Cel:** w pomiarach monity agy zatwierdzał skrypt. Trzeba sprawdzić, jak to wygląda dla człowieka
-i czy da się z tym pracować.
-
-**Gdzie:** nowe repozytorium testowe, w terminalu: `agy`.
-
-**Kroki:**
-```text
-/maestro --model=sol --critic=opus --rounds=1 <zadanie>
-```
-Zatwierdzaj komendy i zapisy plików w obrębie repozytorium.
-
-**Oczekuję:**
-- pytania o komendy i o zapis plików (`.maestro/…`, `lib/str.sh`);
-- run kończy się commitem;
-- odmowa dostępu poza repozytorium kończy turę agy, wtedy wystarczy napisać „kontynuuj”.
-
-**Odeślij:** ile mniej więcej było monitów i czy któryś był niezrozumiały. Na tej podstawie
-przygotuję reguły `permissions.allow`, żeby było ich mniej.
-
-### 7. Dyrygent w Codex, interaktywnie
-
-**Cel:** pomiary były robione przez `codex exec` (bez interakcji). Trzeba sprawdzić pytania
-w interaktywnym Codex.
-
-**Gdzie:** nowe repozytorium testowe, w terminalu: `codex --sandbox danger-full-access`.
-
-**Kroki:**
-```text
-$maestro --setup <zadanie>
-```
-
-**Oczekuję:**
-- host `codex`, dyrygent rozpoznany (np. `gpt-6.1-sol`);
-- pytania konfiguracyjne w oknie wyboru albo zwykłym tekstem;
-- krytycy spoza rodziny OpenAI.
-
-**Odeślij:** jak wyglądały pytania i linię przydziału.
-
-### 8. Wznowienie na innym hoście
-
-**Cel:** zmiana hosta przy `--resume` nie była mierzona, wszystkie wznowienia były na tym samym.
-
-**Gdzie:** nowe repozytorium testowe.
-
-**Kroki:**
-1. Uruchom w Codex (`codex --sandbox danger-full-access`):
-   `$maestro --model=sonnet --critic=gemini --rounds=1 <zadanie>`.
-2. Gdy zacznie się budowa, zamknij Codex (dwa razy Ctrl+C).
-3. Otwórz w tym samym repozytorium Claude Code i wpisz `/maestro --resume`.
-
-**Oczekuję:**
-- maestro mówi, że host się zmienił (codex → claude-code), i wymienia, co to zmienia (kto może
-  budować, krytycy), a potem pyta o zgodę;
-- po zgodzie: budowa, która trwała w tle, zostaje odnaleziona i dokończona, potem testy i commit.
-
-**Odeślij:** komunikat o zmianie hosta i raport końcowy.
-
-### 9. Dwa runy w jednym repozytorium
-
-**Cel:** sprawdzić, że blokada repozytorium działa także między hostami.
+**Cel:** sprawdzić, że blokada repozytorium działa między dwiema sesjami Claude Code.
 
 **Kroki:** w jednym terminalu uruchom `/maestro <zadanie>` w Claude Code. Gdy zacznie pracować,
-w drugim terminalu w tym samym repozytorium uruchom `$maestro <zadanie>` w Codex.
+w drugim terminalu w tym samym repozytorium uruchom drugi Claude Code i w nim `/maestro <zadanie>`.
 
-**Oczekuję:** drugi run odmawia startu i mówi, kto trzyma blokadę (identyfikator runu, host).
+**Oczekuję:** drugi run odmawia startu i mówi, kto trzyma blokadę (identyfikator runu, sesja).
 Pierwszy pracuje dalej bez zakłóceń.
 
 **Odeślij:** komunikat odmowy.
 
-### 10. Nowy model (przy okazji)
+### 5. Nowy model (przy okazji)
 
 **Cel:** sprawdzić najważniejszą obietnicę: nowy model bez edycji skilla.
 
-**Kiedy:** po premierze nowego modelu (np. nowy Sol, Opus, Gemini Flash albo Grok).
+**Kiedy:** po premierze nowego modelu (np. nowy Sol, Opus, Fable albo Gemini).
 
 **Oczekuję:** w najbliższym runie linia przydziału pokazuje nową wersję. Jeśli Twoje konto nie ma
 do niej dostępu, zobaczysz dopisek w rodzaju `(gpt-6.2-sol listed, denied for this account)`
@@ -237,7 +119,7 @@ i użytą starszą wersję.
 
 **Odeślij:** linię przydziału.
 
-### 11. Pierwszy run w prawdziwym projekcie
+### 6. Pierwszy run w prawdziwym projekcie
 
 **Cel:** to najważniejsza ocena: czy plan i krytyka są użyteczne przy prawdziwej pracy, a nie na
 zabawkowym repozytorium.
@@ -255,18 +137,18 @@ budowane ani commitowane.
 **Odeślij:** czy uwagi krytyków były trafne, czy coś było szumem, ile to trwało. Na tej podstawie
 dostroję domyślnych krytyków i liczbę rund.
 
-### 12. Claude-workery na kredycie API (`--sdk`, płatne: centy)
+### 7. Claude-workery na kredycie API (`--sdk`, płatne: centy)
 
 **Cel:** potwierdzić, że wywołania przez Agent SDK zdejmują **kredyt** z planu Max, a nie
 przedpłacone saldo. W dokumentacji nie ma na to dowodu, widać to tylko w Console.
 
-**Gdzie:** repozytorium z `tests/canary/mkcanary.sh`, dyrygent w Codexie albo w Claude Code.
+**Gdzie:** repozytorium z `tests/canary/mkcanary.sh`, dyrygent w Claude Code.
 
 **Przed:** README.md → „API credit” (po polsku: README_pl.md → „Kredyt API”), kroki 1–5. Zanotuj w Console (Billing) stan kredytu i salda.
 
 **Kroki:**
 ```text
-~/.agents/skills/maestro/bin/maestro-sdk --resolve haiku
+~/.claude/skills/maestro/bin/maestro-sdk --resolve haiku
 /maestro --sdk --plan-only --critic=sol dodaj funkcję slugify z testami
 ```
 
@@ -277,11 +159,11 @@ ubytek kredytu, a saldo stoi w miejscu.
 **Odeślij:** wynik `--resolve`, linię przydziału, sumę `cost_usd` z raportu i to, co pokazała
 Console (kredyt czy saldo, ile).
 
-### 13. Przełączenie native → api po wyczerpaniu limitu
+### 8. Przełączenie native → api po wyczerpaniu limitu
 
 **Cel:** transport-switch na `api` w trakcie przebiegu.
 
-**Gdzie:** jak w 12, z `api: {fallback: true}` w `~/.config/maestro/policy.yml`. Shim `claude` z
+**Gdzie:** jak w 7, z `api: {fallback: true}` w `~/.config/maestro/policy.yml`. Shim `claude` z
 `tests/canary/shim/claude` udaje wyczerpany limit.
 
 **Oczekuję:** `transport: sonnet native→api (quota; …)`, wiersz ledgera `transport-switch`,

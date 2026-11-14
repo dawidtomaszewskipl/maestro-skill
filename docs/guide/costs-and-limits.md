@@ -10,21 +10,20 @@ the tokens went.
 | --- | --- | --- |
 | native (`claude -p`, Claude Code subagents) | Claude models | your Claude plan's 5-hour and weekly limits |
 | `codex exec` | GPT models | your ChatGPT plan |
-| agy | Gemini, and Claude models | your Antigravity account |
-| Cursor `agent` | Grok, Argon, and Claude models | your Cursor plan |
+| agy | Gemini, and Claude Opus and Sonnet | your Antigravity account |
 | `api` (the Agent SDK) | Claude models | the Max plan's monthly API credit, through an API key |
 
 Three things cost tokens beyond the build itself. **Critique**: each critic reads the plan once per
 round, and a risky change adds a second critic. **Probes**: the first run in a repository checks
 each chosen model with one cheap call; a passed probe is reused for up to seven days, in that
-repository only and only while the CLI version, account and host still match (an agy probe is
+repository only and only while the CLI version, account and mode (interactive or headless) still match (an agy probe is
 never reused across director sessions). **Review**: with `--review=full` or `cross` a model from a
 family other than the builder's — by default the plan critic's slot — reads the whole diff;
 `--review=self` adds no external call. The director's own work — reading diffs, running tests,
-waiting for jobs — costs its host's tokens, like any assistant session.
+waiting for jobs — costs your Claude Code session's tokens, like any assistant session.
 
-More critics does not simply mean more cost from one pool: Gemini and Grok draw on pools that
-would otherwise sit idle, which is often the point of using them.
+More critics does not simply mean more cost from one pool: GPT and Gemini critics draw on pools
+that would otherwise sit idle, which is often the point of using them.
 
 ## The API credit
 
@@ -53,17 +52,18 @@ carry a dollar estimate and a per-run sum.
 A usage limit is routine. What happens depends on the slot:
 
 - **A Claude slot with another road left** continues on it, for the same model: natively, then
-  agy, then Cursor, then `api` if you enabled it. The brief is rewritten for the new road (for
+  agy (Opus and Sonnet), then `api` if you enabled it. The brief is rewritten for the new road (for
   example "edits only, the director runs the tests"), critics stay (same family), and the ledger
   marks the switch.
-- **A slot with no road left** — a GPT, Gemini or Grok worker, or a Claude slot whose roads are
-  all exhausted — makes the director inspect what the worker left behind, write the checkpoint
+- **A slot with no road left** — a GPT or Gemini worker, a Fable or Haiku worker without `api`, or
+  a Claude slot whose roads are all exhausted — makes the director inspect what the worker left behind, write the checkpoint
   with a `quota` blocker, and stop. `/maestro --resume` probes the limit again and continues the
   same worker session; the director never reasons from a remembered reset time.
 - **A forced road** (`--model=opus@agy`) never switches: it stops and asks.
 
-When your Claude Code session itself hits the limit, the director stops too. Directing from Codex,
-Cursor or agy and letting only the Claude workers use the credit avoids that.
+When your Claude Code session itself hits the limit, the director stops too; `/maestro --resume`
+continues once the limit resets. Letting the Claude workers use the credit (`--sdk`) keeps the
+director's own share of the subscription for directing.
 
 ## Hard stops
 
