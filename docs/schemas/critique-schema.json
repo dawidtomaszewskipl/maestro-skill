@@ -1,7 +1,7 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["verdict", "blocking_findings", "major_findings", "non_blocking_notes", "assumptions"],
+  "required": ["verdict", "blocking_findings", "major_findings", "prior_findings", "non_blocking_notes", "assumptions"],
   "properties": {
     "verdict": { "type": "string", "enum": ["approve", "revise", "reject"] },
     "blocking_findings": {
@@ -9,11 +9,12 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["section", "claim_in_plan", "problem", "evidence", "fix"],
+        "required": ["section", "claim_in_plan", "problem", "trigger", "evidence", "fix"],
         "properties": {
           "section": { "type": "string" },
           "claim_in_plan": { "type": "string" },
           "problem": { "type": "string" },
+          "trigger": { "type": "string" },
           "evidence": { "type": "string" },
           "fix": { "type": "string" }
         }
@@ -24,13 +25,27 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["section", "claim_in_plan", "problem", "evidence", "fix"],
+        "required": ["section", "claim_in_plan", "problem", "trigger", "evidence", "fix"],
         "properties": {
           "section": { "type": "string" },
           "claim_in_plan": { "type": "string" },
           "problem": { "type": "string" },
+          "trigger": { "type": "string" },
           "evidence": { "type": "string" },
           "fix": { "type": "string" }
+        }
+      }
+    },
+    "prior_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "note"],
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "type": "string", "enum": ["resolved", "not_resolved"] },
+          "note": { "type": "string" }
         }
       }
     },

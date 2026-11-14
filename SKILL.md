@@ -362,7 +362,8 @@ has the exact lines. The invariants:
 
 **Read `docs/briefs.md` before writing the first brief**: the closing blocks
 every brief ends with (verbatim, by role, transport and `--unattended`), the
-agy openings, the inline variant and the size limits. The rules:
+agy openings, the inline variant, the size limits and the plan-critique
+blocks (severity rubric, round 2, arbiter). The rules:
 
 Everything lives under `.maestro/`. External workers start cold: absolute paths
 (a worktree worker: paths relative to its worktree root), explicit change
@@ -420,12 +421,19 @@ assumptions and its closing question against the stop matrix after every turn
 3. **Plan.** `.maestro/PLAN.md` (or `.maestro/tasks/<id>/PLAN.md` in a task
    queue), test commands and runner paths included.
 4. **Critique — always, not gated by `--review`.** The PLAN (never code) goes to
-   every required critic with the critique schema. Revise and resend up to
-   `--rounds`. **Approved only when every required critic returns `approve`
-   with empty `blocking_findings` and `major_findings` for the current
-   revision.** At the cap without it: stop, no build, hand the disagreement to
-   the user (`--unattended`: row 3, as is a `reject` in any round, A13).
-   `--plan-only` ends here (A15).
+   every required critic with the critique schema and the severity rubric
+   (`docs/briefs.md`, "Plan critique": every finding names its `trigger`).
+   Revise and resend up to `--rounds`; **from round 2 a critic gets its open
+   findings with your resolutions, answers each in `prior_findings` and adds
+   only what the revision introduced or what is blocking.** **Approved only
+   when every required critic returns `approve` with empty `blocking_findings`
+   and `major_findings` and every prior finding `resolved`** (`maestro-validate
+   --decide critique`). At the cap without it: only majors left, not high
+   stakes and `maestro-roles --arbiter` names a third family → **one arbiter
+   call**; every finding downgraded approves the plan, and the report says so.
+   Otherwise stop, no build, hand the disagreement to the user
+   (`--unattended`: row 3, as is a `reject` in any round, A13). `--plan-only`
+   ends here (A15).
 5. **Build** — or cascade (`docs/cascade.md`; under `--unattended` every
    `DRAFT_ABORT` is classified before it escalates, A21). One writer in the
    checkout at a time.
@@ -467,7 +475,8 @@ assumptions and its closing question against the stop matrix after every turn
 Caps: critique ≤ `--rounds`, gate ≤ 2, fix loop ≤ 3. At the critique or fix
 cap: stop, checkpoint with a diagnosis, hand the decision over — never a silent
 extra round, never a silent fallback to another worker (`--unattended`: a
-`needs-decision` stop). At the gate cap the cascade escalates to the
+`needs-decision` stop). The arbiter (step 4) is the one exception, and the
+report names it. At the gate cap the cascade escalates to the
 implementer (`docs/cascade.md`).
 
 ## Time and the watchdog

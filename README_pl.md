@@ -41,8 +41,9 @@ Ciebie zmienia wybór.
    wyboru i dokładnym modelem za każdą nazwą. „Niech buduje sol” to zmienia.
 3. **Plan i krytyka.** Pisze plan. Krytycy z innych rodzin czytają plan (jeszcze nie kod)
    i odpowiadają: zatwierdzam albo popraw. Plan krąży, aż każdy krytyk go zatwierdzi, do limitu
-   rund (dwie, chyba że ustawisz inaczej). Nie zatwierdzony na limicie? Przebieg staje i oddaje Ci
-   spór do rozstrzygnięcia.
+   rund (dwie, chyba że ustawisz inaczej). Nie zatwierdzony na limicie? Model z
+   trzeciej rodziny rozstrzyga raz to, co zostało (nigdy przy ryzykownej zmianie); jeśli któraś
+   uwaga się utrzyma, przebieg staje i oddaje Ci spór do rozstrzygnięcia.
 4. **Budowa.** Wybrany model pisze kod w granicach, które wyznaczył plan.
 5. **Kontrola.** Dyrygent sam czyta cały diff i uruchamia testy. Na życzenie model z innej
    rodziny niż wykonawca — zwykle ten, który krytykował plan — recenzuje wynik względem planu.

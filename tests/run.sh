@@ -388,6 +388,73 @@ if group T5 "verdict validation"; then
   jqt "claude error result → envelope failure" "$(v claude-error.jsonl claude)" '.valid == false and .stage == "envelope"'
   jqt "api transport (Agent SDK) structured_output → valid" "$(v sdk-structured.jsonl claude read-only)" '.valid'
   jqt "api budget spent → envelope failure" "$(v sdk-budget.jsonl claude)" '.valid == false and .stage == "envelope"'
+  # severity rubric and delta rounds: trigger, prior_findings, --decide (docs/briefs.md, "Plan critique")
+  AS="$ROOT/docs/schemas/arbiter-schema.json"
+  FND='{"section":"2","claim_in_plan":"c","problem":"p","trigger":"an empty CSV file","evidence":"e","fix":"f"}'
+  crit() { jq -cn --arg v "$1" --argjson b "$2" --argjson m "$3" --argjson p "$4" \
+    '{verdict: $v, blocking_findings: $b, major_findings: $m, prior_findings: $p, non_blocking_notes: [], assumptions: []}'; }
+  dc() { printf '%s' "$1" > "$WORK/decide.json"; shift; "$B/maestro-validate" "$S" "$WORK/decide.json" "$@"; }
+  da() { printf '%s' "$1" > "$WORK/decide.json"; shift; "$B/maestro-validate" "$AS" "$WORK/decide.json" "$@"; }
+  jqt "every schema: strings only, every property required, additionalProperties false" \
+    "$(jq -s '[ .[] | .. | objects | select(.type == "object")
+               | (.additionalProperties == false and ((.properties | keys) == (.required | sort))) ] | all' "$S" "$AS")" '. == true'
+  jqt "critique and arbiter schemas declare no integer and no nullable field" \
+    "$(jq -s '[ .[] | .. | objects | .type? | select(. != null) ] | all(type == "string" and IN("object", "array", "string"))' "$S" "$AS")" '. == true'
+  jqt "missing prior_findings → invalid" "$(dc '{"verdict":"approve","blocking_findings":[],"major_findings":[],"non_blocking_notes":[],"assumptions":[]}')" \
+    '.valid == false and (.errors | any(test("missing required prior_findings")))'
+  jqt "a finding without trigger → invalid" "$(dc "$(crit revise '[]' "[$(jq -c 'del(.trigger)' <<<"$FND")]" '[]')")" \
+    '.valid == false and .stage == "schema" and (.errors | any(test("major_findings\\[0\\]: missing required trigger")))'
+  jqt "a blocking finding without trigger → invalid" "$(dc "$(crit revise "[$(jq -c 'del(.trigger)' <<<"$FND")]" '[]' '[]')")" \
+    '.valid == false and (.errors | any(test("blocking_findings\\[0\\]: missing required trigger")))'
+  jqt "a finding with trigger → valid; no decision without --decide" "$(dc "$(crit revise '[]' "[$FND]" '[]')")" '.valid and (has("decision") | not)'
+  jqt "prior_findings status outside the enum → invalid" "$(dc "$(crit revise '[]' '[]' '[{"id":"r1-m1","status":"partly","note":"n"}]')")" \
+    '.valid == false and (.errors | any(test("prior_findings\\[0\\].status.*not in enum")))'
+  jqt "decide critique: approve, nothing open → approved" "$(dc "$(crit approve '[]' '[]' '[]')" --decide critique --ids "")" \
+    '.valid and .stage == "schema" and .errors == [] and .decision == {approved: true, reasons: []}'
+  jqt "decide critique: approve, every prior resolved → approved" \
+    "$(dc "$(crit approve '[]' '[]' '[{"id":"r1-m1","status":"resolved","note":"n"},{"id":"r1-b1","status":"resolved","note":"n"}]')" --decide critique --ids r1-m1,r1-b1)" '.valid and .decision.approved'
+  out="$(dc "$(crit revise '[]' "[$FND]" '[{"id":"r1-m1","status":"not_resolved","note":"n"}]')" --decide critique --ids r1-m1)"; rc=$?
+  jqt "decide critique: revise → valid, not approved, reasons named" "$out" \
+    '.valid and .decision.approved == false and .decision.reasons == ["verdict revise", "1 major finding", "prior finding r1-m1 not resolved"]'
+  eq "decide critique: a valid revise exits 0" 0 "$rc"
+  jqt "decide critique: reject → not approved" "$(dc "$(crit reject "[$FND]" '[]' '[]')" --decide critique)" \
+    '.valid and .decision.approved == false and (.decision.reasons | index("verdict reject") != null)'
+  out="$(dc "$(crit approve '[]' "[$FND]" '[]')" --decide critique)"; rc=$?
+  jqt "decide critique: approve that lists a finding → invalid, with the reason" "$out" \
+    '.valid == false and .stage == "decide" and (.errors[0] | test("approve with .* 1 major finding listed")) and .decision.approved == false and .verdict.verdict == "approve"'
+  eq "decide critique: an inconsistent approve exits 1" 1 "$rc"
+  jqt "decide critique: approve with a not_resolved prior finding → invalid" \
+    "$(dc "$(crit approve '[]' '[]' '[{"id":"r1-m1","status":"not_resolved","note":"n"}]')" --decide critique --ids r1-m1)" \
+    '.valid == false and .stage == "decide" and (.errors[0] | test("r1-m1 not resolved")) and .decision.approved == false'
+  jqt "decide critique: round 2 answer that skips a sent id → invalid (no vacuous approval)" \
+    "$(dc "$(crit approve '[]' '[]' '[]')" --decide critique --ids r1-m1)" '.valid == false and (.errors[0] | test("r1-m1 sent but not answered")) and .decision.approved == false'
+  jqt "decide critique: an id that was not sent → invalid" \
+    "$(dc "$(crit approve '[]' '[]' '[{"id":"r9-m9","status":"resolved","note":"n"}]')" --decide critique --ids "")" '.valid == false and (.errors[0] | test("r9-m9 was not sent"))'
+  jqt "decide critique: an id listed twice → invalid" \
+    "$(dc "$(crit revise '[]' '[]' '[{"id":"r1-m1","status":"resolved","note":"n"},{"id":"r1-m1","status":"not_resolved","note":"n"}]')" --decide critique)" '.valid == false and (.errors[0] | test("listed twice"))'
+  jqt "decide critique: empty trigger → invalid" "$(dc "$(crit revise '[]' "[$(jq -c '.trigger = "  "' <<<"$FND")]" '[]')" --decide critique)" \
+    '.valid == false and .stage == "decide" and (.errors[0] | test("major_findings\\[0\\].trigger: empty"))'
+  jqt "decide: a schema failure is never approved" "$("$B/maestro-validate" "$S" "$V/wrong-enum.txt" --decide critique)" \
+    '.valid == false and .stage == "schema" and .decision.approved == false'
+  jqt "decide: an envelope failure is never approved" "$("$B/maestro-validate" "$S" "$V/agy-canceled.json" --envelope agy --decide critique)" \
+    '.valid == false and .stage == "envelope" and .decision.approved == false'
+  jqt "decide critique through an agy envelope" "$("$B/maestro-validate" "$S" "$V/agy-structured-only.json" --envelope agy --decide critique --ids "")" '.valid and .decision.approved'
+  jqt "arbiter schema: valid" "$(da '{"verdicts":[{"id":"r1-m1","decision":"upheld","reason":"r"}],"assumptions":[]}')" '.valid'
+  jqt "arbiter schema: decision outside the enum → invalid" "$(da '{"verdicts":[{"id":"r1-m1","decision":"maybe","reason":"r"}],"assumptions":[]}')" '.valid == false and (.errors[0] | test("not in enum"))'
+  jqt "arbiter schema: missing reason → invalid" "$(da '{"verdicts":[{"id":"r1-m1","decision":"upheld"}],"assumptions":[]}')" '.valid == false and (.errors[0] | test("missing required reason"))'
+  jqt "decide arbiter: every verdict downgraded → approved" \
+    "$(da '{"verdicts":[{"id":"r1-m1","decision":"downgraded","reason":"r"},{"id":"r2-m1","decision":"downgraded","reason":"r"}],"assumptions":[]}' --decide arbiter --ids r1-m1,r2-m1)" \
+    '.valid and .decision == {approved: true, reasons: []}'
+  jqt "decide arbiter: one upheld → not approved, named" \
+    "$(da '{"verdicts":[{"id":"r1-m1","decision":"downgraded","reason":"r"},{"id":"r2-m1","decision":"upheld","reason":"r"}],"assumptions":[]}' --decide arbiter --ids r1-m1,r2-m1)" \
+    '.valid and .decision == {approved: false, reasons: ["r2-m1 upheld"]}'
+  jqt "decide arbiter: no verdicts → not approved" "$(da '{"verdicts":[],"assumptions":[]}' --decide arbiter)" '.valid and .decision == {approved: false, reasons: ["no verdicts"]}'
+  jqt "decide arbiter: a disputed id without a verdict → invalid" \
+    "$(da '{"verdicts":[{"id":"r1-m1","decision":"downgraded","reason":"r"}],"assumptions":[]}' --decide arbiter --ids r1-m1,r2-m1)" \
+    '.valid == false and .stage == "decide" and (.errors[0] | test("r2-m1 sent but not answered")) and .decision.approved == false'
+  jqt "decide: the wrong schema for the decision → invalid, not a jq error" "$(da '{"verdicts":[],"assumptions":[]}' --decide critique)" '.valid == false and .stage == "decide"'
+  if "$B/maestro-validate" "$S" "$V/valid.txt" --decide gate >/dev/null 2>&1; then bad "decide: unknown kind refused"; else ok "decide: unknown kind refused"; fi
+  if "$B/maestro-validate" "$S" "$V/valid.txt" --ids r1-m1 >/dev/null 2>&1; then bad "--ids without --decide refused"; else ok "--ids without --decide refused"; fi
 fi
 
 # =============================================================================================
@@ -449,6 +516,30 @@ if group T7 "role resolution"; then
   jqt "high stakes, one named critic → a second family added" "$(roles '{"builder":"opus","high_stakes":true,"named_critics":["sol"],"eligible":["opus","sol","gemini"]}')" '.critics == ["sol","gemini"]'
   jqt "named argon critic of a claude build" "$(roles '{"builder":"opus","named_critics":["argon"],"eligible":'"$ALL"'}')" '.critics == ["argon"] and .reviewer == "argon" and (.notes | any(test("argon is provisional")))'
   jqt "no builder → a structured stop, not a jq error" "$(roles '{"eligible":["sol"]}')" '.stop.reason | test("unknown")'
+  # the arbiter at the critique cap (docs/briefs.md, "Arbiter at the cap")
+  arb() { "$B/maestro-roles" --arbiter <<<"$1"; }
+  jqt "arbiter: claude builder, openai critic → argon" "$(arb '{"builder":"opus","drafter":null,"high_stakes":false,"critics_with_findings":["sol"],"eligible":'"$ALL"'}')" \
+    '.arbiter == "argon" and .stop == null and (.reason | test("third family google")) and (.reason | test("provisional"))'
+  jqt "arbiter: argon not eligible → gemini" "$(arb '{"builder":"opus","critics_with_findings":["sol"],"eligible":'"$NOARGON"'}')" '.arbiter == "gemini" and .stop == null'
+  jqt "arbiter: google out → null + stop" "$(arb '{"builder":"opus","critics_with_findings":["sol"],"eligible":["opus","fable","sonnet","haiku","astra","sol","luna","terra","self"]}')" \
+    '.arbiter == null and (.stop.reason | test("no eligible third family")) and .reason == .stop.reason'
+  jqt "arbiter: cascade drafter family excluded → null + stop" "$(arb '{"builder":"opus","drafter":"gemini","critics_with_findings":["sol"],"eligible":'"$ALL"'}')" \
+    '.arbiter == null and (.stop.reason | test("drafter google"))'
+  jqt "arbiter: drafter of the builder family changes nothing" "$(arb '{"builder":"sol","drafter":"luna","critics_with_findings":["argon"],"eligible":'"$ALL"'}')" '.arbiter == "opus"'
+  jqt "arbiter: high stakes → stop" "$(arb '{"builder":"opus","high_stakes":true,"critics_with_findings":["sol"],"eligible":'"$ALL"'}')" '.arbiter == null and (.stop.reason | test("high stakes"))'
+  jqt "arbiter: two critic families with findings, both cross-family → no third, stop" "$(arb '{"builder":"opus","critics_with_findings":["sol","argon"],"eligible":'"$ALL"'}')" '.arbiter == null and .stop != null'
+  jqt "arbiter: two critic families with findings (one the builder family) → the third" "$(arb '{"builder":"sonnet","critics_with_findings":["fable","sol"],"eligible":'"$ALL"'}')" '.arbiter == "argon"'
+  jqt "arbiter: two critics of one family → the third" "$(arb '{"builder":"opus","critics_with_findings":["sol","astra"],"eligible":'"$ALL"'}')" '.arbiter == "argon"'
+  jqt "arbiter: openai builder, google critic → opus" "$(arb '{"builder":"sol","critics_with_findings":["gemini"],"eligible":'"$ALL"'}')" '.arbiter == "opus"'
+  jqt "arbiter: google builder, openai critic, opus not eligible → fable" "$(arb '{"builder":"gemini","critics_with_findings":["sol"],"eligible":["gemini","sol","fable","sonnet","haiku"]}')" '.arbiter == "fable"'
+  jqt "arbiter: claude builder, google critic, sol not eligible → astra" "$(arb '{"builder":"opus","critics_with_findings":["argon"],"eligible":["opus","argon","astra","luna"]}')" '.arbiter == "astra"'
+  jqt "arbiter: only luna, terra, haiku left → null (not in the order)" "$(arb '{"builder":"opus","critics_with_findings":["argon"],"eligible":["opus","argon","luna","terra"]}')" '.arbiter == null and .stop != null'
+  jqt "arbiter: self builder uses the director family" "$(arb '{"builder":"self","director_family":"claude","critics_with_findings":["argon"],"eligible":'"$ALL"'}')" '.arbiter == "sol"'
+  jqt "arbiter: self with unknown family → stop, not a jq error" "$(arb '{"builder":"self","critics_with_findings":["argon"],"eligible":'"$ALL"'}')" '.arbiter == null and (.stop.reason | test("unknown"))'
+  jqt "arbiter: no critic with findings → stop" "$(arb '{"builder":"opus","critics_with_findings":[],"eligible":'"$ALL"'}')" '.arbiter == null and .stop != null'
+  jqt "arbiter: every slot in the order belongs to its family in slots.json" \
+    "$(jq -c '[.sol.family, .astra.family, .argon.family, .gemini.family, .opus.family, .fable.family, .sonnet.family]' "$B/slots.json")" \
+    '. == ["openai","openai","google","google","claude","claude","claude"]'
   jqt "transports: no slot and no order → halt, not a jq error" "$("$B/maestro-roles" --transports <<<'{"available":{}}')" '.action == "halt"'
   jqt "transports: the order comes from slots.json" "$("$B/maestro-roles" --transports <<<'{"slot":"fable","available":{"native":false,"api":true}}')" '.transport == "api"'
   r6() { "$B/maestro-roles" --row6 <<<"$1"; }
@@ -930,7 +1021,7 @@ SH
     '.stops == [] and .transports.native.available and .transports.codex.available and .transports.codex.version == "0.169.0"
      and .transports.agy.available and .codex_config.mode == "isolated" and .git.objects and .git.index_file and .git.refs'
   jqt "preflight: a login that expires within a day is a warning" "$out" '.warnings | any(test("login expires"))'
-  eq "preflight: .maestro/ excluded once, schemas copied" "1 3" "$(grep -cxF '.maestro/' "$(git rev-parse --git-path info/exclude)") $(find .maestro -maxdepth 1 -name '*-schema.json' | wc -l)"
+  eq "preflight: .maestro/ excluded once, schemas copied" "1 4" "$(grep -cxF '.maestro/' "$(git rev-parse --git-path info/exclude)") $(find .maestro -maxdepth 1 -name '*-schema.json' | wc -l)"
   pf --interactive false >/dev/null
   eq "preflight: a second run does not add the exclude line again" 1 "$(grep -cxF '.maestro/' "$(git rev-parse --git-path info/exclude)")"
   printf 'model_provider = "corp"\n[mcp_servers.x]\nauth_token = "y"\n[profiles.p]\nopenai_base_url = "https://x"\n' > "$CHM/config.toml"

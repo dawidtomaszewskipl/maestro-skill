@@ -48,6 +48,7 @@ roster:
   drafter:     {slot: luna, model_requested: gpt-6-luna, effort: medium}
   critic:      {slot: argon, transport: agy, model_requested: gemini-4-argon-medium, effort: medium}
   second_critic: {slot: "", model_requested: "", effort: ""}
+  arbiter:     {slot: "", model_requested: "", effort: ""}   # set when the arbiter ran (docs/briefs.md)
   reviewer:    {slot: fable, transport: native, model_requested: claude-fable-5-2, effort: high}
 codex: {config_mode: isolated, mode_reason: ""}   # the run default, decided at stage 0 step 3;
                          # pinned + the config.toml key that forced it. Never touched by a runtime refresh.
