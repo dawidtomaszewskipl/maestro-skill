@@ -298,9 +298,14 @@ call** — agy hosts Claude models next to Gemini, and Codex falls back to
    with an empty `CODEX_HOME`), judged by effect outside the sandbox
    (`docs/sandbox-and-preflight.md`) — never the suite.
 9. Record `T_slow` (slowest single test or build, seconds; unknown → 900).
+10. **Limits**: `"$MAESTRO/bin/maestro-limits"` after the probes (they leave a
+   fresh Claude `rate_limit_event`; Codex is read from its rollouts; agy is
+   unknown). Its `warnings` (a pool at ≥ 90 %) go in the Assign line, and rubric
+   rows 3–5 then take the alternative with headroom — say so.
 
 Steps run only for the families and transports they concern; report the
-skipped ones.
+skipped ones. `maestro-status` shows where a run stands (stage, live jobs,
+ledger, lock) — for the user coming back, or for you after a compaction.
 
 ## Launching workers
 
@@ -470,7 +475,8 @@ assumptions and its closing question against the stop matrix after every turn
    verdict.
 9. **Report.** Spec, who did what (requested and served models, transports),
    review mode, test scope and status, sandbox rung, families and policy, the
-   cost table (`docs/ledger.md`), what was skipped or degraded. When the run is
+   cost table (`maestro-ledger report --run <run_id>`), what was skipped or
+   degraded. When the run is
    **finished** — committed, no open decision, no queued or planned task, not
    a `--plan-only` result — close its bookkeeping (`maestro-state --gen N
    rotate --to <run_id>`). Then release the lock (`maestro-lock release
