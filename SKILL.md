@@ -528,7 +528,10 @@ Write `.maestro/CHECKPOINT.md` (`docs/checkpoint.md`) after every stage
 transition, at every worker launch (session id, job id), and on every limit, API
 or safety event — **only** through `maestro-state --gen N write CHECKPOINT.md`,
 never with an edit tool or a redirect: a checkpoint or ledger written any other
-way has no audit entry, and the next write or `--resume` refuses it. Only the
+way has no audit entry, and the next write or `--resume` refuses it.
+Transitions, launches and finishes patch it with `maestro-state --gen N set
+<key>=<value>…` and `add-session <transport> '<json>'`; the first checkpoint
+and structural changes use `write`. Only the
 user can accept such a file, after inspecting it (`maestro-state --gen N adopt
 <file> --reason "…"`; never under `--unattended` — headless, the script refuses
 it). It holds the resolved configuration (flags, roster with frozen models and

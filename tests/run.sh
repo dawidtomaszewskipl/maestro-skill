@@ -770,6 +770,91 @@ if group T9 "audit and .maestro fingerprint"; then
   # Audit prefix rewritten → detected.
   "$B/maestro-fp" snapshot > "$WORK/c.json"; sed -i '1s/.*/{"file":"x"}/' .maestro/audit.jsonl
   jqt "audit prefix rewritten → detected" "$("$B/maestro-fp" compare "$WORK/c.json")" '.diffs | index("audit.jsonl prefix") != null'
+  # set / add-session patch the front matter in place. The fixture is the example of
+  # docs/checkpoint.md itself (comments, flow maps, block and inline lists) between "---" lines,
+  # with a body that repeats a key.
+  REPO5="$(new_repo)"; cd "$REPO5" || exit 2
+  g5="$("$B/maestro-lock" acquire --run r --token t --host test | jq -r .fence)"
+  CP=.maestro/CHECKPOINT.md
+  S() { "$B/maestro-state" --gen "$g5" "$@"; }
+  cpsha() { sha256sum "$CP" | cut -c1-64; }
+  keys_changed() { diff "$1" "$CP" | sed -n 's/^< *\([A-Za-z0-9_]*\):.*/\1/p' | sort | tr '\n' ' '; }   # keys of the lines that differ
+  rc_of() { "$@" >/dev/null 2>&1; echo $?; }
+  naud() { grep -c '"file":"CHECKPOINT.md"' .maestro/audit.jsonl; }                                   # its audit entries
+  { printf -- '---\n'; awk '/^```yaml/ && !d { f = 1; next } /^```/ && f { f = 0; d = 1 } f' "$ROOT/docs/checkpoint.md"
+    printf -- '---\n\n## Done\nstage: this body line is not front matter\n'; } > "$WORK/cp0"
+  eq "set before any checkpoint is refused (the first one is a write)" 2 "$(rc_of S set stage=plan)"
+  S write CHECKPOINT.md < "$WORK/cp0" >/dev/null
+  n0="$(naud)"
+  jqt "set on an audited checkpoint" "$(S set stage=review)" '.result == "written" and .file == "CHECKPOINT.md"'
+  eq "set: only that line and written_at differ, the comment stays" "stage written_at |1" \
+    "$(keys_changed "$WORK/cp0")|$(grep -c '^stage: review            # interview | assign' "$CP")"
+  eq "set: same number of lines, the body untouched" "$(wc -l < "$WORK/cp0") 1" "$(wc -l < "$CP") $(grep -c '^stage: this body line' "$CP")"
+  jqt "set: one audit entry more, and the file verifies" "$(tail -1 .maestro/audit.jsonl)" \
+    ".file == \"CHECKPOINT.md\" and .sha256_after == \"$(cpsha)\" and $(naud) == $((n0 + 1))"
+  jqt "set: verify ok" "$("$B/maestro-state" verify CHECKPOINT.md)" '.result == "ok"'
+  wa="$(sed -n 's/^written_at: //p' "$CP")"
+  if [[ "$wa" != "2026-09-06T11:02:14+02:00" && "$wa" =~ ^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:]{8}[+-][0-9]{2}:[0-9]{2}$ ]]; then ok "set stamps written_at with now"; else bad "set stamps written_at with now" "$wa"; fi
+  cp "$CP" "$WORK/cp1"
+  S set round=2 tree_state=clean fix_cap=4 current_task=2 tree.head=abc1234 plan_sha256=deadbeef written_at=2030-01-01T00:00:00+00:00 >/dev/null
+  eq "set with several keys" "current_task fix_cap plan_sha256 round tree tree_state written_at " "$(keys_changed "$WORK/cp1")"
+  eq "set: bare stays bare, quoted stays quoted, a comment stays, an explicit written_at wins" \
+    'round: 2|1|1|plan_sha256: "deadbeef"|written_at: 2030-01-01T00:00:00+00:00' \
+    "$(grep '^round: ' "$CP")|$(grep -c '^tree_state: clean   # clean | dirty-worker' "$CP")|$(grep -c '^fix_cap: 4              # fix-loop cap' "$CP")|$(grep '^plan_sha256: ' "$CP")|$(grep '^written_at: ' "$CP")"
+  eq "set <parent>.<key> inside a one-line flow map" "tree: {branch: feature/tags-crud, head: abc1234, fingerprint: 9f2c41…}" "$(grep '^tree: ' "$CP")"
+  v='say "hi": then C:\go, 100% # not a comment'
+  S set "next_action=$v" "tests.cmd=a, b: {c}" >/dev/null
+  eq "a value with a colon, quotes and a backslash round-trips" "$v" "$(sed -n 's/^next_action: //p' "$CP" | jq -r .)"
+  eq "… and inside a flow map" 'tests: {cmd: "a, b: {c}", last_result: "1104/1104", duration_s: 412, T_slow_s: 417}' "$(grep '^tests: ' "$CP")"
+  h="$(cpsha)"; n1="$(naud)"
+  eq "a newline in a value is refused" 2 "$(rc_of S set "next_action=one"$'\n'"stage: report")"
+  eq "an unknown key is refused" 2 "$(rc_of S set nope=1)"
+  jqt "… with a message that says set never adds a key" "$(S set nope=1 2>&1 | jq -Rc '{m: .}')" '.m | test("nope.*not in the front matter")'
+  eq "one unknown key among good ones: nothing is written" 2 "$(rc_of S set stage=fix nope=1)"
+  eq "a key that holds a block, a list or a multi-line map is refused" "2 2 2 2 2" \
+    "$(rc_of S set roster=x) $(rc_of S set blockers=x) $(rc_of S set sessions=x) $(rc_of S set runtime.doctor_ok=false) $(rc_of S set decisions.current=x)"
+  eq "a key absent from a flow map, two levels and a bare word are refused" "2 2 2" "$(rc_of S set tree.nope=1) $(rc_of S set a.b.c=1) $(rc_of S set stage)"
+  eq "set without --gen is refused" 2 "$(rc_of "$B/maestro-state" set stage=fix)"
+  eq "add-session with an unknown transport is refused" 2 "$(rc_of S add-session cursor '{"id":"x"}')"
+  eq "add-session: not an object, a newline in a string, or two records are refused" "2 2 2" "$(rc_of S add-session codex '[1]') $(rc_of S add-session codex '{"id":"a\nb"}') $(rc_of S add-session codex '{"id":"a"} {"id":"b"}')"
+  eq "every refusal left the file and the audit as they were" "$h $n1" "$(cpsha) $(naud)"
+  # A superseded fence: the lock is released and taken again.
+  "$B/maestro-lock" release --token t --gen "$g5" >/dev/null; old="$g5"
+  g5="$("$B/maestro-lock" acquire --run r --token t --host test | jq -r .fence)"
+  eq "set with a stale fence → exit 4" 4 "$(rc_of "$B/maestro-state" --gen "$old" set stage=fix)"
+  eq "add-session with a stale fence → exit 4" 4 "$(rc_of "$B/maestro-state" --gen "$old" add-session claude '{"id":"x"}')"
+  eq "… and the file is untouched" "$h $n1" "$(cpsha) $(naud)"
+  # add-session: a block list with multi-line records, an inline list, an empty [] list.
+  cp "$CP" "$WORK/cp2"
+  rec='{"id":"01b0","role":"fix","job":"r.fix.r1.a1","config_mode":"isolated","rung":1,"tools":"Read,Edit","worktree":"","baseline":"1234567","pinned":true}'
+  want='- {id: 01b0, role: fix, job: r.fix.r1.a1, config_mode: isolated, rung: 1, tools: "Read,Edit", worktree: "", baseline: "1234567", pinned: true}'
+  jqt "add-session into a block list" "$(S add-session codex "$rec")" '.result == "written"'
+  eq "… after the last record's last line, before its comments" "       worktree: \"\", baseline: \"\", fingerprint: \"\"}|    $want|# rollout_offset" \
+    "$(grep -B1 -A1 -F -- "$want" "$CP" | sed '3s/^ *\(# rollout_offset\).*/\1/' | paste -sd'|')"
+  S add-session agy "$rec" >/dev/null
+  eq "add-session into an inline list: it becomes a block list" "  agy:|    - {id: b538f8bb-9a0e-4978-bc3d-988ccef298eb, role: critic, slug: gemini-4-argon-medium, job: …}|    $want" \
+    "$(grep -A2 '^  agy:' "$CP" | paste -sd'|')"
+  S add-session claude "$rec" >/dev/null; S add-session claude '{"id":"02c0"}' >/dev/null
+  eq "add-session into an empty [] list, the key's comment kept; a second one follows" \
+    "  claude:             # Agent-tool subagent ids, continued with SendMessage within the session;|    $want|    - {id: 02c0}" \
+    "$(grep -A2 '^  claude:' "$CP" | paste -sd'|')"
+  eq "add-session: nothing but the session lines and written_at changed" "agy claude written_at " "$(keys_changed "$WORK/cp2")"
+  if [[ "$(grep '^written_at: ' "$CP")" != "written_at: 2030-01-01T00:00:00+00:00" ]]; then ok "add-session stamps written_at"; else bad "add-session stamps written_at"; fi
+  jqt "after add-session the file verifies" "$("$B/maestro-state" verify CHECKPOINT.md)" '.result == "ok"'
+  printf 'edited by hand\n' >> "$CP"
+  h="$(cpsha)"
+  jqt "set on a file changed outside maestro is refused" "$(S set stage=fix 2>/dev/null)" '.result == "tampered"'
+  eq "… with exit 5, and so is add-session" "5 5" "$(rc_of S set stage=fix) $(rc_of S add-session claude '{"id":"x"}')"
+  eq "… and the tampered file is not rewritten" "$h" "$(cpsha)"
+  # Without "---" lines the whole file is front matter; a file with no written_at is patched unstamped.
+  REPO6="$(new_repo)"; cd "$REPO6" || exit 2
+  g5="$("$B/maestro-lock" acquire --run r --token t --host test | jq -r .fence)"
+  printf 'stage: plan\nnote:\nsessions:\n  codex:\n  claude_cli: [{id: a,\n    role: b}]\nlast: x' | S write CHECKPOINT.md >/dev/null
+  S set stage=build "note=it's" 2>/dev/null >/dev/null; S add-session codex '{"id":"c1"}' >/dev/null 2>&1
+  eq "no front-matter fence, no written_at, no final newline: patched as is" 'stage: build|note: "it'"'"'s"|sessions:|  codex:|    - {id: c1}|  claude_cli: [{id: a,|    role: b}]|last: x' \
+    "$(paste -sd'|' "$CP")$(tail -c1 "$CP" | tr -d 'x')"
+  eq "a list that does not close on its line is refused" 2 "$(rc_of S add-session claude_cli '{"id":"c2"}')"
+  eq "a transport key that is not there is refused" 2 "$(rc_of S add-session agy '{"id":"c2"}')"
   cd "$ROOT" || exit 2
 fi
 
