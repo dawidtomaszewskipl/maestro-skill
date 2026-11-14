@@ -433,7 +433,8 @@ assumptions and its closing question against the stop matrix after every turn
    (`docs/briefs.md`, "Plan critique": every finding names its `trigger`).
    Revise and resend up to `--rounds`; **from round 2 a critic gets its open
    findings with your resolutions, answers each in `prior_findings` and adds
-   only what the revision introduced or what is blocking.** **Approved only
+   only what the revision introduced, what is blocking, or a major it missed
+   (with a `trigger` the spec allows).** **Approved only
    when every required critic returns `approve` with empty `blocking_findings`
    and `major_findings` and every prior finding `resolved`** (`maestro-validate
    --decide critique`). At the cap without it: only majors left, not high

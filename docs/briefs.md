@@ -65,8 +65,9 @@ Instead of the round-1 line:
 > `note` says why in one sentence. Do not repeat a prior finding in `blocking_findings` or
 > `major_findings`.
 > Do not re-judge the whole plan. Report a new finding only if this revision introduced it — name
-> the changed section in `section` — or if it is blocking. Anything else you notice now goes in
-> `non_blocking_notes`.
+> the changed section in `section` — or if it is blocking, or if it is a major you missed before
+> whose `trigger` the spec allows — start its `problem` with "missed earlier:". Anything else you
+> notice now goes in `non_blocking_notes`.
 > `approve` only when every prior finding is `resolved` and both finding arrays are empty.
 
 - **Ids** are yours: `r<round>-<b|m><n>` — the round that first reported the finding, `b` blocking
