@@ -119,7 +119,6 @@ parse_args() {
   done
   [[ ${#cmd[@]} -gt 0 && -n "$gen" && -n "$job" && -n "$run" && -n "$role" ]] \
     || mae_die "usage: maestro-run --gen N --job ID --run RUN --role ROLE [...] -- <command…>"
-  [[ "$job" =~ ^[A-Za-z0-9._:-]+$ ]] || mae_die "maestro-run: job id may hold only [A-Za-z0-9._:-]"
   [[ "$kind" == worker || "$kind" == test ]] || mae_die "maestro-run: --kind is worker or test"
 }
 
@@ -130,7 +129,7 @@ json_list() { if [[ $# -gt 0 ]]; then printf '%s\n' "$@" | jq -R . | jq -sc .; e
 if [[ "${1:-}" == "__locked" ]]; then
   shift
   parse_args "$@"
-  J="$SD/jobs/$job"
+  J="$(mae_job_dir "$SD" "$job")"
   mkdir -p "$SD/jobs"
   mkdir "$J" 2>/dev/null || mae_die "maestro-run: job $job already exists ($J) — job ids are never reused"
   printf '%s\0' "${cmd[@]}" > "$J/cmd"
@@ -173,5 +172,5 @@ if [[ "${1:-}" == "__locked" ]]; then
 fi
 
 parse_args "$@"
-[[ -e "$SD/jobs/$job" ]] && mae_die "maestro-run: job $job already exists — job ids are never reused"
-exec "$MAESTRO_BIN/maestro-lock" exec --gen "$gen" -- "$0" __locked "$@"
+[[ -e "$(mae_job_dir "$SD" "$job")" ]] && mae_die "maestro-run: job $job already exists — job ids are never reused"
+mae_fenced "$gen" __locked "$@"

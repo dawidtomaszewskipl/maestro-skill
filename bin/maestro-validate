@@ -6,7 +6,7 @@
 #
 # 1. Envelope (envelope failure is not an invalid verdict):
 #    codex   the -o file is the answer text
-#    agy     {status: "SUCCESS", denied_actions: absent or []} → structured_output if present and not
+#    agy     {status: "SUCCESS", denied_actions: absent or [], finished_reason: absent} → structured_output if present and not
 #            null (agy fills it when --json-schema is given), else response; the chosen text non-empty
 #    claude  stream-json/json: the `result` event with subtype "success", is_error false, and for
 #            read-only roles permission_denials == [] → structured_output if present, else result
@@ -42,6 +42,8 @@ case "$envelope" in
     jq -e . "$file" >/dev/null 2>&1 || fail envelope "agy envelope is not JSON"
     [[ "$(jq -r .status "$file")" == SUCCESS ]] || fail envelope "agy status $(jq -r .status "$file")"
     [[ "$(jq '(.denied_actions // []) | length' "$file")" == 0 ]] || fail envelope "agy denied_actions: $(jq -c .denied_actions "$file")"
+    fr="$(jq -r '.finished_reason // empty' "$file")"   # agy >= 1.4.11: print_timeout, interrupted, error
+    [[ -z "$fr" ]] || fail envelope "agy finished_reason $fr"
     if [[ "$(jq 'has("structured_output") and .structured_output != null' "$file")" == true ]]; then
       text="$(jq -c .structured_output "$file")"
     else

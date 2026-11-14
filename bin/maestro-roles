@@ -15,7 +15,7 @@
 #       are known and self is eligible, else the first eligible of sonnet, sol, gemini, else halt.
 #
 #   maestro-roles --transports < input.json
-# Input:  {slot, order: [transport…], available: {transport: bool}, denied: [transport…],
+# Input:  {slot, order: [transport…] (default: the slot's order in bin/slots.json), available: {transport: bool}, denied: [transport…],
 #          forced: transport|null, event: "first-use"|"runtime-failure", failed: transport|null,
 #          frozen_version: "5.5"|null, versions: {transport: "5.5"}}
 # Output: {action: "use"|"switch"|"swap"|"halt", transport, reason, row}  (docs/catalog.md,
@@ -23,9 +23,8 @@
 # Output: {critics: [slot…], reviewer: slot|null, degraded: family|null, notes: [...],
 #          stop: null | {reason, remedy}}
 set -euo pipefail
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-  sed -n '2,/^[^#]/{/^#/s/^# \{0,1\}//p}' "$0"; exit 0
-fi
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+SLOTS="$MAESTRO_BIN/slots.json"
 
 if [[ "${1:-}" == "--row6" ]]; then
   # shellcheck disable=SC2016  # jq program
@@ -42,9 +41,9 @@ fi
 
 if [[ "${1:-}" == "--transports" ]]; then
   # shellcheck disable=SC2016  # jq program
-  exec jq -c '
+  exec jq -c --slurpfile slots "$SLOTS" '
   . as $in
-  | ($in.order // []) as $order
+  | ($in.order // $slots[0][$in.slot].transports // []) as $order
   | ($in.denied // []) as $denied
   | def avail($t): ($in.available[$t] // false);
     def denied($t): ($denied | index($t)) != null;
@@ -81,13 +80,11 @@ if [[ "${1:-}" == "--transports" ]]; then
 fi
 
 # shellcheck disable=SC2016  # jq program
-exec jq -c '
+exec jq -c --slurpfile slots "$SLOTS" '
 . as $in
+| ($slots[0]) as $S
 | def line($s): if $s == "self" then ($in.director_line // null) else $s end;
-  def fam($s): if $s == "self" then ($in.director_family // "unknown")
-    elif ($s | IN("opus","fable","sonnet","haiku")) then "claude"
-    elif ($s | IN("astra","sol","luna","terra")) then "openai"
-    elif ($s | IN("argon","gemini")) then "google" else "unknown" end;
+  def fam($s): if $s == "self" then ($in.director_family // "unknown") else ($S[$s].family // "unknown") end;
 ($in.eligible // []) as $el
 | (fam($in.builder)) as $bf
 | (if $in.drafter then fam($in.drafter) else null end) as $df
@@ -102,7 +99,7 @@ exec jq -c '
   def first_of($l): [ $l[] | select(ok(.)) ] | first // null;
   def slot_of_family($f): {openai: ["sol","astra","luna"], claude: ["opus","fable","sonnet"],
                            google: ["argon","gemini"]}[$f] // [] | first_of(.);
-  def prov($s): if $s == "argon" then ["\($s) is provisional (unmeasured)"] else [] end;
+  def prov($s): if ($S[$s].provisional // false) then ["\($s) is provisional (unmeasured)"] else [] end;
 
 # --- the builder family (and for self, the line) must be known -------------------------------------
 if $bf == "unknown" or ($in.builder == "self" and line("self") == null) then

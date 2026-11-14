@@ -1,0 +1,13 @@
+{
+  "_comment": "One table of maestro's slots (SKILL.md, \"Roster\"). Read by maestro-roles (family, transport order, provisional) and maestro-catalog (line_re: which slugs may be pinned to the slot). T12 checks SKILL.md's roster table against it.",
+  "opus":   {"family": "claude", "transports": ["native", "agy", "api"], "line_re": "^claude-opus-[0-9]"},
+  "fable":  {"family": "claude", "transports": ["native", "api"],        "line_re": "^claude-fable-[0-9]"},
+  "sonnet": {"family": "claude", "transports": ["native", "agy", "api"], "line_re": "^claude-sonnet-[0-9]"},
+  "haiku":  {"family": "claude", "transports": ["native", "api"],        "line_re": "^claude-haiku-[0-9]"},
+  "astra":  {"family": "openai", "transports": ["codex"], "line_re": "^gpt-[0-9.]+-astra(-|$)"},
+  "sol":    {"family": "openai", "transports": ["codex"], "line_re": "^gpt-[0-9.]+-sol(-|$)"},
+  "luna":   {"family": "openai", "transports": ["codex"], "line_re": "^gpt-[0-9.]+-luna(-|$)"},
+  "terra":  {"family": "openai", "transports": ["codex"], "line_re": "^gpt-[0-9.]+-terra(-|$)"},
+  "argon":  {"family": "google", "transports": ["agy"], "line_re": "^gemini-[0-9.]+-argon(-|$)", "provisional": true},
+  "gemini": {"family": "google", "transports": ["agy"], "line_re": "^gemini-[0-9.]+-(hydrogen|flash)(-|$)"}
+}

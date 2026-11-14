@@ -88,7 +88,7 @@ if [[ "$cli" == claude-agent ]]; then
   J="$SD/jobs/.none"; out=/dev/null
 else
   [[ -n "$job" ]] || mae_die "maestro-ledger needs --job"
-  J="$SD/jobs/$job"
+  J="$(mae_job_dir "$SD" "$job")"
   [[ -d "$J" ]] || mae_die "maestro-ledger: no job $job"
   out="$J/out"; [[ -f "$out" ]] || out=/dev/null
 fi
@@ -103,7 +103,7 @@ case "$cli" in
     denied=null; served=null; dur=null
     # The served model is the thread's latest turn_context in its rollout (the effective-config source).
     if [[ -n "$sid" ]]; then
-      ro="$(find "${CODEX_HOME:-$HOME/.codex}/sessions" -name "rollout-*-$sid.jsonl" 2>/dev/null | head -1 || true)"
+      ro="$(mae_codex_rollout "$sid")"
       if [[ -n "$ro" ]]; then
         m="$( { grep '"type":"turn_context"' "$ro" || true; } | tail -1 | jq -r '.payload.model // empty' 2>/dev/null || true)"
         [[ -n "$m" ]] && served="$(jq -cn --arg m "$m" '$m')"
@@ -117,7 +117,7 @@ case "$cli" in
     status="$(jq -r '.status // "none"' <<<"$env_")"; denied="$(jq -c '[(.denied_actions // [])[].action]' <<<"$env_")"
     served=null; dur="$(jq -c '.duration_seconds // null' <<<"$env_")" ;;
   claude-cli|claude-sdk)
-    res="$(jq -c 'select(.type == "result")' "$out" 2>/dev/null | tail -1)"; [[ -n "$res" ]] || res='{}'
+    res="$(mae_result_event "$out")"; [[ -n "$res" ]] || res='{}'
     sid="$(jq -r '.session_id // empty' <<<"$res")"
     usage="$(jq -c '(.usage // {}) | {input_tokens, cached_input_tokens: .cache_read_input_tokens,
                      cache_write_input_tokens: .cache_creation_input_tokens, output_tokens, reasoning_tokens: null}' <<<"$res")"

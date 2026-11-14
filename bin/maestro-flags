@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# maestro-flags — parse the /maestro arguments (SKILL.md, "Flags"): the syntax, unknown names and
+# values, and the illegal combinations. Plain words ("krytykuj astrą") are the director's to map;
+# this only checks what was typed as a flag. Deterministic, no state.
+#
+#   maestro-flags "<the raw argument string>"      (or the arguments as separate words)
+#
+# Tokens that start with "--" are flags wherever they stand; every other token is task text
+# (joined by single spaces). Prints one JSON line {flags, task, errors}; exit 0 iff errors == [].
+#   flags: {model: {slot, transport}|null, review: null|"full"|"self"|"cross",
+#           critics: [{slot, transport}], reviewer: {slot, transport}|null, rounds: N|null,
+#           tests: {scope, browser}|null, skip_tests, setup, plan_only, cascade: drafter|null,
+#           resume, unattended, sdk}
+#   With --resume the task text is the answer to the recorded decision.
+# Slots, families and transports come from bin/slots.json (plus `self`, model only).
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+
+# shellcheck disable=SC2206  # word splitting of the raw string is the point
+if [[ $# -eq 1 ]]; then read -r -a words <<<"$1"; else words=("$@"); fi
+
+# shellcheck disable=SC2016  # jq program
+wj="$(if [[ ${#words[@]} -gt 0 ]]; then printf '%s\n' "${words[@]}" | jq -R . | jq -sc .; else echo '[]'; fi)"
+jq -cn --slurpfile slots "$MAESTRO_BIN/slots.json" --argjson w "$wj" '
+  ($slots[0] | del(._comment)) as $S
+  | def slot_t($v; $what; $self_ok):
+      ($v | capture("^(?<s>[a-z]+)(@(?<t>[a-z]+))?$") // null) as $c
+      | if $c == null then {err: "\($what): \"\($v)\" is not <slot>[@<transport>]"}
+        elif $c.s == "self" then
+          (if $self_ok | not then {err: "\($what): self only builds (--model=self)"}
+           elif $c.t != null then {err: "\($what): self takes no @transport"}
+           else {v: {slot: "self", transport: null}} end)
+        elif ($S | has($c.s) | not) then {err: "\($what): unknown slot \($c.s) (known: \($S | keys | join(", ")))"}
+        elif $c.t != null and (($S[$c.s].transports | index($c.t)) == null) then
+          {err: "\($what): \($c.s) has no transport \($c.t) (its transports: \($S[$c.s].transports | join(", ")))"}
+        else {v: {slot: $c.s, transport: $c.t}} end;
+  reduce $w[] as $tok ({flags: {model: null, review: null, critics: [], reviewer: null, rounds: null, tests: null,
+                                skip_tests: false, setup: false, plan_only: false, cascade: null,
+                                resume: false, unattended: false, sdk: false},
+                        task: [], errors: [], seen: []};
+    if ($tok | startswith("--") | not) then .task += [$tok]
+    else
+      ($tok | capture("^--(?<n>[a-z-]+)(=(?<v>.*))?$") // {n: "", v: null}) as $f
+      | if (.seen | index($f.n)) != null and $f.n != "" then .errors += ["--\($f.n) given twice"]
+        else .seen += [$f.n]
+        | if $f.n == "model" then
+            (if $f.v == null then .errors += ["--model needs =<slot>[@<transport>]"]
+             else slot_t($f.v; "--model"; true) as $r | if $r.err then .errors += [$r.err] else .flags.model = $r.v end end)
+          elif $f.n == "review" then
+            (if $f.v == null or $f.v == "full" then .flags.review = "full"
+             elif ($f.v | IN("self","cross")) then .flags.review = $f.v
+             else .errors += ["--review is full, self or cross, not \($f.v)"] end)
+          elif $f.n == "critic" then
+            (if ($f.v // "") == "" then .errors += ["--critic needs =<slot>[@t][,<slot>[@t]…]"]
+             else reduce ($f.v | split(","))[] as $x (.; slot_t($x; "--critic"; false) as $r
+                    | if $r.err then .errors += [$r.err] else .flags.critics += [$r.v] end) end)
+          elif $f.n == "reviewer" then
+            (if ($f.v // "") == "" then .errors += ["--reviewer needs =<slot>[@<transport>]"]
+             else slot_t($f.v; "--reviewer"; false) as $r | if $r.err then .errors += [$r.err] else .flags.reviewer = $r.v end end)
+          elif $f.n == "rounds" then
+            (if ($f.v // "" | test("^[1-8]$")) then .flags.rounds = ($f.v | tonumber) else .errors += ["--rounds is 1 to 8, not \($f.v // "nothing")"] end)
+          elif $f.n == "tests" then
+            (($f.v // "" | split(",")) as $p
+             | ([$p[] | select(IN("covering","full"))]) as $sc
+             | ([$p[] | select(IN("covering","full","browser") | not)]) as $bad
+             | if ($p | length) == 0 then .errors += ["--tests needs =covering|full[,browser]"]
+               elif ($bad | length) > 0 then .errors += ["--tests: unknown value \($bad | join(","))"]
+               elif ($sc | length) > 1 then .errors += ["--tests: two scopes (\($sc | join(",")))"]
+               else .flags.tests = {scope: ($sc[0] // "covering"), browser: (($p | index("browser")) != null)} end)
+          elif ($f.n | IN("skip-tests","setup","plan-only","resume","unattended","sdk")) then
+            (if $f.v != null then .errors += ["--\($f.n) takes no value"]
+             else .flags[$f.n | gsub("-"; "_")] = true end)
+          elif $f.n == "cascade" then
+            (if $f.v == null then .flags.cascade = "luna"
+             elif ($f.v | IN("luna","haiku","gemini")) then .flags.cascade = $f.v
+             else .errors += ["--cascade drafter is luna, haiku or gemini, not \($f.v)"] end)
+          elif $f.n == "host" then .errors += ["--host was removed in 2.0.0: maestro runs only in Claude Code"]
+          else .errors += ["unknown flag \($tok)"] end
+        end
+    end)
+  | .flags as $F
+  | (if $F.reviewer != null and $F.review == null then .flags.review = "full" else . end)
+  | .flags as $F
+  | ([ (if $F.plan_only and $F.cascade then "--plan-only with --cascade" else empty end),
+       (if $F.plan_only and ($F.review != null) then "--plan-only with --review or --reviewer" else empty end),
+       (if $F.reviewer != null and $F.review == "self" then "--reviewer with --review=self" else empty end),
+       (if $F.tests != null and $F.skip_tests then "--tests with --skip-tests" else empty end),
+       (if $F.cascade and ($F.model.slot // "" | IN("luna","haiku")) then "--cascade with --model=\($F.model.slot)" else empty end),
+       (if $F.cascade and $F.cascade == ($F.model.slot // "") then "--cascade: the drafter is the implementer" else empty end),
+       (if $F.cascade and $F.skip_tests then "--cascade with --skip-tests" else empty end),
+       (if $F.setup and $F.unattended then "--setup with --unattended" else empty end),
+       (if $F.sdk and ([$F.model, $F.reviewer, $F.critics[]] | map(select(. != null and .transport == "native")) | length) > 0
+          then "--sdk with a forced @native" else empty end),
+       (if $F.resume and ([.seen[] | select(IN("resume","unattended") | not)] | length) > 0
+          then "--resume with \([.seen[] | select(IN("resume","unattended") | not) | "--" + .] | join(", ")) (to change the configuration, start again)"
+          else empty end) ] | map("illegal combination: " + .)) as $ill
+  | {flags: .flags, task: (.task | join(" ")), errors: (.errors + $ill)}
+' | { read -r l; printf '%s\n' "$l"; [[ "$(jq -r '.errors | length' <<<"$l")" == 0 ]]; }

@@ -91,7 +91,7 @@ gen=""
 if [[ "${1:-}" == "--gen" ]]; then gen="$2"; shift 2; fi
 if [[ "${1:-}" == "rotate" ]]; then
   [[ -n "$gen" && "${2:-}" == "--to" && -n "${3:-}" ]] || mae_die "usage: maestro-state --gen N rotate --to <name>"
-  exec "$MAESTRO_BIN/maestro-lock" exec --gen "$gen" -- "$0" __rotate "$3" "$gen"
+  mae_fenced "$gen" __rotate "$3" "$gen"; exit
 fi
 op="${1:-}" rel="${2:-}"
 [[ -n "$op" && -n "$rel" ]] || mae_die "usage: maestro-state [--gen N] write|append|verify|adopt|delete|archive <file>, or rotate --to <name>"
@@ -124,6 +124,6 @@ case "$op" in
     else
       cat > "$src"
     fi
-    exec "$MAESTRO_BIN/maestro-lock" exec --gen "$gen" -- "$0" __locked "$op" "$rel" "$src" "$gen" ;;
+    mae_fenced "$gen" __locked "$op" "$rel" "$src" "$gen"; exit ;;
   *) mae_die "maestro-state: unknown operation $op" ;;
 esac

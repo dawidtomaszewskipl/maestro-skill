@@ -374,6 +374,8 @@ if group T5 "verdict validation"; then
   jqt "agy envelope SUCCESS" "$(v agy-success.json agy)" '.valid'
   jqt "agy CANCELED → envelope failure" "$(v agy-canceled.json agy)" '.valid == false and .stage == "envelope"'
   jqt "agy denied_actions → envelope failure" "$(v agy-denied.json agy)" '.valid == false and .stage == "envelope"'
+  jq '. + {finished_reason: "print_timeout"}' "$FX/verdicts/agy-success.json" > "$WORK/agy-timeout.json"
+  jqt "agy finished_reason print_timeout → envelope failure" "$("$B/maestro-validate" "$ROOT/docs/schemas/critique-schema.json" "$WORK/agy-timeout.json" --envelope agy)" '.valid == false and (.errors[0] | test("print_timeout"))'
   jqt "agy structured_output only (empty response) → valid" "$(v agy-structured-only.json agy)" '.valid'
   jqt "agy structured_output wins over a response with trailing prose" "$(v agy-structured-prose.json agy)" '.valid'
   jqt "agy structured_output null → falls back to response" "$(v agy-structured-null.json agy)" '.valid'
@@ -815,6 +817,137 @@ if group T12 "docs consistency"; then
   missing=""
   while read -r d; do [[ -e "$ROOT/$d" ]] || missing+="$d "; done < <(grep -ohE 'docs/[a-z/_-]+\.(md|json)' "$ROOT/SKILL.md" | sort -u)
   eq "every docs/ page SKILL.md names exists" "" "$missing"
+fi
+
+# =============================================================================================
+if group T13 "effective identity"; then
+  CH="$WORK/codexhome"; mkdir -p "$CH/sessions/2026/11/14"
+  RO="$CH/sessions/2026/11/14/rollout-2026-11-14T10-00-00-th1.jsonl"
+  ro_tc() {  # ro_tc <sandbox> <model> <effort> <writable root|""> [extra jq]
+    jq -cn --arg sb "$1" --arg m "$2" --arg e "$3" --arg w "$4" '{type: "turn_context", payload: {model: $m, effort: $e,
+      sandbox_policy: ({type: $sb} + (if $sb == "workspace-write" then {network_access: false} else {} end)),
+      approval_policy: "never", approvals_reviewer: "user", cyber_access_program: "standard",
+      permission_profile: {type: "managed", network: "restricted", file_system: {type: "restricted",
+        entries: ([{path: {type: "special", value: {kind: "root"}}, access: "read"}]
+                  + (if $w != "" then [{path: {type: "path", path: $w}, access: "write"},
+                                       {path: {type: "special", value: {kind: "slash_tmp"}}, access: "write"}] else [] end))}}}}'"${5:-}"
+  }
+  idc() { CODEX_HOME="$CH" "$B/maestro-identity" codex --thread th1 --wait 0 "$@"; }
+  { echo '{"type":"session_meta"}'; ro_tc read-only gpt-6.1-sol high ""; } > "$RO"
+  jqt "codex critic, read-only rollout → OK" "$(idc --role critic --model gpt-6.1-sol --effort high)" '.result == "OK" and .effective_config.sandbox == "read-only"'
+  jqt "codex: wrong effort → MISMATCH" "$(idc --role critic --model gpt-6.1-sol --effort medium)" '.result == "MISMATCH" and (.mismatches | index("effort=high") != null)'
+  jqt "codex: a critic on a writer profile → MISMATCH" "$(idc --role builder --root /r --model gpt-6.1-sol --effort high)" '.result == "MISMATCH"'
+  ro_tc workspace-write gpt-6.1-sol medium /r >> "$RO"
+  jqt "codex resume: the record after the offset is the one checked" "$(idc --role builder --root /r --offset 2 --model gpt-6.1-sol --effort medium)" '.result == "OK"'
+  jqt "codex resume: a writer outside its root → MISMATCH" "$(idc --role builder --root /other --offset 2 --model gpt-6.1-sol --effort medium)" '.mismatches | any(test("writable="))'
+  jqt "codex: no record after the offset → MISSING" "$(idc --role critic --offset 3 --model gpt-6.1-sol --effort high)" '.result == "MISSING"'
+  ro_tc read-only gpt-6.1-sol high "" ' | .payload.cyber_access_program = "extended"' >> "$RO"
+  jqt "codex: cyber_access_program other than standard → MISMATCH" "$(idc --role critic --offset 3 --model gpt-6.1-sol --effort high)" '.mismatches | any(test("cyber_access_program"))'
+  printf '{"type":"turn_context","payload":' >> "$RO"; printf '\n' >> "$RO"
+  jqt "codex: truncated record → MISMATCH malformed" "$(idc --role critic --offset 4 --model gpt-6.1-sol --effort high)" '.result == "MISMATCH" and .mismatches == ["malformed turn_context"]'
+  cp "$RO" "${RO%th1.jsonl}x-th1.jsonl"
+  jqt "codex: two rollouts for one thread → MISSING" "$(idc --role critic --model gpt-6.1-sol --effort high)" '.result == "MISSING"'
+  out="$(idc --role critic --model m --effort e --thread ../x 2>&1; echo "rc=$?")"
+  if [[ "$out" == *rc=1* || "$out" == *rc=2* ]]; then ok "codex: exit non-zero when not OK"; else bad "codex: exit non-zero when not OK" "$out"; fi
+  CI="$WORK/init.jsonl"
+  mkinit() { jq -cn --argjson x "${1:-{\}}" '{type: "system", subtype: "init", model: "claude-sonnet-5-5", tools: ["Read","Grep","Glob"],
+    mcp_servers: [], plugins: [{name: "b", source: "b@builtin"}], plugin_errors: [], permissionMode: "dontAsk", apiKeySource: "none"} + $x' > "$CI"; }
+  idl() { "$B/maestro-identity" claude "$CI" --model claude-sonnet-5-5 --tools "Glob, Read,Grep" --permission-mode dontAsk "$@"; }
+  mkinit; jqt "claude init: the role's set, subscription → OK" "$(idl)" '.result == "OK"'
+  mkinit '{"plugin_errors":[{"plugin":"x","error":"load failed"}]}'; jqt "claude init: plugin_errors → MISMATCH" "$(idl)" '.mismatches == ["plugin_errors=1"]'
+  mkinit '{"mcp_servers":[{"name":"gh","status":"connected"}]}'; jqt "claude init: an MCP server → MISMATCH" "$(idl)" '.mismatches == ["mcp_servers=gh"]'
+  mkinit '{"plugins":[{"name":"p","source":"p@market"}]}'; jqt "claude init: a non-builtin plugin → MISMATCH" "$(idl)" '.mismatches | any(test("plugins="))'
+  mkinit '{"tools":["Read","Grep","Glob","Bash"]}'; jqt "claude init: an extra tool → MISMATCH" "$(idl)" '.mismatches | any(test("tools="))'
+  mkinit '{"apiKeySource":"ANTHROPIC_API_KEY"}'; jqt "claude init: an API key on native → MISMATCH" "$(idl)" '.mismatches == ["apiKeySource=ANTHROPIC_API_KEY"]'
+  jqt "claude init: --api expects the key" "$(idl --api)" '.result == "OK"'
+  mkinit '{"model":"claude-sonnet-5"}'; jqt "claude init: another model → MISMATCH" "$(idl)" '.mismatches == ["model=claude-sonnet-5"]'
+  printf '{"type":"result","subtype":"success"}\n' > "$CI"; jqt "claude: no init → MISSING" "$(idl)" '.result == "MISSING"'
+  mkinit '{"tools":[]}'; jqt "claude init: --tools \"\" means none" "$("$B/maestro-identity" claude "$CI" --model claude-sonnet-5-5 --tools "" --permission-mode dontAsk)" '.result == "OK"'
+fi
+
+# =============================================================================================
+if group T14 "preflight"; then
+  FB="$WORK/fakebin"; mkdir -p "$FB"
+  soon="$(date -u -d '+2 hours' +%Y-%m-%dT%H:%M:%SZ)"
+  { echo '#!/bin/sh'; echo "[ \"\$1 \$2\" = 'auth status' ] && echo '{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"loginExpiresAt\":\"$soon\"}'"; } > "$FB/claude"
+  cat > "$FB/codex" <<'SH'
+#!/bin/sh
+case "$1" in
+  login) echo "Logged in using ChatGPT"; exit "${FAKE_CODEX_LOGIN_RC:-0}" ;;
+  doctor) echo "21 ok · 0 warn · ${FAKE_CODEX_FAILS:-0} fail ok" ;;
+  --version) echo "codex-cli 0.169.0" ;;
+esac
+SH
+  cat > "$FB/agy" <<'SH'
+#!/bin/sh
+case "$1" in models) printf 'Fetching available models...\ngemini-4-hydrogen-high\tH\n' ;; --version) echo 1.5.9 ;; esac
+SH
+  chmod +x "$FB"/*
+  REPO="$(new_repo)"; cd "$REPO" || exit 2
+  g="$("$B/maestro-lock" acquire --run r --token t --host test | jq -r .fence)"
+  CHM="$WORK/pf-codexhome"; mkdir -p "$CHM"
+  pf() { PATH="$FB:$PATH" CODEX_HOME="$CHM" "$B/maestro-preflight" --gen "$g" "$@"; }
+  out="$(pf --interactive false)"
+  jqt "preflight: every transport available, isolated config, no stops" "$out" \
+    '.stops == [] and .transports.native.available and .transports.codex.available and .transports.codex.version == "0.169.0"
+     and .transports.agy.available and .codex_config.mode == "isolated" and .git.objects and .git.index_file and .git.refs'
+  jqt "preflight: a login that expires within a day is a warning" "$out" '.warnings | any(test("login expires"))'
+  eq "preflight: .maestro/ excluded once, schemas copied" "1 3" "$(grep -cxF '.maestro/' "$(git rev-parse --git-path info/exclude)") $(find .maestro -maxdepth 1 -name '*-schema.json' | wc -l)"
+  pf --interactive false >/dev/null
+  eq "preflight: a second run does not add the exclude line again" 1 "$(grep -cxF '.maestro/' "$(git rev-parse --git-path info/exclude)")"
+  printf 'model_provider = "corp"\n[mcp_servers.x]\nauth_token = "y"\n[profiles.p]\nopenai_base_url = "https://x"\n' > "$CHM/config.toml"
+  jqt "preflight: a connection key in config.toml → pinned, named; mcp_servers keys ignored" "$(pf)" \
+    '.codex_config.mode == "pinned" and .codex_config.pinned_by == ["model_provider","profiles.p.openai_base_url"]'
+  rm "$CHM/config.toml"
+  jqt "preflight: codex doctor failure → codex unavailable" "$(FAKE_CODEX_FAILS=2 pf)" '.transports.codex.available == false and (.transports.codex.reason | test("2 fail"))'
+  jqt "preflight: codex logged out → unavailable" "$(FAKE_CODEX_LOGIN_RC=1 pf)" '.transports.codex.available == false'
+  jqt "preflight: --no-codex skips it" "$(pf --no-codex)" '.transports.codex.reason == "off by policy"'
+  mkdir -p .codex; printf 'default_permissions = "ro"\n' > .codex/config.toml
+  out="$(pf)"
+  jqt "preflight: a dirty tree is a stop" "$out" '.tree.clean == false and (.stops | any(test("not clean")))'
+  jqt "preflight: project default_permissions is a warning" "$out" '.warnings | any(test("default_permissions"))'
+  jqt "preflight: --resume reports a dirty tree without a stop" "$(pf --resume)" '.tree.clean == false and .stops == []'
+  rm -rf .codex
+  eq "preflight: no probe residue (refs, index files, state files)" "0 0 0" "$(git for-each-ref refs/maestro | wc -l) $(find "$(git rev-parse --absolute-git-dir)" -maxdepth 1 -name 'maestro-probe-*' | wc -l) $(find .maestro -maxdepth 1 -name 'probe-*' | wc -l)"
+  "$B/maestro-lock" acquire --run r2 --token t2 --host test >/dev/null 2>&1 || true
+  out="$(PATH="$FB:$PATH" "$B/maestro-preflight" --gen 999.x 2>&1; echo "rc=$?")"
+  if [[ "$out" == *rc=4* && "$out" == *superseded* ]]; then ok "preflight: a stale fence stops it (exit 4)"; else bad "preflight: a stale fence stops it (exit 4)" "$out"; fi
+  cd "$ROOT" || exit 2
+fi
+
+# =============================================================================================
+if group T15 "flags"; then
+  fl() { "$B/maestro-flags" "$@"; }
+  jqt "flags anywhere, task text kept in order" "$(fl "add --model=opus@agy a thing --critic=sol,argon --rounds=3")" \
+    '.task == "add a thing" and .flags.model == {slot: "opus", transport: "agy"} and (.flags.critics | map(.slot)) == ["sol","argon"] and .flags.rounds == 3 and .errors == []'
+  jqt "separate words work like one string" "$(fl --review x y)" '.flags.review == "full" and .task == "x y"'
+  jqt "--reviewer alone implies --review=full" "$(fl --reviewer=sol t)" '.flags.review == "full" and .flags.reviewer.slot == "sol"'
+  jqt "--tests=browser means covering,browser" "$(fl --tests=browser t)" '.flags.tests == {scope: "covering", browser: true}'
+  jqt "--cascade defaults to luna" "$(fl --cascade t)" '.flags.cascade == "luna"'
+  jqt "--resume: the rest is the answer" "$(fl --resume --unattended opcja 2)" '.flags.resume and .flags.unattended and .task == "opcja 2" and .errors == []'
+  for c in "--model=grok:unknown slot grok" "--model=sonnet@cursor:has no transport cursor" "--model=fable@agy:has no transport agy" \
+           "--critic=self:self only builds" "--model=self@native:self takes no" "--review=half:--review is full" \
+           "--rounds=9:--rounds is 1 to 8" "--tests=covering,full:two scopes" "--tests=all:unknown value" \
+           "--cascade=grok:drafter is luna" "--host=codex:--host was removed" "--frobnicate:unknown flag" \
+           "--setup=yes:takes no value" "--model=opus --model=sol:given twice"; do
+    a="${c%%:*}" want="${c#*:}"
+    # shellcheck disable=SC2086  # "a" may hold two flags
+    out="$(fl $a t)"; rc=$?
+    if [[ $rc -ne 0 ]] && jq -e --arg w "$want" '.errors | any(contains($w))' >/dev/null <<<"$out"; then ok "flag error: $a"; else bad "flag error: $a" "$out"; fi
+  done
+  for c in "--plan-only --cascade:--plan-only with --cascade" "--plan-only --review:--plan-only with --review" \
+           "--plan-only --reviewer=sol:--plan-only with --review" "--reviewer=sol --review=self:--reviewer with --review=self" \
+           "--tests=full --skip-tests:--tests with --skip-tests" "--cascade --model=luna:--cascade with --model=luna" \
+           "--cascade=haiku --model=haiku:--cascade with --model=haiku" "--cascade=gemini --model=gemini:--cascade: the drafter is the implementer" \
+           "--cascade --skip-tests:--cascade with --skip-tests" "--setup --unattended:--setup with --unattended" \
+           "--sdk --model=opus@native:--sdk with a forced @native" "--sdk --critic=sonnet@native:--sdk with a forced @native" \
+           "--resume --rounds=2:--resume with --rounds"; do
+    a="${c%%:*}" want="${c#*:}"
+    # shellcheck disable=SC2086
+    out="$(fl $a t)"; rc=$?
+    if [[ $rc -ne 0 ]] && jq -e --arg w "$want" '.errors | any(contains("illegal combination: " + $w))' >/dev/null <<<"$out"; then ok "illegal: $a"; else bad "illegal: $a" "$out"; fi
+  done
+  jqt "every slot of slots.json parses as --model" "$(for x in $(jq -r 'del(._comment) | keys[]' "$B/slots.json"); do fl --model="$x" t | jq -c .errors; done | jq -sc 'add')" '. == []'
 fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
