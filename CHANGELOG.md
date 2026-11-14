@@ -1,5 +1,61 @@
 # Changelog
 
+## 2.1.0 — 2026-11-14
+
+**The 2.0 review's thirteen items: the plan critique converges, and more of the director's hand
+work moved into helpers.** Fable 5.2 built the plan-critique, policy, checkpoint-patch and
+interactive-job parts as a builder; every diff was read, tested and merged by the director.
+
+### Plan critique converges
+- **Severity rubric** in every critique brief (`docs/briefs.md`, "Plan critique"): `blocking` = the
+  plan cannot meet the spec or would cause damage; `major` = a defect reachable with an input or
+  state the spec allows; the rest are notes. Blocking and major findings carry a required
+  `trigger`.
+- **Delta rounds.** From round 2 a critic gets its open findings with the director's resolutions,
+  answers each in the new required `prior_findings` (`resolved` | `not_resolved`) and reports new
+  findings only when the revision introduced them, they are blocking, or they are a major missed
+  earlier with a trigger inside the spec. Approval also needs every
+  prior finding resolved.
+- **Arbiter at the cap.** Only majors left, not high stakes, a third family eligible
+  (`maestro-roles --arbiter`) → one call with `docs/schemas/arbiter-schema.json`; every finding
+  downgraded approves the plan (the report says so), anything else is the stop as before. Also
+  under `--unattended` (A13).
+- `maestro-validate --decide critique|arbiter [--ids …]` prints the mechanical decision; an
+  `approve` that still lists findings is invalid.
+
+  Live: Argon as arbiter downgraded the int64 finding that stopped the 2.0 canary at the cap
+  ("a state the system cannot reach").
+
+### Policy is TOML and has a reader
+- `maestro.policy.toml` and `~/.config/maestro/policy.toml` (stdlib `tomllib`). `maestro-policy
+  resolve` merges flags > repo > user > defaults per key, validates against `bin/slots.json`, and
+  returns `{effective, sources, warnings, stops}`; `roles-input` feeds `maestro-roles`. A
+  `maestro.policy.yml` left over stops with "convert to TOML". The removed 1.x keys stop.
+- Bare `--cascade` now leaves the drafter to policy (`cascade: "default"` in `maestro-flags`).
+
+### Checkpoint patches
+- `maestro-state --gen N set key=value…` and `add-session <transport> '<json>'` patch the front
+  matter in place through the same audit as `write`; the first checkpoint and structural changes
+  still use `write` (`docs/checkpoint.md`, "Format rules").
+
+### Helpers
+- `maestro-brief open|close|rubric`: the fixed brief text, checked word for word against
+  `docs/briefs.md` (T12).
+- `maestro-status`: stage, round, next action, open decision, live jobs, ledger, lock.
+- `maestro-limits`: Claude's `rate_limit_event` and Codex's rollout `rate_limits`, no model turn;
+  a pool at ≥ 90 % is a warning in the Assign line and steers rubric rows 3–5.
+- `maestro-ledger report --run <id>`: the report's cost table; Codex rows now carry `duration_s`.
+- `maestro-flags`: a lone `--` ends the flags; a near-miss flag gets "did you mean".
+- `maestro-wait` defaults to `--max 100` (the Bash default cap is 120 s); with `timeout: 600000`
+  the director passes `--max 540` — about 20× fewer turns on a long build than with 25 s.
+
+### Loop
+- Two high-stakes critics run at once under one fingerprint snapshot/compare.
+- A re-review after a fix round gets only the diff since the last reviewed state plus the open
+  findings (the review stage was the costliest in the ledger).
+- `docs/unattended.md` 52 → 28 KB: the inventory reproduction and the scenario test moved to
+  `docs/unattended-reference.md`.
+
 ## 2.0.0 — 2026-11-14
 
 **Claude Code only; Cursor and Grok out; Gemini 4 Hydrogen and Fable 5.2; the director's hand
@@ -72,22 +128,6 @@ checks became helpers.** Breaking: read "Migration" before upgrading.
   the first run stopped correctly at the critique cap (`needs-decision`, row 3); resumed with the
   build option, the director was killed while the build job ran, and `--resume --unattended`
   reconciled the finished job, checked its identity, ran the tests and committed.
-
-### Plan critique
-- **Severity rubric** in every critique brief (`docs/briefs.md`, "Plan critique"): `blocking` = the
-  plan cannot meet the spec or would cause damage; `major` = a defect reachable with an input or
-  state the spec allows; the rest are notes. Blocking and major findings carry a required
-  `trigger`.
-- **Delta rounds.** From round 2 a critic gets its open findings with the director's resolutions,
-  answers each in the new required `prior_findings` (`resolved` | `not_resolved`) and reports new
-  findings only when the revision introduced them or they are blocking. Approval also needs every
-  prior finding resolved.
-- **Arbiter at the cap.** Only majors left, not high stakes, a third family eligible
-  (`maestro-roles --arbiter`) → one call with `docs/schemas/arbiter-schema.json`; every finding
-  downgraded approves the plan (the report says so), anything else is the stop as before. Also
-  under `--unattended` (A13).
-- `maestro-validate --decide critique|arbiter [--ids …]` prints the mechanical decision; an
-  `approve` that still lists findings is invalid.
 
 ### Migration from 1.x
 - Run `./install.sh` (add `--sdk` for the api transport). It replaces the 1.x symlink and names
