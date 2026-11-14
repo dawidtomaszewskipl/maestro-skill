@@ -17,7 +17,7 @@ set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/_lib.sh"
 
 # shellcheck disable=SC2206  # word splitting of the raw string is the point
-if [[ $# -eq 1 ]]; then read -r -a words <<<"$1"; else words=("$@"); fi
+if [[ $# -eq 1 ]]; then read -r -d '' -a words <<<"$1" || true; else words=("$@"); fi
 
 # shellcheck disable=SC2016  # jq program
 wj="$(if [[ ${#words[@]} -gt 0 ]]; then printf '%s\n' "${words[@]}" | jq -R . | jq -sc .; else echo '[]'; fi)"

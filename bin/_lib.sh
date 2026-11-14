@@ -167,5 +167,7 @@ mae_codex_rollout() {
 }
 
 # The init / last result event of a claude -p or maestro-sdk stream-json transcript ("" if none).
-mae_init_event() { { jq -c 'select(type == "object" and .type == "system" and .subtype == "init")' "$1" 2>/dev/null || true; } | head -1; }
-mae_result_event() { { jq -c 'select(type == "object" and .type == "result")' "$1" 2>/dev/null || true; } | tail -1; }
+# Both shapes: one event per line (stream-json) or one JSON array of events (--output-format json).
+mae_events() { jq -c 'if type == "array" then .[] else . end | select(type == "object")' "$1" 2>/dev/null || true; }
+mae_init_event() { mae_events "$1" | jq -c 'select(.type == "system" and .subtype == "init")' | head -1; }
+mae_result_event() { mae_events "$1" | jq -c 'select(.type == "result")' | tail -1; }

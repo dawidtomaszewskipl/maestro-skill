@@ -172,5 +172,6 @@ if [[ "${1:-}" == "__locked" ]]; then
 fi
 
 parse_args "$@"
-[[ -e "$(mae_job_dir "$SD" "$job")" ]] && mae_die "maestro-run: job $job already exists — job ids are never reused"
+J="$(mae_job_dir "$SD" "$job")"
+[[ -e "$J" ]] && mae_die "maestro-run: job $job already exists — job ids are never reused"
 mae_fenced "$gen" __locked "$@"

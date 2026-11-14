@@ -15,7 +15,7 @@
 #       accept the file as it is now (an audit entry marked adopted, with the reason). Only on the
 #       user's explicit decision after they inspected the file — never under --unattended, never
 #       by the director's own judgment: it is how an edit made outside maestro becomes legitimate.
-#       Refused ({result: "refused"}, exit 1) when maestro-host reports a headless Claude Code
+#       Refused ({result: "refused"}, exit 1) unless maestro-host reports an interactive Claude Code
 #       (claude -p): no user there could have inspected the file. An interactive Claude Code
 #       running --unattended is not detectable here; that rule stays with the director.
 #
@@ -106,9 +106,9 @@ case "$op" in
     if [[ "$op" == adopt ]]; then
       [[ "${3:-}" == "--reason" && -n "${4:-}" ]] || mae_die "maestro-state adopt needs --reason \"<text>\""
       hj="$("$MAESTRO_BIN/maestro-host" 2>/dev/null || true)"
-      if [[ "$(jq -r '.interactive' <<<"$hj" 2>/dev/null)" == false ]]; then
-        jq -cn --arg f "$rel" --arg h "$(jq -r '.host' <<<"$hj")" \
-          '{result: "refused", file: $f, reason: ("headless host (" + $h + "): only the user can adopt a file, after inspecting it")}'
+      if [[ "$(jq -r '"\(.host) \(.interactive)"' <<<"$hj" 2>/dev/null)" != "claude-code true" ]]; then
+        jq -cn --arg f "$rel" --arg h "$(jq -r '"\(.host // "?"), interactive \(.interactive)"' <<<"$hj" 2>/dev/null || echo '?')" \
+          '{result: "refused", file: $f, reason: ("headless or not Claude Code (" + $h + "): only the user can adopt a file, after inspecting it")}'
         exit 1
       fi
     fi

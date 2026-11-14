@@ -33,9 +33,7 @@ done
 fail() { jq -cn --arg st "$1" --arg e "$2" '{valid: false, stage: $st, errors: [$e], verdict: null}'; exit 1; }
 
 # --- 1. envelope ------------------------------------------------------------------------------
-last_result() {  # the last `result` event of a json or stream-json transcript
-  jq -cs '[ .[] | if type == "array" then .[] else . end | select(type == "object" and .type == "result") ] | last // empty' "$file" 2>/dev/null
-}
+last_result() { mae_result_event "$file"; }  # the last `result` event of a json or stream-json transcript
 case "$envelope" in
   raw|codex) text="$(cat "$file")" ;;
   agy)

@@ -75,13 +75,18 @@ trap cleanup EXIT
 cap() { if "${@:2}" >/dev/null 2>&1; then printf '"%s":true' "$1"; else printf '"%s":false' "$1"; fi; }
 state_ok=false; { : > "$SD/probe-$id" && rm -f "$SD/probe-$id"; } 2>/dev/null && state_ok=true
 [[ "$state_ok" == true ]] || s "cannot write in $SD: the host's sandbox or permissions block the state directory"
-gitj="{$(cap objects git hash-object -w --stdin </dev/null),$(GIT_INDEX_FILE="$gd/maestro-probe-$id" cap index_file git read-tree HEAD),$(cap refs bash -c "git update-ref refs/maestro/probe-$id HEAD && git update-ref -d refs/maestro/probe-$id")"
+# Probes that need no commit: an empty tree object, read into a throwaway index; a throwaway ref to
+# that object. Only the worktree probe needs HEAD (an unborn HEAD skips it with a warning).
+et="$(git mktree </dev/null 2>/dev/null || true)"
+gitj="{$(cap objects test -n "$et"),$(GIT_INDEX_FILE="$gd/maestro-probe-$id" cap index_file git read-tree "${et:-none}"),$(cap refs bash -c "git update-ref refs/maestro/probe-$id ${et:-none} && git update-ref -d refs/maestro/probe-$id")"
 if [[ "$worktree" == true ]]; then
-  gitj+=",$(cap worktree bash -c "mkdir -p '$SD/worktrees' && git worktree add -q --detach '$SD/worktrees/probe-$id' HEAD && git worktree remove --force '$SD/worktrees/probe-$id'")"
+  if git rev-parse -q --verify HEAD >/dev/null; then
+    gitj+=",$(cap worktree bash -c "mkdir -p '$SD/worktrees' && git worktree add -q --detach '$SD/worktrees/probe-$id' HEAD && git worktree remove --force '$SD/worktrees/probe-$id'")"
+  else w "no commit yet (unborn HEAD): the worktree probe was skipped — a split needs a first commit"; fi
 fi
 gitj+="}"
 for k in objects index_file refs worktree; do
-  [[ "$(jq -r --arg k "$k" '.[$k] // "n/a"' <<<"$gitj")" == false ]] && \
+  [[ "$(jq -r --arg k "$k" 'if has($k) then .[$k] | tostring else "n/a" end' <<<"$gitj")" == false ]] && \
     s "git $k write failed: a commit needs it (Claude Code: is the Bash sandbox on? since 2.1.323 it makes git worktree add/remove and worktree commits read-only — allow the repository's .git or run without the sandbox)"
 done
 
@@ -171,9 +176,13 @@ if [[ "$do_agy" == true ]]; then
     else agyj="$(jq -cn --arg e "$(head -c 200 "$T/agy-models.txt" 2>/dev/null)" '{available: false, reason: "agy models failed: \($e)"}')"; fi
     if [[ "$skills" == true ]]; then
       skillsj="$(jq -c '{status, response: ((.response // "") | .[0:2000])}' "$T/agy-skills.json" 2>/dev/null || echo '{"status":"failed"}')"
-      if [[ -d "$REPO/.agents/skills" ]] && [[ -n "$(ls -A "$REPO/.agents/skills" 2>/dev/null)" ]] \
-         && ! jq -e '(.response // "") | test("skill"; "i")' "$T/agy-skills.json" >/dev/null 2>&1; then
-        w "agy lists no workspace skills while .agents/skills/ is populated: a trust or mount failure"
+      if [[ -d "$REPO/.agents/skills" ]]; then
+        resp="$(jq -r '.response // ""' "$T/agy-skills.json" 2>/dev/null || true)" missing_sk=()
+        for sk in "$REPO"/.agents/skills/*/; do
+          [[ -d "$sk" ]] || continue
+          sk="$(basename "$sk")"; grep -qF -- "$sk" <<<"$resp" || missing_sk+=("$sk")
+        done
+        [[ ${#missing_sk[@]} -eq 0 ]] || w "agy does not list the workspace skills ${missing_sk[*]} from .agents/skills/: a trust or mount failure"
       fi
     fi
   fi

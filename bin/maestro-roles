@@ -43,7 +43,7 @@ if [[ "${1:-}" == "--transports" ]]; then
   # shellcheck disable=SC2016  # jq program
   exec jq -c --slurpfile slots "$SLOTS" '
   . as $in
-  | ($in.order // $slots[0][$in.slot].transports // []) as $order
+  | ($in.order // (if ($in.slot | type) == "string" then $slots[0][$in.slot].transports else null end) // []) as $order
   | ($in.denied // []) as $denied
   | def avail($t): ($in.available[$t] // false);
     def denied($t): ($denied | index($t)) != null;
@@ -84,7 +84,8 @@ exec jq -c --slurpfile slots "$SLOTS" '
 . as $in
 | ($slots[0]) as $S
 | def line($s): if $s == "self" then ($in.director_line // null) else $s end;
-  def fam($s): if $s == "self" then ($in.director_family // "unknown") else ($S[$s].family // "unknown") end;
+  def fam($s): if $s == "self" then ($in.director_family // "unknown")
+    elif ($s | type) != "string" then "unknown" else ($S[$s].family // "unknown") end;
 ($in.eligible // []) as $el
 | (fam($in.builder)) as $bf
 | (if $in.drafter then fam($in.drafter) else null end) as $df
@@ -99,7 +100,7 @@ exec jq -c --slurpfile slots "$SLOTS" '
   def first_of($l): [ $l[] | select(ok(.)) ] | first // null;
   def slot_of_family($f): {openai: ["sol","astra","luna"], claude: ["opus","fable","sonnet"],
                            google: ["argon","gemini"]}[$f] // [] | first_of(.);
-  def prov($s): if ($S[$s].provisional // false) then ["\($s) is provisional (unmeasured)"] else [] end;
+  def prov($s): if ($s | type) == "string" and ($S[$s].provisional // false) then ["\($s) is provisional (unmeasured)"] else [] end;
 
 # --- the builder family (and for self, the line) must be known -------------------------------------
 if $bf == "unknown" or ($in.builder == "self" and line("self") == null) then

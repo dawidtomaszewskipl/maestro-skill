@@ -11,7 +11,8 @@
 # Global (default): copies SKILL.md, docs/, bin/ and sdk/ into ~/.claude/skills/maestro.
 # With <project>: the same under <project>/.claude/skills/maestro.
 # A symlink left there by a 1.x install (to ~/.agents/skills/maestro) is replaced by the copy; the
-# old copy and the agy link are named, not deleted.
+# old copy and the agy link are named, not deleted — remove them: Codex and agy workers still read
+# those directories and would see the old 1.x skill.
 #
 # --check says where maestro is installed; --check=live also asks Claude Code to list its skills
 # (one cheap headless Haiku turn).
@@ -41,7 +42,7 @@ if [[ -n "$check" ]]; then
   if [[ -L "$dest" ]]; then printf '%-55s -> %s (1.x layout: rerun install.sh)\n' "$dest" "$(readlink "$dest")"
   elif is_maestro_dir "$dest"; then printf '%-55s installed\n' "$dest"
   else printf '%-55s missing\n' "$dest"; fi
-  for p in "${legacy[@]}"; do [[ -e "$p" || -L "$p" ]] && printf '%-55s left over from 1.x (unused)\n' "$p"; done
+  for p in "${legacy[@]}"; do [[ -e "$p" || -L "$p" ]] && printf '%-55s left over from 1.x: Codex/agy workers still load it — remove it\n' "$p"; done
   if [[ "$check" == live ]] && command -v claude >/dev/null 2>&1; then
     tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
     q="List the names of the skills available to you, one per line, nothing else."
@@ -78,7 +79,7 @@ elif [[ -d "$dest/sdk/node_modules" ]]; then
   [[ "$want" == "$have" ]] || echo "install.sh: installed Agent SDK $have, the lock pins $want — rerun with --sdk" >&2
 fi
 for p in "${legacy[@]}"; do
-  [[ -e "$p" || -L "$p" ]] && echo "Left over from 1.x, no longer read: $p (remove it yourself)"
+  [[ -e "$p" || -L "$p" ]] && echo "Left over from 1.x: $p — Codex and agy workers still load this old skill; remove it (rm -r)"
 done
 
 cat <<EOF

@@ -48,7 +48,8 @@ def vcmp($a; $b):
   | (map(select(. != 0)) | first) // 0;
 def efforts_re: "(low|medium|high|xhigh|max)";
 # One catalog entry → {slot, version, effort, rank} or null. Anything else is "unmatched".
-# rank orders two lines of one slot at the same version (gemini: hydrogen 1 over flash 0).
+# rank orders two lines of one slot at the same version (gemini: hydrogen 1 over flash 0): only the
+# top-ranked line of a version gives slugs, so one candidate never mixes two lines.
 def classify($transport):
   . as $s
   | if $transport == "codex" then
@@ -72,7 +73,7 @@ def lines_of($transport):
                | map({ key: .[0].slot,
                        value: ( group_by(.version | map(tostring) | join("."))
                                 | map({ version: .[0].version,
-                                        slugs: ( sort_by(.rank)
+                                        slugs: ( (map(.rank) | max) as $top | map(select(.rank == $top))
                                                  | map({key: (.effort // "default"), value: .slug}) | from_entries ),
                                         catalog_efforts: (map(.catalog_efforts) | map(select(. != null)) | first // null) })
                               ) })

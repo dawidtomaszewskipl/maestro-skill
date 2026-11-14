@@ -88,8 +88,8 @@ if group T2 "catalog"; then
   jqt "synthetic: sol order 7, 6.10, 6.9, 6.1" "$out" '.slots.codex.sol == ["7","6.10","6.9","6.1"]'
   jqt "synthetic: gemini 4 before 3.8" "$out" '.slots.agy.gemini == ["4","3.8"]'
   jqt "synthetic: argon is its own line, not gemini" "$out" '.slots.agy.argon == ["4"]'
-  jqt "synthetic: at one version Hydrogen wins an effort, Flash fills the rest" "$(cat "$WORK/c2/catalog.json")" \
-    '.transports.agy.slots.gemini[0].slugs == {"high":"gemini-4-hydrogen-high","low":"gemini-4-flash-low"}'
+  jqt "synthetic: at one version Hydrogen wins and Flash slugs of that version are not mixed in" "$(cat "$WORK/c2/catalog.json")" \
+    '.transports.agy.slots.gemini[0].slugs == {"high":"gemini-4-hydrogen-high"}'
   jqt "synthetic: opus 5.10 before 5.5" "$out" '.slots.agy.opus == ["5.10","5.5"]'
   jqt "synthetic: preview and dated slugs unmatched" "$(cat "$WORK/c2/catalog.json")" \
     '(.transports.codex.unmatched | index("gpt-6.2-sol-preview") != null) and (.transports.agy.unmatched | index("gemini-4-flash-preview-high") != null) and (.transports.agy.unmatched | index("gemini-4-argon-preview-high") != null)'
@@ -446,6 +446,9 @@ if group T7 "role resolution"; then
   jqt "named critic not available → stop" "$(roles '{"builder":"opus","named_critics":["argon"],"eligible":["opus","sol"]}')" '.stop.reason | test("not available")'
   jqt "high stakes, one named critic → a second family added" "$(roles '{"builder":"opus","high_stakes":true,"named_critics":["sol"],"eligible":["opus","sol","gemini"]}')" '.critics == ["sol","gemini"]'
   jqt "named argon critic of a claude build" "$(roles '{"builder":"opus","named_critics":["argon"],"eligible":'"$ALL"'}')" '.critics == ["argon"] and .reviewer == "argon" and (.notes | any(test("argon is provisional")))'
+  jqt "no builder → a structured stop, not a jq error" "$(roles '{"eligible":["sol"]}')" '.stop.reason | test("unknown")'
+  jqt "transports: no slot and no order → halt, not a jq error" "$("$B/maestro-roles" --transports <<<'{"available":{}}')" '.action == "halt"'
+  jqt "transports: the order comes from slots.json" "$("$B/maestro-roles" --transports <<<'{"slot":"fable","available":{"native":false,"api":true}}')" '.transport == "api"'
   r6() { "$B/maestro-roles" --row6 <<<"$1"; }
   jqt "row 6: self when the director is known" "$(r6 '{"eligible":["self","sonnet"],"director_family":"claude","director_line":"opus"}')" '.implementer == "self"'
   jqt "row 6: director line unknown → sonnet" "$(r6 '{"eligible":["self","sonnet","sol"],"director_family":"claude"}')" '.implementer == "sonnet"'
@@ -647,6 +650,8 @@ if group T9 "audit and .maestro fingerprint"; then
   jqt "adopt under a headless host is refused" "${o%rc=*}" '.result == "refused" and (.reason | test("headless"))'
   eq "refused adopt exits 1" "rc=1" "rc=${o##*rc=}"
   jqt "a refused adopt leaves the file unaudited" "$("$B/maestro-state" verify CHECKPOINT.md)" '.result == "tampered"'
+  HC="$(hproc adopt-codex codex exec x)"; ln -sfn /home/u/.codex/bin/codex "$HC/100/exe"
+  jqt "adopt when another agent CLI directs is refused" "$(as_host "$HC" "$B/maestro-state" --gen "$g" adopt CHECKPOINT.md --reason x)" '.result == "refused"'
   jqt "adopt with a reason" "$(as_host "$HI" "$B/maestro-state" --gen "$g" adopt CHECKPOINT.md --reason "user inspected it")" '.result == "adopted"'
   jqt "adopted file verifies" "$("$B/maestro-state" verify CHECKPOINT.md)" '.result == "ok"'
   jqt "the adoption is marked in the audit" "$(tail -1 .maestro/audit.jsonl)" '.adopted == true and .reason == "user inspected it"'
@@ -874,6 +879,8 @@ if group T13 "effective identity"; then
   mkinit '{"apiKeySource":"ANTHROPIC_API_KEY"}'; jqt "claude init: an API key on native → MISMATCH" "$(idl)" '.mismatches == ["apiKeySource=ANTHROPIC_API_KEY"]'
   jqt "claude init: --api expects the key" "$(idl --api)" '.result == "OK"'
   mkinit '{"model":"claude-sonnet-5"}'; jqt "claude init: another model → MISMATCH" "$(idl)" '.mismatches == ["model=claude-sonnet-5"]'
+  mkinit; jq -sc '. + [{type: "result", subtype: "success"}]' "$CI" > "$CI.arr"; mv "$CI.arr" "$CI"
+  jqt "claude: a --output-format json array transcript is read too" "$(idl)" '.result == "OK"'
   printf '{"type":"result","subtype":"success"}\n' > "$CI"; jqt "claude: no init → MISSING" "$(idl)" '.result == "MISSING"'
   mkinit '{"tools":[]}'; jqt "claude init: --tools \"\" means none" "$("$B/maestro-identity" claude "$CI" --model claude-sonnet-5-5 --tools "" --permission-mode dontAsk)" '.result == "OK"'
 fi
@@ -922,6 +929,14 @@ SH
   jqt "preflight: --resume reports a dirty tree without a stop" "$(pf --resume)" '.tree.clean == false and .stops == []'
   rm -rf .codex
   eq "preflight: no probe residue (refs, index files, state files)" "0 0 0" "$(git for-each-ref refs/maestro | wc -l) $(find "$(git rev-parse --absolute-git-dir)" -maxdepth 1 -name 'maestro-probe-*' | wc -l) $(find .maestro -maxdepth 1 -name 'probe-*' | wc -l)"
+  UB="$WORK/unborn"; mkdir -p "$UB"; git -C "$UB" init -q -b main
+  gu="$(cd "$UB" && "$B/maestro-lock" acquire --run u --token t --host test | jq -r .fence)"
+  jqt "preflight: an unborn HEAD passes the git probes, the worktree probe is skipped with a warning" \
+    "$(cd "$UB" && PATH="$FB:$PATH" CODEX_HOME="$CHM" "$B/maestro-preflight" --gen "$gu" --worktree)" \
+    '.git == {objects: true, index_file: true, refs: true} and .stops == [] and (.warnings | any(test("unborn")))'
+  chmod a-w "$(git rev-parse --absolute-git-dir)/refs/maestro" 2>/dev/null || { mkdir -p "$(git rev-parse --absolute-git-dir)/refs/maestro"; chmod a-w "$(git rev-parse --absolute-git-dir)/refs/maestro"; }
+  jqt "preflight: a git write that fails is a stop (refs read-only)" "$(pf)" '.git.refs == false and (.stops | any(test("git refs write failed")))'
+  chmod u+w "$(git rev-parse --absolute-git-dir)/refs/maestro"
   "$B/maestro-lock" acquire --run r2 --token t2 --host test >/dev/null 2>&1 || true
   out="$(PATH="$FB:$PATH" "$B/maestro-preflight" --gen 999.x 2>&1; echo "rc=$?")"
   if [[ "$out" == *rc=4* && "$out" == *superseded* ]]; then ok "preflight: a stale fence stops it (exit 4)"; else bad "preflight: a stale fence stops it (exit 4)" "$out"; fi
@@ -933,6 +948,7 @@ if group T15 "flags"; then
   fl() { "$B/maestro-flags" "$@"; }
   jqt "flags anywhere, task text kept in order" "$(fl "add --model=opus@agy a thing --critic=sol,argon --rounds=3")" \
     '.task == "add a thing" and .flags.model == {slot: "opus", transport: "agy"} and (.flags.critics | map(.slot)) == ["sol","argon"] and .flags.rounds == 3 and .errors == []'
+  jqt "a multi-line argument string keeps every line" "$(fl $'build a page\nwith OAuth --model=sol')" '.task == "build a page with OAuth" and .flags.model.slot == "sol"'
   jqt "separate words work like one string" "$(fl --review x y)" '.flags.review == "full" and .task == "x y"'
   jqt "--reviewer alone implies --review=full" "$(fl --reviewer=sol t)" '.flags.review == "full" and .flags.reviewer.slot == "sol"'
   jqt "--tests=browser means covering,browser" "$(fl --tests=browser t)" '.flags.tests == {scope: "covering", browser: true}'
