@@ -108,7 +108,7 @@ tests.
 - **A worker dies mid-build.** The director looks at `git status` and `git diff` before anything
   else, decides deliberately what to keep and what to reset, records that, and continues or
   stops.
-- **A cap.** At the critique cap or the fix cap the run stops with a diagnosis and hands you the
+- **A cap.** At the critique cap (after the arbiter, when one may rule) or the fix cap the run stops with a diagnosis and hands you the
   decision. There is no silent extra round.
 - **The session ends.** Every worker launched outside an interactive Claude Code runs as a
   detached job that survives the director's session. `/maestro --resume` finds it, waits for it

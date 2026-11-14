@@ -73,7 +73,8 @@ director's own share of the subscription for directing.
   the only stop maestro cannot overrun.
 - **Rounds:** critique at most `--rounds` (default 2, up to 8) and the fix loop at most 3 — at
   either cap the run stops with a diagnosis and hands you the decision; there is no silent extra
-  round. The cascade's gate is different: it gets at most 2 rounds to accept the draft (a draft
+  round. One exception at the critique cap: when only major findings are left on a change that is
+  not high stakes, one arbiter call from a third family may approve the plan. The cascade's gate is different: it gets at most 2 rounds to accept the draft (a draft
   can pass in either); if it has not passed by then, the implementer builds — the planned
   fallback, not a stop.
 - **Time:** a cascade draft gets 25 minutes; a worker with no progress for at least 15 minutes (or

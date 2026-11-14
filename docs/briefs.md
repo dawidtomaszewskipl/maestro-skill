@@ -27,26 +27,30 @@ Three fixed blocks: the rubric in every critique brief, the delta block from rou
 brief at the cap. The mechanical decisions are `maestro-validate --decide` (`docs/commands.md`,
 "Validating a verdict").
 
-### Severity rubric (verbatim, every critique brief)
+### Severity rubric (verbatim, every critique brief and the arbiter brief)
 
-> Severity — apply it to every finding:
+> Severity of a finding:
 > - `blocking`: the plan cannot meet the spec, or it would cause damage (data loss, a security
 >   hole, a broken build).
 > - `major`: a defect reachable with an input or state the spec allows. It MUST name that input or
 >   state.
-> - Everything else goes in `non_blocking_notes`.
+> - Everything else is a note, not a finding.
 >
-> Every blocking and major finding carries `trigger`: the concrete input or state, inside the
-> spec, that triggers the defect. A defect you cannot give such a trigger for — it needs an input
-> the spec excludes, or a state the system cannot reach — is a note, not a finding.
-> `approve` only with `blocking_findings` and `major_findings` both empty; notes never block.
-> Otherwise `revise`; `reject` only when no revision of this plan can meet the spec.
+> Every blocking and major finding carries a `trigger`: the concrete input or state, inside the
+> spec, that triggers the defect. A defect with no such trigger — it needs an input the spec
+> excludes, or a state the system cannot reach — is a note.
 
-Round 1 adds: *"This is round 1: return `prior_findings` as an empty array."*
+A critique brief adds, after the rubric:
+
+> Notes go in `non_blocking_notes` and never block. `approve` only with `blocking_findings` and
+> `major_findings` both empty; otherwise `revise`; `reject` only when no revision of this plan can
+> meet the spec.
+
+and in round 1: *"This is round 1: return `prior_findings` as an empty array."*
 
 ### Round 2 and later (verbatim)
 
-Instead of the round-1 line, after the rubric:
+Instead of the round-1 line:
 
 > This is round <N>. The plan was revised after round <N−1>. Your open findings from that round,
 > each with the director's resolution:
@@ -93,8 +97,9 @@ when all hold** after the last round — `--unattended` included:
 
 Input `{builder, drafter, high_stakes, eligible, critics_with_findings, director_family}`; output
 `{arbiter, reason, stop}`. `stop` not null → no arbiter: the stop below. Otherwise **one** call to
-that slot — read-only, launched and proven like a critic, at the critique effort,
-`.maestro/arbiter-schema.json`, a new slot probed first (stage 0 step 5). The disputed findings
+that slot — read-only, launched and proven like a critic (job role `arbiter`; a Codex arbiter's
+`maestro-identity` check takes `--role critic`, the same read-only profile), at the critique
+effort, `.maestro/arbiter-schema.json`, a new slot probed first (stage 0 step 5). The disputed findings
 are every critic's `major_findings` of the last round (give them ids) and its `-m` ids still
 `not_resolved`. The brief (verbatim; plan and spec embedded or as paths, as for a critic):
 
@@ -102,7 +107,7 @@ are every critic's `major_findings` of the last round (give them ids) and its `-
 > family still holds the major findings below; the planner disputes them. Rule on each finding and
 > on nothing else: do not review the rest of the plan, do not raise new findings.
 >
-> <the severity rubric above, verbatim>
+> <the severity rubric above, verbatim — the rubric block only>
 >
 > Spec: <the spec, whole>
 > Plan: <PLAN.md, the current revision>
@@ -117,8 +122,8 @@ are every critic's `major_findings` of the last round (give them ids) and its `-
 Decision: `maestro-validate .maestro/arbiter-schema.json <answer> --envelope … --decide arbiter
 --ids <the disputed ids>`.
 
-- **Every verdict `downgraded`** (`decision.approved`) → the plan is approved. The Assign line's
-  roster gains `arbiter=<slot>→<model>`; the report says *"approved by arbiter <slot> over
+- **Every verdict `downgraded`** (`decision.approved`) → the plan is approved. The checkpoint's
+  roster records the arbiter (slot, requested and served model); the report says *"approved by arbiter <slot> over
   <critic>'s majors"* and lists each downgraded finding with the arbiter's reason.
 - **Any `upheld`**, an invalid answer or a failed call → today's stop (`--unattended`: row 3, A13),
   its question naming the upheld findings and the arbiter's reasons. No re-ask, no second arbiter,
