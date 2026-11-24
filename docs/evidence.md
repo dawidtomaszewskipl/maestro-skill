@@ -112,3 +112,24 @@ On Claude Code 2.1.325, Codex 0.169.0 and agy 1.5.9:
   approved.
 - `maestro-limits` (2.1): Claude seven-day 0.77 from a probe's `rate_limit_event`, Codex 0.83 of
   its 168 h window from the newest rollout; agy unknown.
+
+## 2.2.0 checks (2026-11-24)
+
+On Claude Code 2.1.331, Codex 0.172.0 and agy 1.5.16 (local measurement unless a row says otherwise):
+- `codex exec resume` cwd: a read-only `gpt-6.1-sol` thread (`--ignore-user-config`,
+  `model_reasoning_effort=low`) started in directory A ran `pwd`/`ls`; resumed by thread id from
+  directory B (no `-C`, which resume does not take), the turn printed A and A's file, and the
+  rollout's `turn_context.cwd` was A for both turns — the saved cwd wins over the shell's on 0.172
+  (the release notes, #62194, say so for "saved sandbox permissions, the working directory, and
+  workspace roots"). The resume without `-c sandbox_mode` ran `read-only` (restored); a further
+  resume with `-c 'sandbox_mode="workspace-write"'` ran `workspace-write`. Cost: 34 727 and 69 920
+  input tokens (cumulative, mostly cached) for the first two turns.
+- Director's probes for this update (maestro run upd-20261124-1248): `codex exec` with
+  `gpt-6.2-astra` at `low` → `OK`; `claude -p --model opus` → `init.model` `claude-opus-5-5`.
+- `maestro-catalog refresh --fixtures tests/fixtures/catalogs/machine-2026-11-24`: codex sol
+  6.2/6.1/6/5.6, astra 6.2/6, luna 6/5.6, terra 6.1/5.6; agy argon 4, carbon 4, neon 4, gemini 4
+  (Hydrogen) and 3.8 (Flash), opus 5.5, sonnet 5.5; the three `gemini-pro-orchestrator*` slugs and
+  `gpt-oss-120b-medium` unmatched (T2).
+- `agy --help`: `-r` "Short alias for --conversation", `--resume` "Alias for --conversation";
+  `codex exec --help` and `codex exec resume --help`: `--remote <ADDR>` on both, resume still
+  without `-s`, `-C`, `--add-dir`, `--color`.

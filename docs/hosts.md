@@ -92,7 +92,13 @@ Every external worker (`codex exec`, agy, `claude -p`, `maestro-sdk`) and every 
 in both modes. Only the wait differs: an interactive director is woken by the completion
 notification of one background `maestro-wait --until-done`; a headless one has no notification, so
 it loops `maestro-wait` in the foreground. A Claude worker on the `Agent` tool (interactive,
-`native`) is not a job: the harness owns it.
+`native`) is not a job: the harness owns it. maestro passes it a `model` and no effort. (Upstream fact only, recorded
+2026-11-24: the Agent tool has an `effort` parameter, which Claude Code 2.1.329 fixed to be honored
+for named teammates in agent teams — vendor, `CHANGELOG.md`. maestro does not use it; the effort
+of an Agent-tool worker is recorded as the model's default, `docs/workers.md`.) Headless, a
+background subagent of `claude -p` would share one 10-minute wait ceiling since 2.1.328
+(`CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`, with `CLAUDE_CODE_FORK_SUBAGENT=0`); maestro's `-p`
+workers start no subagents.
 
 - `bin/maestro-run --gen N --job <id> --run <run_id> --role <role> [--kind test]
   [--test-cmd "<cmd>"]… [--test-runner <path>]… -- <command…>` launches the command in its own

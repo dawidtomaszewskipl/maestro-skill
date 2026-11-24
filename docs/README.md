@@ -38,7 +38,7 @@ guide, then the technical pages when you need the exact rule.
 | [sandbox-and-preflight.md](sandbox-and-preflight.md) | What each sandbox denies, the reach probe, the escalation ladder | a worker could not run the tests |
 | [troubleshooting.md](troubleshooting.md) | Real incidents with their diagnoses | something hangs, fails or looks wrong |
 | [evidence.md](evidence.md) | Measurement history: job survival, end-to-end canaries | you want to know how a rule was measured |
-| [../bin/slots.json](../bin/slots.json) | The one table of slots: family, transport order, pin pattern, provisional | you want the roster as data |
+| [../bin/slots.json](../bin/slots.json) | The one table of slots: family, transport order, pin pattern, provisional, explicit-only | you want the roster as data |
 | [manual-checks_pl.md](manual-checks_pl.md) | Checks that need a human (Polish) | you want to verify maestro by hand |
 | [examples/maestro.policy.toml](examples/maestro.policy.toml) | An annotated policy file | you want a template |
 | `schemas/` | The JSON schemas critics, the arbiter, gates and reviewers must answer with | you are debugging a verdict |

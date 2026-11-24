@@ -66,7 +66,9 @@ codex exec -m <slug> -s workspace-write --color never --json --ignore-user-confi
 
 # builder resume — NO -s / --color / -C; sandbox via -c; ALWAYS the thread UUID from
 # thread.started.thread_id in the first job's `out`. --last is banned. Before it, record the
-# rollout offset ("Effective identity"). Run from the worker's own directory.
+# rollout offset ("Effective identity"). Run from the worker's own directory (maestro-run --cwd).
+# Codex 0.172 restores the thread's saved cwd and sandbox unless overridden: the cwd comes back
+# by itself (observed, docs/workers.md), the sandbox is always overridden by the role's -c.
 codex exec resume <THREAD_UUID> --ignore-user-config --json -m <slug> -c 'sandbox_mode="workspace-write"' \
   -c model_reasoning_effort=medium -o "$J/answer" "$(cat .maestro/brief-fix1.md)"
 # a critic, gate or reviewer keeps its role on resume: read-only and its schema
@@ -176,7 +178,8 @@ J="$REPO/.maestro/jobs/<job>"      # the job directory
 # "$J/agy.log" (this run's own log, for maestro-wait --also) and an explicit --mode (the default is
 # Auto since agy 1.5.7). Never --disable-slash-commands: it switches plan mode off (below).
 # Effort: the slug's suffix and --effort always agree; agy accepts low…max, but clamp to the
-# suffixes the model lists (Hydrogen up to xhigh, Argon up to high, Claude-on-agy up to high).
+# suffixes the model lists (Hydrogen and Neon up to xhigh, Argon, Carbon and Claude-on-agy up to
+# high; agy 1.5.16).
 #
 # critique — plan mode; the brief (paths inside $REPO, nothing quoted) in -p, opening with the
 # "read inside <REPO> only" paragraph; the worker reads the plan, the diff file and the code itself.
@@ -187,13 +190,15 @@ agy --model gemini-<v>-argon-medium --mode plan --effort medium --add-dir "$REPO
   --json-schema .maestro/critique-schema.json --log-file "$J/agy.log" --print-timeout 30m \
   -p "$(cat .maestro/brief-critique.md)"
 #   slot gemini: --model gemini-<v>-hydrogen-medium (or -flash- when only Flash is listed);
+#   the explicit-only carbon / neon, when named: gemini-<v>-carbon-medium / gemini-<v>-neon-medium;
 #   Claude on agy: --model claude-opus-<v>-medium (or claude-sonnet-…); everything else identical
 
 # build — accept-edits, EDITS ONLY: one denied command cancels the whole run
 agy --model <slug> --mode accept-edits --effort medium --add-dir "$REPO" --output-format json \
   --log-file "$J/agy.log" --print-timeout 60m -p "$(cat .maestro/stub-build.md)"
 
-# builder resume — by id, never -c/--continue; only after a SUCCESS turn
+# builder resume — by id, never -c/--continue; only after a SUCCESS turn. agy 1.5.16 also takes
+# -r / --resume as aliases of --conversation; maestro keeps the long form.
 agy --conversation <CONVERSATION_ID> --model <slug> --mode accept-edits --effort medium \
   --add-dir "$REPO" --output-format json --log-file "$J/agy.log" --print-timeout 60m \
   -p "$(cat .maestro/stub-fix1.md)"
@@ -224,6 +229,11 @@ agy --add-dir "$REPO" --mode plan --output-format json --print-timeout 2m -p "/s
   never starts with `/`.
 - **Usage** is reported per conversation and is cumulative across `--conversation` turns. Keep it
   raw in the ledger's `raw_cumulative`.
+- **Retries.** Since agy 1.5.10 a rate-limit delay of up to 4 minutes is waited out and retried
+  inside the turn, and since 1.5.12 brief connection drops are retried (spend-cap, prepaid and
+  weekly-quota errors still end the turn); since 1.5.13 a run that succeeded after such a retry
+  reports `SUCCESS`, not `ERROR`. The checks above and the watchdog threshold are unchanged
+  (`docs/workers.md`, "Google — `agy`").
 
 **Stubs — builders and drafters only.** Their `-p` prompt is a pointer: *"Read
 `.maestro/stub-build.md`'s brief at `.maestro/brief-build.md` in the workspace and execute it exactly.

@@ -4,7 +4,8 @@
 # ~/.config/maestro/policy.toml (your own defaults). Precedence:
 #   command-line flags  >  repo maestro.policy.toml  >  ~/.config/maestro/policy.toml  >  skill defaults
 # Every key is optional. Slot names are the --model values:
-#   sonnet opus fable haiku astra sol luna terra argon gemini self   (bin/slots.json)
+#   sonnet opus fable haiku astra sol luna terra argon carbon neon gemini self   (bin/slots.json;
+#   carbon and neon are explicit-only: they serve only a role they are named for)
 # Transports: native agy codex api (a slot@transport pair names one).
 # Effort values: low medium high xhigh max (ultra for OpenAI only); clamped per transport.
 # Check a file with: bin/maestro-policy resolve   (TOML: the plain keys come before the [tables]).
@@ -28,7 +29,7 @@ cascade_drafter = "luna"
 critique_rounds = 2
 
 # Per-stage effort. A stage takes one value, or per-family values (openai/google/claude)
-# when the families need different levels (Argon and Flash stop at high, Hydrogen at xhigh;
+# when the families need different levels (Argon, Carbon and Flash stop at high, Hydrogen and Neon at xhigh;
 # a single higher value is clamped and marked (clamped)).
 [effort]
 critique = "medium"

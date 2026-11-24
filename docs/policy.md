@@ -32,8 +32,9 @@ single value.
 one JSON line — `effective` (every key, defaults included), `sources` (`flags`, `repo`, `user` or
 `default` per key path), `files`, `warnings` and `stops`. Nothing else reads a policy file.
 `maestro-policy roles-input` prints the part `maestro-roles` takes (`policy_critic`,
-`policy_reviewer`, the named critics, the slots to drop from `eligible`, the denied transports per
-slot).
+`policy_reviewer`, the named critics and reviewer, the slots to drop from `eligible`, the denied
+transports per slot, and `explicit_only` — the explicit-only slots still in the roster, which stay in
+`eligible` because `maestro-roles` keeps them out of every automatic choice itself).
 
 ## Keys
 
@@ -43,11 +44,11 @@ All optional. Slot names are the `--model` values (strings); effort values are t
 | --- | --- |
 | `deny = [slot, …]` | The director never picks these on its own. An explicit `--model`, `--critic` or `--reviewer` naming a denied slot still wins — with a warning in the assignment line, because you asked. |
 | `implementer = slot` | Default implementer when `--model` is absent. Without it, the rubric decides. |
-| `critic = slot` | Preferred plan critic, used whenever the cross-family rule allows it. |
-| `reviewer = slot` | Preferred cross-family reviewer for `--review=full` and `--review=cross`. |
+| `critic = slot` | Preferred plan critic, used whenever the cross-family rule allows it. The explicit-only slots `carbon` and `neon` (2.2) critique only when named here or by `--critic`, and such a critic is not reused as the reviewer (`reviewer` names it for that). |
+| `reviewer = slot` | Preferred cross-family reviewer for `--review=full` and `--review=cross`. A `carbon` or `neon` named here is the reviewer only — it does not count as an eligible family for the critic choice. |
 | `cascade_drafter = slot` | Default drafter for `--cascade` (default `luna`). |
 | `critique_rounds = n` | Plan-critique cap, 1–8 (default 2). `--rounds` beats it. |
-| `[effort]` `critique`, `high_stakes_critique`, `build`, `review`, `draft` | Per-stage effort (defaults `medium`, `high`, `medium`, `high`, `medium`), one vocabulary `low\|medium\|high\|xhigh\|max`. Each stage takes one value, or a table of per-family values (`review = { openai = "xhigh", google = "high" }`) when the families need different levels. A value above a model's range is clamped to the highest effort its slugs list (agy: Hydrogen `xhigh`, Argon, Flash and Claude-on-agy `high`) and marked `(clamped)`. The Agent tool has no dial; `claude -p`, `maestro-sdk` and agy slugs do. |
+| `[effort]` `critique`, `high_stakes_critique`, `build`, `review`, `draft` | Per-stage effort (defaults `medium`, `high`, `medium`, `high`, `medium`), one vocabulary `low\|medium\|high\|xhigh\|max`. Each stage takes one value, or a table of per-family values (`review = { openai = "xhigh", google = "high" }`) when the families need different levels. A value above a model's range is clamped to the highest effort its slugs list (agy: Hydrogen and Neon `xhigh`, Argon, Carbon, Flash and Claude-on-agy `high`) and marked `(clamped)`. maestro passes no effort on native Agent calls (the tool's own `effort` parameter is not used, `docs/workers.md`); `claude -p`, `maestro-sdk` and agy slugs take it. |
 | `[families]` `claude\|openai\|google = "on"\|"off"` | Switch a family off even if its CLIs are installed and signed in, or `"on"` to lift a lower-level `"off"` (`true`/`false` are read the same). Claude can be switched off for workers too; the director itself is always Claude Code, and `self` stays available. |
 | `[transports]` `deny = ["<slot>@<transport>", …]` | Transports the director never picks on its own, e.g. `opus@agy`, `sonnet@api`. A denied transport is skipped in the slot's order and never switched onto; an explicit `@transport` naming it still wins, with a warning. |
 | `[pin]` `<slot> = "<version>" \| { <transport> = "<slug>" }` | Fix a line instead of following the newest model (`docs/catalog.md`, "Pins"): `sol = "6.1"` (every transport must serve 6.1), `sol = { codex = "gpt-6.1-sol" }` (that slug, other transports off), `opus = { native = "claude-opus-5" }`. The version is a quoted string (unquoted, 6.10 would be the number 6.1). A pin missing from the catalog halts. |
@@ -91,7 +92,7 @@ unavailable family (`maestro-preflight`), the cascade family rule (`maestro-role
 director checks it then):
 
 - a slot name that is not in the roster (`gemini-pro`, `gpt-5`), or a transport a slot does not have
-  (`haiku@agy`, `fable@agy`, `argon@codex`) — the slots and their transports are `bin/slots.json`;
+  (`haiku@agy`, `fable@agy`, `argon@codex`, `neon@codex`) — the slots and their transports are `bin/slots.json`;
 - a `pin` whose version or slug is not in that transport's catalog;
 - a `cascade_drafter` other than `luna`, `haiku` or `gemini`;
 - a `critique_rounds` outside 1–8;
@@ -99,8 +100,8 @@ director checks it then):
 - a `maestro.policy.yml` or `~/.config/maestro/policy.yml` left from before the format changed:
   "convert to TOML", with both paths — it is not read;
 - an effort that is not a level at all (`hgih`), or a per-family value outside that family's range
-  — a Google model the efforts its agy slugs list (Hydrogen `low…xhigh`, Argon and Flash
-  `low…high`), an OpenAI model its own catalog list (up to `ultra` for Astra/Sol/Terra, `max` for
+  — a Google model the efforts its agy slugs list (Hydrogen and Neon `low…xhigh`, Argon, Carbon
+  and Flash `low…high`), an OpenAI model its own catalog list (up to `ultra` for Astra/Sol/Terra, `max` for
   Luna), native Claude `low…max`; a single shared value is clamped instead (see `effort` above).
   `maestro-policy` knows the family ranges (`google` up to `xhigh`, `claude` up to `max`, `openai`
   up to `ultra`); `ultra` as a single shared value halts, because only OpenAI has it;

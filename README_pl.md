@@ -117,7 +117,8 @@ końca przebiegu. Nowy Opus albo nowy Sol nie wymaga aktualizacji maestro.
 | | `luna` | szybki i tani: szkicuje w kaskadzie (niżej) |
 | | `terra` | starsza linia, używana tylko gdy ją wskażesz |
 | Google | `argon` | krytyk i recenzent od Google; buduje tylko gdy go wskażesz |
-| | `gemini` | szybka i tania praca mechaniczna, gdy chcesz oszczędzić pulę Claude — dziś Gemini 4 Hydrogen (podobno Gemini 4 Flash), wcześniej Gemini Flash |
+| | `carbon`, `neon` | Gemini 4 Carbon i Neon — tu jeszcze niezmierzone: używane tylko gdy wskażesz je jako wykonawcę, krytyka albo recenzenta (nigdy jako szkicującego w kaskadzie, nigdy wybierane na arbitra) |
+| | `gemini` | szybka i tania praca mechaniczna, gdy chcesz oszczędzić pulę Claude — dziś Gemini 4 Hydrogen (następca Gemini 3.8 Flash według zapowiedzi Google z 2026-11-12), wcześniej Gemini Flash |
 
 Do slotu może prowadzić więcej niż jedna droga (**transport**): `opus` działa natywnie w Claude
 Code, albo przez agy, albo na kredycie API (`fable` i `haiku`: natywnie albo na kredycie API). Gdy jedna droga wyczerpie limit

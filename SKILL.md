@@ -129,6 +129,8 @@ the run. **Family is decided by the model, never by the CLI.**
 | `luna` | `gpt-<v>-luna` — fast, cheap | OpenAI | codex |
 | `terra` | `gpt-<v>-terra` — legacy, explicit only | OpenAI | codex |
 | `argon` | `gemini-<v>-argon` — frontier, provisional | Google | agy |
+| `carbon` | `gemini-<v>-carbon` — provisional, explicit only | Google | agy |
+| `neon` | `gemini-<v>-neon` — provisional, explicit only | Google | agy |
 | `gemini` | `gemini-<v>-hydrogen`, else `gemini-<v>-flash` — fast, cheap | Google | agy |
 | `self` | you, directly | Claude | Edit/Write |
 
@@ -170,16 +172,22 @@ slot's identity. `maestro-roles --transports` decides it.
    `gemini`), named in the Assign line; none → halt.
 
 `argon` is in no row: it is the Google critic and reviewer and builds only when
-named.
+named. `carbon` and `neon` (Gemini 4 Carbon and Neon, in agy's catalog since 2026-11) are in no row and
+in no automatic choice at all — critic, reviewer, arbiter, row 6, degraded modes:
+they run only when named (`--model`, `--critic`, `--reviewer` or policy), and an
+eligible but unnamed one does not count as an eligible family (`maestro-roles`;
+`docs/workers.md`, "Evidence and the rubric").
 
 **Effort** — `low|medium|high|xhigh|max`, by stage (policy `effort.<stage>`):
 critique `medium`, high-stakes critique `high`, build `medium`, review `high`,
 cascade draft `medium`; Gate B at the critique effort. Mapped per transport and
 clamped with `(clamped)`: codex `-c model_reasoning_effort` (the model's
 catalog range); agy slug suffix plus `--effort`, clamped to the suffixes that
-model lists (Hydrogen up to `xhigh`, Argon and Claude-on-agy up to `high`);
-`claude -p --effort` and `maestro-sdk --effort`; the Agent tool takes none (the
-model is the dial). Always pass effort explicitly.
+model lists (Hydrogen and Neon up to `xhigh`, Argon, Carbon and Claude-on-agy up
+to `high`); `claude -p --effort` and `maestro-sdk --effort`. On Codex, agy,
+`claude -p` and the SDK always pass effort explicitly. On native Agent calls
+maestro passes none and records the model's default (the model is the dial; the
+tool's own `effort` parameter is not used — `docs/workers.md`).
 
 This rubric is the whole routing logic — a written rule you apply and name.
 `maestro.policy.toml` (repo) and `~/.config/maestro/policy.toml` (user) can deny
@@ -197,7 +205,7 @@ decided**.
 ## The cross-family rule
 
 Three families: **Claude** (`opus`/`fable`/`sonnet`/`haiku` and `self`),
-**OpenAI** (`astra`/`sol`/`luna`/`terra`), **Google** (`argon`/`gemini`).
+**OpenAI** (`astra`/`sol`/`luna`/`terra`), **Google** (`argon`/`carbon`/`neon`/`gemini`).
 Same-family models share blind spots, so **no plan critic and no cross reviewer
 shares the family of the builder whose code is committed**. Roles resolve over
 the (model, transport) pairs stage 0 found eligible; `"$MAESTRO/bin/maestro-roles"`
@@ -212,8 +220,12 @@ line.
 
 - **Astra never critiques an OpenAI build — except in OpenAI-only degraded
   mode**, and the Assign line says so.
-- **Cross reviewer** (`--review=full|cross`): the policy `reviewer`, else the
-  plan critic's slot, else the critic order — first cross-family to the builder.
+- **Cross reviewer** (`--review=full|cross`): `--reviewer`, else the policy
+  `reviewer`, else the plan critic's slot, else the critic order — first
+  cross-family to the builder (`maestro-roles` takes `named_reviewer` too). A
+  `carbon`/`neon` critic is not reused as the reviewer unless it is also named
+  as reviewer: the next selected critic reviews, else the critic order for the
+  stakes.
 - **With `--cascade` either the implementer or the drafter may end up the
   builder,** so every critic comes from a family other than both (Opus
   implements, Luna drafts → `argon`). None eligible → halt with a question:
@@ -221,7 +233,10 @@ line.
   (`--unattended`: row 2, A6). With three families a cascade from another
   family leaves one critic family, so a high-stakes cascade has no second
   critic — the report says so.
-- Argon in any role is marked `(provisional)` until the ledger has measured it.
+- Argon, Carbon and Neon in any role are marked `(provisional)` until the ledger
+  has measured them. Carbon and Neon are explicit-only (Roster): a named one
+  serves the role it was named for and nothing else; they are in none of the
+  orders above.
 
 **Degraded modes.** Two eligible families: no high-stakes second critic, and
 the report says so. **One eligible family** (the others off by policy or

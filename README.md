@@ -117,7 +117,8 @@ a new Sol needs no update of maestro.
 | | `luna` | fast and cheap: the drafter of a cascade (below) |
 | | `terra` | an older line, used only when you name it |
 | Google | `argon` | the Google critic and reviewer; builds only when you name it |
-| | `gemini` | fast and cheap mechanical work, when you want to spare the Claude pool — Gemini 4 Hydrogen today (said to be Gemini 4 Flash), Gemini Flash before it |
+| | `carbon`, `neon` | Gemini 4 Carbon and Neon — unmeasured here: used only when you name them as builder, critic or cross reviewer (never a cascade drafter, never chosen as arbiter) |
+| | `gemini` | fast and cheap mechanical work, when you want to spare the Claude pool — Gemini 4 Hydrogen today (Google's upgrade from Gemini 3.8 Flash, announced 2026-11-12), Gemini Flash before it |
 
 A slot can be reached by more than one road (**transport**): `opus` runs natively in Claude Code,
 or through agy, or on the API credit (`fable` and `haiku`: natively or on the API credit). If one road hits its usage limit mid-run,

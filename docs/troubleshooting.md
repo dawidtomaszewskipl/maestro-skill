@@ -38,11 +38,19 @@ workers".
 
 ## A resumed worktree worker ran in the checkout
 
-`codex exec resume` has no `-C` and runs in the shell's current directory — the thread does not
-remember its worktree. Started from the checkout, a resume works on the checkout (observed with a
-read-only probe turn on 2026-09-30, before any edit). Start every resume of a worktree worker from
-its worktree (`cd <worktree> && codex exec resume …`), and let the effective-config check confirm
-the write root.
+`codex exec resume` has no `-C`. **On Codex 0.159.2** it ran in the shell's current directory —
+the thread did not remember its worktree: started from the checkout, a resume worked on the
+checkout (observed with a read-only probe turn on 2026-09-30, before any edit; 0.165–0.171 were
+not re-checked). **On 0.172.0** the thread restores its saved cwd (vendor: 0.172.0 release notes, #62194; observed on
+2026-11-24: a thread started in directory A and resumed from directory B ran in A —
+`docs/workers.md`, "`codex exec resume`"). Either way: launch every resume of a worktree worker
+through `maestro-run --cwd <worktree>` (the launcher's directory still decides on an older
+client), and before accepting anything it wrote, confirm where the resumed turn ran. Record the
+rollout's line count before the resume and pass it as `--offset`, so the check reads the resumed
+turn's `turn_context`, not the first one. On rungs 1 and 3, `maestro-identity codex … --rung 1|3
+--root <worktree> --offset <N>` fails on any writable root other than the worktree (`/tmp` and
+`$TMPDIR` are the permitted extras). On rung 4 (`danger-full-access`) it checks no roots: read
+that turn's `turn_context.cwd` yourself and compare it with the intended worktree.
 
 ## `No prompt provided via stdin` right after attaching a screenshot
 

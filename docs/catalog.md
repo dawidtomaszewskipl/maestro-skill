@@ -12,12 +12,12 @@ or Opus therefore needs no edit of the skill.
 writes `.maestro/catalog.json` (the sources are read outside the lock; only the write runs inside
 the fence):
 
-| Transport | Source | Notes (measured 2026-10-11, re-checked 2026-11-14 on Codex 0.169.0 and agy 1.5.9) |
+| Transport | Source | Notes (measured 2026-10-11, re-checked 2026-11-14 on Codex 0.169.0 and agy 1.5.9, and 2026-11-24 on Codex 0.172.0 and agy 1.5.16) |
 | --- | --- | --- |
-| codex | `codex debug models` (run through `maestro-env`) | Refreshes the catalog from the server and prints `{models: [{slug, visibility, supported_reasoning_levels[].effort, default_reasoning_level, …}]}`; only `visibility: "list"` entries count. It also rewrites `$CODEX_HOME/models_cache.json`, whose `identity`, `client_version` and `fetched_at` the catalog copies (the live output has no account identity). Re-checked on 0.165.0 (2026-10-28): same file, same keys, `fetched_at` advanced by each refresh and the same `identity` across them (evidence: maestro run docs-20261028-0134, `1.4-codex-cache.txt`). A changed identity (an upgrade or another account) only means older probe records no longer count. |
+| codex | `codex debug models` (run through `maestro-env`) | Refreshes the catalog from the server and prints `{models: [{slug, visibility, supported_reasoning_levels[].effort, default_reasoning_level, …}]}`; only `visibility: "list"` entries count. It also rewrites `$CODEX_HOME/models_cache.json`, whose `identity`, `client_version` and `fetched_at` the catalog copies (the live output has no account identity). Re-checked on 0.165.0 (2026-10-28): same file, same keys, `fetched_at` advanced by each refresh and the same `identity` across them (evidence: maestro run docs-20261028-0134, `1.4-codex-cache.txt`). A changed identity (an upgrade or another account) only means older probe records no longer count. Re-checked on 0.172.0 (2026-11-24, fixture `machine-2026-11-24`): same keys; `gpt-6.2-sol` and `gpt-6.2-astra` are listed, so they are the first candidates of `sol` and `astra` until the account's probe succeeds (or denies them, and the walk-down takes 6.1 Sol / 6 Astra). |
 | codex, fallback | `$CODEX_HOME/models_cache.json` | Used when `debug models` fails. Older than 7 days, or `client_version` ≠ `codex --version` → `stale: true`. |
 | codex, last resort | `codex debug models --bundled` | The binary's own catalog, no refresh — `mode: bundled`. |
-| agy | `agy models` | `<slug>\t<label>` lines after a `Fetching available models...` banner. Lists Gemini (4 Argon since 2026-10-16 at low/medium/high, **4 Hydrogen** at low/medium/high/xhigh by 2026-11-14, 3.8 Flash at low/medium/high; 3.7/3.6 Flash and 3.1 Pro were listed on 2026-10-11 and are gone by 2026-10-28), `gemini-pro-orchestrator-g1-pro` ("Orchestrator (Argon)"), **Claude** (Opus 5.5, Sonnet 5.5 at low/medium/high) and GPT-OSS. |
+| agy | `agy models` | `<slug>\t<label>` lines after a `Fetching available models...` banner. Lists Gemini (4 Argon since 2026-10-16 at low/medium/high, **4 Hydrogen** at low/medium/high/xhigh by 2026-11-14, 3.8 Flash at low/medium/high; 3.7/3.6 Flash and 3.1 Pro were listed on 2026-10-11 and are gone by 2026-10-28), `gemini-pro-orchestrator-g1-pro` ("Orchestrator (Argon)"), **Claude** (Opus 5.5, Sonnet 5.5 at low/medium/high) and GPT-OSS. **Measured 2026-11-24, agy 1.5.16** (fixture `machine-2026-11-24`): Gemini 4 **Neon** (low/medium/high/xhigh), 4 **Carbon** (low/medium/high), 4 Argon (low/medium/high), 4 Hydrogen (low/medium/high/xhigh), 3.8 Flash (low/medium/high), three orchestrator slugs — `gemini-pro-orchestrator-neon`, `gemini-pro-orchestrator` (labelled "Orchestrator (Carbon)"), `gemini-pro-orchestrator-argon` — and the same Claude and GPT-OSS entries; `gemini-pro-orchestrator-g1-pro` is gone. Same format, same banner. |
 | native Claude | none | Claude Code's aliases (`opus`, `fable`, `sonnet`, `haiku`) follow the newest model of each line; the full id is learned by probing (below). |
 | api Claude | `maestro-sdk --resolve <slot>` | The Models API for the key (`GET /v1/models`, no model turn): the newest `claude-<line>-*` by `created_at`. Read only when `api` is eligible (`--sdk`, policy `api.fallback`). |
 
@@ -34,13 +34,23 @@ different from a line that simply has no candidates.
 | `astra` `sol` `luna` `terra` | `^gpt-<v>-(astra\|sol\|luna\|terra)$`, `<v>` = `[0-9]+(\.[0-9]+)*` | codex |
 | `gemini` | `^gemini-<v>-(hydrogen\|flash)(-<effort>)?$` | agy |
 | `argon` | `^gemini-<v>-argon(-<effort>)?$` | agy |
+| `carbon` | `^gemini-<v>-carbon(-<effort>)?$` — explicit-only (2.2) | agy |
+| `neon` | `^gemini-<v>-neon(-<effort>)?$` — explicit-only (2.2) | agy |
 | `opus` `sonnet` | `^claude-(opus\|fable\|sonnet\|haiku)-<v>-<effort>$`, `<v>` = `[0-9]+(-[0-9]+)*` | agy (`low…high` listed) |
 
 `<effort>` is `low|medium|high|xhigh|max`; a slot's efforts are those its slugs list (Hydrogen
-`low…xhigh`, Argon and Flash `low…high`), and a requested effort above them is clamped. Two lines
-feed `gemini`: **Hydrogen** (Gemini 4 Hydrogen — reported as Gemini 4 Flash, not confirmed by
-Google) and **Flash**. Versions decide as for any slot (Hydrogen 4 before Flash 3.8 on 2026-11-14);
-at the same version Hydrogen's slug wins each effort it lists and Flash fills the others. The
+and Neon `low…xhigh`, Argon, Carbon and Flash `low…high`, measured 2026-11-24), and a requested
+effort above them is clamped. Argon, Carbon and Neon are each their own line and slot — never
+mixed into `gemini` and never into each other (the classifier in `bin/maestro-catalog` maps
+Hydrogen and Flash to `gemini`, every other matched Gemini line to the slot of its name).
+`carbon` and `neon` are `explicit_only` in `bin/slots.json`: the catalog resolves them like any
+slot, but `maestro-roles` never chooses one unless it is named (SKILL.md, "Roster"). Two lines
+feed `gemini`: **Hydrogen** (Gemini 4 Hydrogen — announced by Google on 2026-11-12 as the upgrade
+from Gemini 3.8 Flash) and **Flash**. Versions decide as for any slot (Hydrogen 4 before Flash 3.8
+on 2026-11-14). At the same version the preference is for the whole version: when Hydrogen lists
+that version, only Hydrogen's slugs make the candidate and Flash's slugs of that version are
+dropped — an effort Hydrogen does not list is clamped, never filled from Flash (one candidate never
+mixes two lines; T2). The
 patterns that decide which slug may be pinned to a slot are in `bin/slots.json` (`line_re`), the
 one table of slots that `maestro-catalog` and `maestro-roles` both read.
 
@@ -49,12 +59,15 @@ A version is parsed into a list of integers: `gpt-6.1` → [6, 1], `gpt-7` → [
 shorter list with zeros: [5] = [5, 0]; [6, 1] > [6]; [7] > [6, 10]; [6, 10] > [6, 9]
 (`maestro-catalog compare` and fixture T2). On 2026-10-28 the live Codex catalog resolves `terra` to
 `gpt-6.1-terra` (6.1, then 5.6), probe passed (evidence: maestro run docs-20261028-0134, `1.1-terra-probe.txt`); the slot
-stays explicit-only. Integer generations (`gpt-7-sol`, `gemini-4-hydrogen`, `gemini-4-argon`) are
+stays explicit-only. Integer generations (`gpt-7-sol`, `gemini-4-hydrogen`, `gemini-4-argon`, `gemini-4-carbon`, `gemini-4-neon`) are
 covered by the same patterns.
 
 **Excluded from automatic resolution**, listed under `transports.<t>.unmatched`: any other suffix
 (`-preview`, dates, `-mini`, `-nano`) and every model of a line maestro has no slot for (on
-2026-11-14: `gemini-pro-orchestrator-g1-pro`, `gpt-oss-120b-medium`). An unmatched
+2026-11-14: `gemini-pro-orchestrator-g1-pro`, `gpt-oss-120b-medium`; on 2026-11-24:
+`gemini-pro-orchestrator-neon`, `gemini-pro-orchestrator` — the Carbon one, with no suffix —,
+`gemini-pro-orchestrator-argon`, `gpt-oss-120b-medium`; the orchestrator slugs carry no version
+and match no line). An unmatched
 slug can still be pinned exactly (below) — a preview never becomes a worker unannounced.
 
 ## Resolution

@@ -33,7 +33,8 @@
 #
 # Slots and their lines: opus fable sonnet haiku (Claude: agy; native has no list),
 # astra sol luna terra (codex), gemini = gemini-<v>-hydrogen or gemini-<v>-flash (agy; at one
-# version Hydrogen wins), argon (agy).
+# version Hydrogen wins), argon, carbon, neon (agy; each its own line). The orchestrator slugs
+# (gemini-pro-orchestrator, -neon, -argon) carry no version and stay unmatched.
 set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/_lib.sh"
 
@@ -56,8 +57,8 @@ def classify($transport):
       (capture("^gpt-(?<v>[0-9]+(\\.[0-9]+)*)-(?<line>astra|sol|luna|terra)$") // null)
       | if . then {slot: .line, version: (.v | vparse), effort: null, rank: 0} else null end
     elif $transport == "agy" then
-      ( (capture("^gemini-(?<v>[0-9]+(\\.[0-9]+)*)-(?<line>hydrogen|flash|argon)(-(?<e>low|medium|high|xhigh|max))?$")
-          | {slot: (if .line == "argon" then "argon" else "gemini" end), version: (.v | vparse), effort: .e,
+      ( (capture("^gemini-(?<v>[0-9]+(\\.[0-9]+)*)-(?<line>hydrogen|flash|argon|carbon|neon)(-(?<e>low|medium|high|xhigh|max))?$")
+          | {slot: (if .line | IN("hydrogen", "flash") then "gemini" else .line end), version: (.v | vparse), effort: .e,
              rank: (if .line == "hydrogen" then 1 else 0 end)})
         // (capture("^claude-(?<line>opus|sonnet|fable|haiku)-(?<v>[0-9]+(-[0-9]+)*)-(?<e>low|medium|high|xhigh|max)$")
           | {slot: .line, version: (.v | vparse), effort: .e, rank: 0})

@@ -27,6 +27,9 @@
 # roles-input prints what the policy contributes to maestro-roles' input:
 #   {policy_critic, policy_reviewer, named_critics, named_reviewer,
 #    exclude: {slots, denied, families_off, kept_by_flag},   drop exclude.slots from `eligible`
+#    explicit_only: [slot…]   explicit_only slots of bin/slots.json still in the roster; they stay in
+#                             `eligible` — maestro-roles itself keeps them out of every automatic choice
+#                             and family count unless one is named for that role
 #    transports_denied: {<slot>: [transport…]},              `denied` of maestro-roles --transports
 #    fable_budget: false (only when fable is excluded), unmapped: [...], warnings, stops}
 #
@@ -402,12 +405,13 @@ else:
     out = {"policy_critic": pol("critic"), "policy_reviewer": pol("reviewer"), "named_critics": named_critics,
            "named_reviewer": eff["reviewer"] if sources["reviewer"] == "flags" else None,
            "exclude": {"slots": excl, "denied": eff["deny"], "families_off": off, "kept_by_flag": kept},
+           "explicit_only": [s for s in SLOTS if SLOTS[s].get("explicit_only") and s not in excl],
            "transports_denied": tden}
     if "fable" in excl:
         out["fable_budget"] = False
     out["unmapped"] = [
         "fable_budget: no policy key (false here only when fable is excluded); otherwise the director sets it",
-        "named_reviewer: maestro-roles takes no named reviewer; the director applies --reviewer",
+        "named_reviewer: pass it to maestro-roles as is (it checks availability and the family rule)",
         "builder, drafter, high_stakes, eligible, director_family, director_line: not policy; `eligible` is preflight's minus exclude.slots",
         "implementer, cascade_drafter, critique_rounds, effort, pin, api: not maestro-roles input (resolve has them)"]
     out["warnings"], out["stops"] = warnings, stops

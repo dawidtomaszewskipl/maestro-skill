@@ -1,5 +1,72 @@
 # Changelog
 
+## 2.2.0 — 2026-11-24
+
+**New CLI versions and models, no routing change.** The docs are brought up to Codex 0.172.0,
+agy 1.5.16 and Claude Code 2.1.331 and to GPT-6.2, Gemini 4 Carbon and Neon and the Claude 5.5
+models. Every new claim carries a date, a source and a label (vendor, independent, secondhand,
+local measurement); what had no retrievable source is marked "not verified". The rubric rows,
+the critic, reviewer and arbiter orders and the degraded-mode orders are unchanged
+(`docs/workers.md`, "Evidence and the rubric").
+
+### Slots
+- **`carbon` and `neon`** (Gemini 4 Carbon and Neon, family Google, transport agy, provisional)
+  in `bin/slots.json`, the roster, the catalog lines and the policy keys. Both are
+  **`explicit_only`**: no automatic choice picks them, and an eligible but unnamed one does not
+  count as an eligible family — so, for example, Sol + Astra + Neon with Claude unavailable and
+  Argon and Gemini denied is still OpenAI-only degraded critique (Astra), not a halt. Naming one
+  is role-scoped: `--critic`/policy `critic` makes it a critic, `--reviewer`/policy `reviewer` the
+  reviewer only, `--model` the builder.
+- `maestro-catalog`'s agy classifier maps Hydrogen and Flash to `gemini` and Argon, Carbon and
+  Neon each to its own slot. The orchestrator slugs (`gemini-pro-orchestrator`, `-neon`, `-argon`)
+  stay unmatched.
+- `maestro-roles` takes `named_reviewer` (`--reviewer`): it beats the policy reviewer, and an
+  unavailable one or one of the builder's or drafter's family is a stop, as for a named critic.
+  A `carbon`/`neon` critic named for critique only is never reused as the reviewer: the reviewer
+  then comes from the usual order with the explicit-only slots left out (degraded same-family
+  review when only one family is left; none eligible → no reviewer, said in the notes).
+  `maestro-policy roles-input` adds `explicit_only`.
+
+### Evidence
+- Sources were read for each published figure: OpenAI's GPT-6.2 page (prices incl. Sol's $0.10
+  cached input; Sol within 0.5 points of Astra on FrontierCode 2.0 at a fifth of the cost),
+  Artificial Analysis (Coding Agent Index: Astra flat, Sol −3; Intelligence Index per effort; Gemini
+  dates and prices), Google's Gemini 4 Neon model card and methodology (Neon's Terminal-Bench 4.1
+  65.2 % is an independent Artificial Analysis run on the Antigravity CLI 1.5.9 harness), Google's
+  Hydrogen announcement (2026-11-12 — it was not unannounced, as 2.1 said), Google's Argon
+  (2026-10-13) and Carbon (2026-11-10) launch posts ($2 / $10 until 2026-11-30, $4 / $20 after),
+  Cognition's FrontierCode 2.0 data (scores and mean cost per rollout per effort), Anthropic's
+  Haiku price. Claims without a retrievable source were dropped.
+- `maestro-roles`: the reviewer fallback first takes a selected critic that is not explicit-only
+  (a high-stakes second critic such as Fable), then the critic order for the run's stakes.
+- `docs/troubleshooting.md`: the "resume runs in the shell's directory" incident is dated to
+  its observation on 0.159.2; on 0.172 the thread restores its saved cwd.
+
+### Codex 0.170–0.172
+- GPT-6.2 Sol and Astra are the first candidates of `sol` and `astra` (the resolver is generic)
+  until the account probe succeeds; pin `sol = "6.1"` to keep 6.1. Evidence is mixed: recorded,
+  not a routing change.
+- `codex exec resume` restores the saved cwd and sandbox unless overridden (0.172). **Observed:**
+  a resume from another directory ran in the thread's original directory; the role's
+  `-c sandbox_mode` still wins. The recipe is unchanged. `--remote` (0.171) is not used.
+
+### agy 1.5.10–1.5.16
+- The Gemini 4 line-up table; `-r`/`--resume` aliases (maestro keeps `--conversation`); the
+  1.5.13 fix of `ERROR` after a successful retry; the 4-minute rate-limit wait (watchdog threshold
+  unchanged); swarms and the Orchestrator are not used; `~/.agents/skills` discovery.
+
+### Claude Code 2.1.326–2.1.331
+- Recorded, no change to maestro: the Agent tool's `effort` parameter (honored for named teammates
+  since 2.1.329; maestro passes none), the 10 s model-settings grace of `-p`, exit 1 on an output
+  failure, the 10-minute background-subagent wait, resumed subagents keeping their model, the
+  `Agent(model:*)` follow-up fix, the startup warning for malformed `--tools`/`--allowedTools`
+  entries, `sandbox.failIfUnavailable`.
+
+### Tests
+- Fixture `tests/fixtures/catalogs/machine-2026-11-24`; T2 checks it (GPT-6.2, Carbon, Neon,
+  Hydrogen, the three orchestrator slugs unmatched, full-slug picks); T7 the explicit-only rule
+  and the named reviewer; T18 the exclusion lists with Carbon and Neon.
+
 ## 2.1.0 — 2026-11-14
 
 **The 2.0 review's thirteen items: the plan critique converges, and more of the director's hand

@@ -25,7 +25,7 @@ mechanical half.
 ## Drafters
 
 maestro keeps the drafters `luna`, `haiku` and `gemini` (a cascade's value rests on a measured
-cheap drafter, so the provisional `argon` is not one). `haiku` drafts through the native transport
+cheap drafter, so the provisional `argon` is not one, nor are the explicit-only `carbon` and `neon`). `haiku` drafts through the native transport
 (or `api`); in a headless Claude Code that is `claude -p` with the edits-only tool set, so the
 director runs the drafter's tests as it does for a Gemini drafter.
 

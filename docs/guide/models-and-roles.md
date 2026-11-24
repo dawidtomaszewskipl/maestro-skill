@@ -10,7 +10,7 @@ use", found afresh at the start of each run and then kept for the whole run.
 | --- | --- | --- |
 | Claude | `opus`, `fable`, `sonnet`, `haiku` | `fable` (Fable 5.2 today) the strongest and most expensive, `opus` the all-rounder, `sonnet` for mechanical builds, `haiku` for bulk edits |
 | OpenAI | `astra`, `sol`, `luna`, `terra` | `astra` the strongest, `sol` the workhorse, `luna` fast and cheap, `terra` an older line used only when named |
-| Google | `argon`, `gemini` | `argon` the strongest, a critic and reviewer; `gemini` fast and cheap — Gemini 4 Hydrogen today (said to be Gemini 4 Flash, not confirmed by Google), Gemini Flash before it |
+| Google | `argon`, `carbon`, `neon`, `gemini` | `argon` the Google critic and reviewer; `carbon` and `neon` (Gemini 4 Carbon and Neon, in agy's catalog since November 2026) only when you name them; `gemini` fast and cheap — Gemini 4 Hydrogen today (announced by Google on 2026-11-12 as the upgrade from Gemini 3.8 Flash), Gemini Flash before it |
 
 There is also `self`: the director itself (a Claude model in Claude Code), for a change smaller
 than the handoff.
@@ -86,6 +86,13 @@ forces one road and never switches.
 
 `argon` is marked **provisional** in every assignment line: it has critiqued plans well, but the
 ledger has not measured it as a builder yet. It is also never a cascade drafter.
+
+`carbon` and `neon` are provisional too, and **explicit-only**: the director never picks them on
+its own — not as builder, critic, reviewer or arbiter — and an unnamed one does not count as an
+extra family. Name one (`--critic=neon`, `--reviewer=carbon`, `--model=neon`, or the policy's
+`critic`/`reviewer`) and it serves that role — builder, critic or cross reviewer; it is never a
+cascade drafter, and a critic named for critique is not reused as the reviewer. Published benchmarks put them near the top, but from
+one or two sources; the rubric changes only when maestro's own ledger shows it.
 
 ## When fewer families are available
 

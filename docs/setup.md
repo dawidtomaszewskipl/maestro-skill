@@ -61,7 +61,7 @@ given.
 
 | Question (header) | Options, recommended first | Recommended when |
 | --- | --- | --- |
-| Critic (`Krytyk`) | cross-family default · `astra` · `argon` · `gemini` · two critics | only families other than the builder's (both possible builders' under cascade; `maestro-roles` gives the default); `astra` + the third family for high stakes; argon is offered marked provisional |
+| Critic (`Krytyk`) | cross-family default · `astra` · `argon` · `gemini` · two critics | only families other than the builder's (both possible builders' under cascade; `maestro-roles` gives the default); `astra` + the third family for high stakes; argon is offered marked provisional. `carbon` and `neon` are never offered as a recommendation (explicit-only, unmeasured); a user who types one into "Other" gets it, marked provisional |
 | Rounds (`Rundy`) | 2 · 1 · 4 | 1 for a settled plan; 4 for a design-heavy or high-stakes plan |
 | Review (`Review`) — not asked under plan-only | none · `cross` · `full` · `self` | `cross` or `full` for high stakes; none for mechanical work |
 | Tests (`Testy`) | `covering` · `covering,browser` · `full` · `full,browser` | `browser` when the run changes a flow a browser suite covers; `full` for shared reach (SKILL.md "Test scope"); skipping tests is not an option — the user can still type it into "Other", and it is illegal under cascade |
