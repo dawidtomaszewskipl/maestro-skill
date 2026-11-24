@@ -34,7 +34,7 @@ launch lines and result reading — **before the first external launch**),
 `docs/worktrees.md` (when a split is decided), `docs/sandbox-and-preflight.md`,
 `docs/checkpoint.md`, `docs/ledger.md`, `docs/unattended.md` (**as soon as
 `--unattended` is given**), `docs/troubleshooting.md` (the incidents behind the
-rules), `docs/schemas/*.json`.
+rules), `docs/schemas/*.json` (`docs/schemas/advice-schema.json` with `--advisor`).
 
 ## Flags
 
@@ -77,20 +77,28 @@ review, or to another worker (`--unattended`: a validation stop, A1).
   Spend is capped per run (policy `api.max_usd_per_run`). Without it, policy
   `api.fallback = true` makes `api` the last transport a Claude slot switches
   to on quota (`docs/workers.md`).
+- `--advisor[=<slot>[@<transport>]]` — optional, off by default: the builder
+  may stop once to ask a read-only **advisor** model for short guidance, which
+  you pass back ("Advisor"). Bare = auto (a slot of another family); a named
+  slot may be of any family, the builder's included (noted). Never a gate.
+  `--advisor-checkpoints=<1–3>` — how many such stops (default 1; policy
+  `advisor_checkpoints`). Policy `advisor` names the slot, never enables it.
 
 `maestro-flags` rejects the illegal combinations: `--plan-only` with
 `--cascade`/`--review`/`--reviewer`; `--reviewer` with `--review=self`;
 `--tests` with two scopes or with `--skip-tests`; `--cascade` with
 `--model=luna|haiku`, drafter == implementer, or `--skip-tests`; `--setup` with
-`--unattended`; `--sdk` with a forced `@native`; `--resume` with any flag but
-`--unattended` (to change the configuration, start again or answer a recorded
-decision whose option changes it).
+`--unattended`; `--sdk` with a forced `@native`; `--advisor` with
+`--plan-only`, `--cascade` or `--model=self`, and `--advisor-checkpoints`
+without `--advisor`; `--resume` with any flag but `--unattended` (to change the
+configuration, start again or answer a recorded decision whose option changes
+it).
 
 **Plain words are flags too.** "Krytykuj astrą", "review gemini", "bez fable",
 "astra implementuje", "opus przez agy", "więcej rund krytyki", "bez testów
 przeglądarkowych", "zbuduj tylko plan", "zapytaj o konfigurację", "na kredycie
-API" map to `--critic`, `--reviewer`, a per-run deny, `--model[@t]`,
-`--rounds`, `--tests`, `--plan-only`, `--setup`, `--sdk`. Echo the mapping in
+API", "z doradcą" map to `--critic`, `--reviewer`, a per-run deny, `--model[@t]`,
+`--rounds`, `--tests`, `--plan-only`, `--setup`, `--sdk`, `--advisor`. Echo the mapping in
 the Assign line (`critic=astra (user: "krytykuj astrą")`); ask only when the
 words are ambiguous or break a rule (`--unattended`: a validation stop, A2).
 
@@ -109,7 +117,10 @@ slots — a failed probe asks that role again. Flags and the user's own words ar
 answers and are not asked again; policy values are defaults, not answers. It
 ends with one reusable flag line per run (`/maestro --model=opus
 --critic=astra,argon --rounds=2 --review=cross --tests=covering <task>`), then
-the Assign line; separate runs go into the checkpoint's task queue.
+the Assign line; separate runs go into the checkpoint's task queue. The advisor
+question is its own call (step 1b), only for a full run with an external
+implementer and only when the user's words did not settle it; recommended:
+`none`.
 
 ## Roster
 
@@ -233,6 +244,10 @@ line.
   (`--unattended`: row 2, A6). With three families a cascade from another
   family leaves one critic family, so a high-stakes cascade has no second
   critic — the report says so.
+- **The advisor** (`--advisor`, "Advisor") is outside this rule: it is not a
+  critic or reviewer and approves nothing. Auto picks it from the critic order
+  of another family; a named one may share the builder's family (noted). It
+  never moves the critics or the reviewer.
 - Argon, Carbon and Neon in any role are marked `(provisional)` until the ledger
   has measured them. Carbon and Neon are explicit-only (Roster): a named one
   serves the role it was named for and nothing else; they are in none of the
@@ -360,8 +375,8 @@ has the exact lines. The invariants:
   duration: the identity rests on the explicit `model`, and the report says "served: not
   reported"); agy — no served-model field, the requested slug is recorded. Anything but
   `OK` stops the worker; a writer's output goes through the dirty-exit protocol.
-- **Read-only roles leave no trace.** Around every external critic, gate or
-  reviewer call: `maestro-fp snapshot` / `compare`; a change in the checkout or
+- **Read-only roles leave no trace.** Around every external critic, gate,
+  reviewer, arbiter or advisor call: `maestro-fp snapshot` / `compare`; a change in the checkout or
   `.maestro/` → verdict discarded, dirty-exit, that transport ineligible for
   read-only roles this run. **You never overrule a `changed` result yourself.**
 - **Continuing a worker** (fix rounds, after a stop): Codex `codex exec resume
@@ -373,8 +388,9 @@ has the exact lines. The invariants:
   unavailable continues on the next eligible transport of its order *for the
   same model id* (`maestro-roles --transports`: use, switch, swap or halt) as
   one transaction (`docs/hosts.md`, "Transport switch"). Family unchanged →
-  critics stand. A different version, or no transport left, is a swap ("Time
-  and the watchdog").
+  critics stand. The one exception is an advisor call: its quota or network
+  failure skips the checkpoint ("Advisor") and switches nothing. A different
+  version, or no transport left, is a swap ("Time and the watchdog").
 - Validate every verdict with `"$MAESTRO/bin/maestro-validate" <schema> <file>
   --envelope codex|agy|claude` (`claude` for `api` too) before acting on it:
   one re-ask with the validator's error, then the role moves to the next
@@ -421,7 +437,9 @@ another live run.
 A worker that *ends* with a question becomes a `question` blocker, answered as
 a new prompt to its thread. **Under `--unattended`** classify each of its
 assumptions and its closing question against the stop matrix after every turn
-(`docs/unattended.md`, A11).
+(`docs/unattended.md`, A11). With `--advisor` a builder or fix brief carries the
+advisor block (`maestro-brief close … --advisor-checkpoints <left>`), and a
+turn that ends with `ADVICE_REQUEST` takes the same path ("Advisor").
 
 ## The loop
 
@@ -434,7 +452,8 @@ assumptions and its closing question against the stop matrix after every turn
    all the stakes — and run stage 0 step 5 for any new slot, step 8 if a Codex
    slot now writes and tests, `maestro-preflight --worktree` or the visual
    check if a split or a UI change is now decided. Then one line naming
-   implementer, critic(s), reviewer, drafter, transports and frozen models,
+   implementer, critic(s), reviewer, drafter, advisor (with `--advisor`: slot or
+   off, checkpoints, its notes), transports and frozen models,
    efforts, rounds, tests, sandbox rung, families and policy — each with its
    reason (rubric row, family rule, `(policy)`, `(user: "…")`, `(clamped)`,
    `(provisional)`, a degradation). Example: `Assign: host=claude-code
@@ -445,7 +464,9 @@ assumptions and its closing question against the stop matrix after every turn
    policy=maestro.policy.toml`. `codex-config=…` whenever a Codex worker runs;
    `unattended=on` with `--unattended`.
 3. **Plan.** `.maestro/PLAN.md` (or `.maestro/tasks/<id>/PLAN.md` in a task
-   queue), test commands and runner paths included.
+   queue), test commands and runner paths included. Every critique and verdict
+   text it records goes under one heading, `## Critique record`, last in the
+   file (the advisor's copy leaves it out, "Advisor").
 4. **Critique — always, not gated by `--review`.** The PLAN (never code) goes to
    every required critic with the critique schema and the severity rubric
    (`docs/briefs.md`, "Plan critique": every finding names its `trigger`).
@@ -465,7 +486,8 @@ assumptions and its closing question against the stop matrix after every turn
    verdicts and reruns them one after the other (say so in the report).
 5. **Build** — or cascade (`docs/cascade.md`; under `--unattended` every
    `DRAFT_ABORT` is classified before it escalates, A21). One writer in the
-   checkout at a time.
+   checkout at a time. With `--advisor`, every builder turn is checked for an
+   `ADVICE_REQUEST` ("Advisor") before step 6.
 6. **Your diff read — always,** even with review off: boundaries respected
    (untracked files included), nothing unplanned, no obvious bug. Then **review
    per `--review`**: `full` = your read plus the cross-family reviewer with a
@@ -495,7 +517,8 @@ assumptions and its closing question against the stop matrix after every turn
 9. **Report.** Spec, who did what (requested and served models, transports),
    review mode, test scope and status, sandbox rung, families and policy, the
    cost table (`maestro-ledger report --run <run_id>`), what was skipped or
-   degraded. When the run is
+   degraded; with `--advisor` the line `advisor: <slot→model> checkpoints used N
+   of M, skipped K, same-family: yes|no` and the advice items removed in triage. When the run is
    **finished** — committed, no open decision, no queued or planned task, not
    a `--plan-only` result — close its bookkeeping (`maestro-state --gen N
    rotate --to <run_id>`). Then release the lock (`maestro-lock release
@@ -508,7 +531,79 @@ cap: stop, checkpoint with a diagnosis, hand the decision over — never a silen
 extra round, never a silent fallback to another worker (`--unattended`: a
 `needs-decision` stop). The arbiter (step 4) is the one exception, and the
 report names it. At the gate cap the cascade escalates to the
-implementer (`docs/cascade.md`).
+implementer (`docs/cascade.md`). Advisor checkpoints are counted apart from
+every cap.
+
+## Advisor
+
+`--advisor` adds **checkpoints**, not a second voice inside the build: a builder
+is a separate process with no channel to another model, so it asks by ending
+its turn, and the resume that already exists carries the answer back. Advice is
+**never a gate** — it approves no plan and no diff, replaces neither the plan
+critique nor the cross review, stops no run and moves no rubric row. It is
+unmeasured: the ledger will show whether it saves fix rounds.
+
+- **Who.** `maestro-roles` with `advisor_on`, `named_advisor`, `policy_advisor`,
+  `advisor_eligible` (eligible plus `exclude.advisor_kept`: a named advisor that
+  policy denies — for this role only, never a critic or reviewer), `available`
+  (the slots with an available (slot, transport) pair from preflight and the
+  catalog, policy ignored: a flag beats a denial, never unavailability) and
+  `review_active` (`--review` is `full` or `cross`) returns `advisor` and its
+  notes: named (any family; not
+  eligible → halt with a question, `--unattended`: row 2, A3), else the policy
+  `advisor` when eligible (else auto, noted), else auto — the first eligible
+  slot of the critic order for the stakes from another family, never
+  `carbon`/`neon`, avoiding the reviewer's family when review is on. None →
+  advisor off, noted. The director building (`self`, also from policy or row 6)
+  → off, noted. A split into worktree writers → off for that run (the report
+  says so). A swap or a transport switch to another family re-resolves it like
+  the critics: an auto advisor of the new builder's family is replaced (none →
+  off: `advisor_checkpoints.status=disabled`, no further request, reported); a
+  named one stays, noted. `max`, `used` and `skipped` are kept for the report
+  in every case — `used` counts request ids consumed, so a validation re-ask
+  is another ledger row for the same checkpoint, not another use.
+- **The request.** The builder brief's advisor block allows at most the
+  checkpoints left, only before the first edit (approach chosen) or when blocked
+  on a design choice the plan leaves open: the turn ends with `ADVICE_REQUEST`
+  … `END_ADVICE_REQUEST` (≤ 1500 characters) and edits nothing further.
+- **Each builder turn.** First the usual turn checks (clean finish, effective
+  identity); a failed turn is never read as a request. Then **classify** the
+  request like any worker question: one that needs the user's authority (scope,
+  data kept or deleted, permissions, money, high stakes) is a `question`
+  blocker — attended: ask; `--unattended`: the stop (A11) — and never goes to
+  the advisor. Checkpoints left → the advisor call; none left → you answer it
+  as an ordinary question.
+- **The call** is read-only and launched exactly as that slot's critic is
+  (`docs/commands.md`, "Advisor"): role `advisor`, effort `advise` (policy,
+  default `high`; none on the Agent tool, as for every Agent call), `docs/schemas/advice-schema.json`, inside `maestro-fp
+  snapshot`/`compare` with the snapshot in the git dir; brief: spec, a copy of
+  PLAN.md without its `## Critique record` section (PLAN.md keeps every critique
+  and verdict text under that exact heading), the request and the change, both
+  with review text removed — the change restricted to the plan's implementation
+  files, without `CHANGELOG.md`, and read by you before every advisor call, the initial build included — never a critic's
+  or reviewer's verdict or finding. The plan copy and the patch are
+  protected inputs in `.maestro/`, written before the snapshot
+  (`docs/briefs.md`, "Advisor brief").
+- **Triage.** Forward the items inside the plan's authority as a numbered list
+  under `ADVISORY, NOT BINDING — the approved plan and the spec win`; items that
+  would change scope, boundaries or the plan are removed and listed in the
+  report; an item that asks for or presumes the user's decision is a `question`
+  blocker as above; a question back inside the plan's authority you answer from
+  the spec, else forward it as open ("decide and record your assumption").
+  `agrees_with_plan: false` and `risks` are recorded and forwarded, never acted
+  on as a verdict. Write the advice file first, then set `pending` to
+  `adv-<n>:resuming:<job id>` — the continuation's job id, decided before the
+  dispatch (`agent:<agent id>` for an Agent-tool builder) — then resume the
+  builder on its own transport (as "Continuing a worker") and re-check its
+  identity.
+- **Failure** of the advisor (timeout, invalid twice, empty, quota, network) skips
+  the checkpoint: the builder is resumed with "no advice available; decide and
+  record your assumption". A `changed` fingerprint discards the advice (the
+  read-only rule) and skips it. Quota or a network failure on the advisor's
+  transport is such an ordinary failure even on a forced `@transport`: no
+  transport switch, no row 5. A safety stop is a safety stop ("Time and the
+  watchdog"). Accounting, ids and resume: `docs/checkpoint.md`, "Advisor
+  checkpoints"; `--unattended`: `docs/unattended.md`, "Advisor".
 
 ## Time and the watchdog
 
@@ -539,8 +634,8 @@ implementer (`docs/cascade.md`).
   `--unattended` (A16b).
 - **Swapping a worker mid-run** (limits with no transport left, the user's
   call, a crash): checkpoint, give the new worker the brief plus the current
-  `git diff`, re-check critics, reviewer and gate against the new builder's
-  family (`maestro-roles`), mark the swap in the ledger and the report. A plan
+  `git diff`, re-check critics, reviewer, gate and advisor against the new
+  builder's family (`maestro-roles`), mark the swap in the ledger and the report. A plan
   critic that now shares the builder's family is replaced by one critique round
   of the current plan by an eligible cross-family critic; none → halt with a
   question. A new slot gets its stage 0 probes first. Under `--unattended` a
@@ -590,7 +685,8 @@ duration, session id and served model from the job's own output. An Agent-tool
 call has no job: `maestro-ledger --gen N --cli claude-agent --stage …
 --transport native --family claude --model <alias> [--served <completion's
 model>] --agent-id <id> --total-tokens N --tool-uses N --duration-ms N`
-(`docs/ledger.md`, including the `transport-switch` outcome). An `api` row
+(`docs/ledger.md`, including the `transport-switch` outcome; an advisor call
+is stage `advise`). An `api` row
 carries `cost_usd` (the SDK's estimate, not an invoice); the report shows the
 run's `api` spend next to the token table. Never write a ledger row by hand;
 missing numbers are `null`, never estimated; cumulative counters (`codex exec

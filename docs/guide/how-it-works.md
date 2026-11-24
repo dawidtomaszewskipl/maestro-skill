@@ -70,7 +70,8 @@ model, how long it took, how many tokens, which checks ran, what was skipped or 
   `--review` gets a recommendation in the assignment line, not a review added behind your back.
 
 `--setup` turns the flags into a short questionnaire (what to build, who builds, who critiques,
-how many rounds, which tests) and ends with a flag line you can paste next time.
+how many rounds, which tests, and — for a full run with an external builder — whether it gets an
+advisor, recommended "none") and ends with a flag line you can paste next time.
 
 ## What "approval" means
 

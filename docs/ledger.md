@@ -50,6 +50,12 @@ anywhere — the rollout's `turn_context` has no tier field either — so `servi
 always `null`. Token
 totals are never presented as subscription cost.
 
+An advisor call (`--advisor`, SKILL.md "Advisor") is one row with `stage: "advise"`, built like a
+critic's row from its job (or, on the Agent tool, `--cli claude-agent`); a validation re-ask or a
+relaunch of the same request is another row for the same checkpoint (`used` counts requests, not
+rows); a skipped checkpoint whose call ran still gets its row, with the reason in `outcome`. `maestro-ledger` takes any stage name, so
+nothing else changes.
+
 A worker swap mid-run gets its own row with `outcome: "swapped: <reason>"` on the abandoned call; a
 transport switch (`docs/hosts.md`) gets `outcome: "transport-switch: <from>→<to> (<reason>)"`.
 
@@ -66,7 +72,10 @@ edited by anything else stop the next write).
 
 `Stage | Who (model@effort) | Wall | In | Out | Result`, totals per family, the cascade line when it
 ran (`cascade: accepted at round N | escalated after N — draft+gate cost vs escalation cost`), and
-the guarantees line (review mode, tests, sandbox rung, what was skipped or degraded).
+the guarantees line (review mode, tests, sandbox rung, what was skipped or degraded). Advisor calls
+are their own `advise` rows of the table; with `--advisor` the report adds the line `advisor:
+<slot→model> checkpoints used N of M, skipped K, same-family: yes|no` (from the checkpoint's
+`advisor_checkpoints`).
 
 ## API spend
 

@@ -7,7 +7,7 @@
 #       The first turn_context after line N (0 for a launch; the rollout's line count recorded
 #       before a resume) of the thread's rollout ($CODEX_HOME/sessions/…/rollout-*-T.jsonl) must
 #       show model, effort, sandbox, approvals and the permission profile of the role:
-#         critic|gate|reviewer|probe|arbiter  read-only, never, user, restricted, no write roots
+#         critic|gate|reviewer|probe|arbiter|advisor  read-only, never, user, restricted, no write roots
 #         builder|drafter|fix rung 1  workspace-write, never, user, restricted, ROOT only
 #         rung 3                      workspace-write, on-request, auto_review, restricted, ROOT only
 #         rung 4                      danger-full-access, never, user (profile disabled: not checked)
@@ -41,7 +41,7 @@ case "$sub" in
     [[ -n "$thread" && -n "$role" && -n "$model" && -n "$effort" ]] || mae_die "maestro-identity codex needs --thread, --role, --model and --effort"
     [[ "$offset" =~ ^[0-9]+$ && "$wait_s" =~ ^[0-9]+$ ]] || mae_die "--offset and --wait are whole numbers"
     case "$role" in
-      critic|gate|reviewer|probe|arbiter) sandbox=read-only approval=never reviewer=user ;;
+      critic|gate|reviewer|probe|arbiter|advisor) sandbox=read-only approval=never reviewer=user ;;
       builder|drafter|fix)
         case "$rung" in
           1) sandbox=workspace-write approval=never reviewer=user ;;
@@ -50,7 +50,7 @@ case "$sub" in
           *) mae_die "--rung is 1, 3 or 4" ;;
         esac
         [[ "$sandbox" == danger-full-access || -n "$root" ]] || mae_die "a writer needs --root (the directory it writes in)" ;;
-      *) mae_die "--role is critic, gate, reviewer, probe, arbiter, builder, drafter or fix" ;;
+      *) mae_die "--role is critic, gate, reviewer, probe, arbiter, advisor, builder, drafter or fix" ;;
     esac
     tc="" deadline=$(( $(date +%s) + wait_s ))
     while :; do

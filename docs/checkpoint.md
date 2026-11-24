@@ -44,6 +44,10 @@ stage: build            # interview | assign | plan | critique | draft | gate | 
 round: 1
 fix_cap: 3              # fix-loop cap: 3 unless an answered decision raised it (docs/unattended.md;
                         # flag_sources names it); absent = 3; restored with the configuration
+advisor_checkpoints: {status: unused, max: 0, used: 0, skipped: 0, pending: "", fp_at_resume: "", ro_off: ""}
+                        # "Advisor checkpoints":
+                        # off and 0 here (this is a --cascade run, which excludes --advisor); written by the
+                        # first structural write, patched with set advisor_checkpoints.<key>=…
 roster:
   implementer: {slot: sol, transport: codex, model_requested: gpt-6.1-sol, effort: medium}
   drafter:     {slot: luna, model_requested: gpt-6-luna, effort: medium}
@@ -51,6 +55,9 @@ roster:
   second_critic: {slot: "", model_requested: "", effort: ""}
   arbiter:     {slot: "", model_requested: "", effort: ""}   # set when the arbiter ran (docs/briefs.md)
   reviewer:    {slot: fable, transport: native, model_requested: claude-fable-5-2, effort: high}
+  advisor:     {slot: "", transport: "", model_requested: "", effort: ""}   # --advisor only; e.g. {slot: opus,
+                           # transport: native, model_requested: claude-opus-5-5, effort: default} — an
+                           # Agent-tool call passes no effort, so it is the model's default (docs/workers.md)
 codex: {config_mode: isolated, mode_reason: ""}   # the run default, decided at stage 0 step 3;
                          # pinned + the config.toml key that forced it. Never touched by a runtime refresh.
 sessions:
@@ -145,6 +152,123 @@ They rely on a strict front matter, which every `write` must keep:
   `{result: "tampered"}`, exit 5; a superseded fence is exit 4. A front matter without
   `written_at` is patched but not stamped (a warning on stderr).
 
+## Advisor checkpoints
+
+`advisor_checkpoints: {status, max, used, skipped, pending, fp_at_resume, ro_off}` is written by
+the first structural write of every run. Without `--advisor` it is `{status: unused, max: 0, used:
+0, skipped: 0, pending: "", fp_at_resume: "", ro_off: ""}` (the last two: "Resume with `pending`
+set"). With `--advisor` (SKILL.md, "Advisor") and an advisor resolved, `status` is `active`
+and `max` the checkpoints allowed (`--advisor` with no advisor resolved: `disabled`, `max` as
+configured). `status` is a plain word, never `true`/`false`, so `maestro-state set` keeps it bare. Every builder request gets an id `adv-<n>` (1, 2, … in the run,
+never reused):
+
+- `used` counts **request ids consumed**: it rises once, when `adv-<n>` is first sent to the
+  advisor. A validation re-ask or a relaunch of the same id (attempt 2) is another ledger row, not
+  another use. `used` never exceeds `max`.
+- `skipped` counts the checkpoints that ended without advice ("Failure", SKILL.md "Advisor").
+- `status` turns `disabled` when a swap or a transport switch leaves no advisor (SKILL.md, "Advisor"):
+  no further request is sent, a request that arrives is answered as an ordinary question, and `max`,
+  `used` and `skipped` **stay as they are** for the report's advisor line. Nothing resets them.
+
+The roster's `advisor` records the slot, transport, requested model and effort (`default` for an
+Agent-tool advisor, which gets no effort); empty strings when it is off.
+
+### Files outside the fingerprint
+
+Three kinds of file never count as an advisor's change:
+
+- `$(git rev-parse --git-dir)/maestro/fp-adv-<n>.json` — the `maestro-fp snapshot` taken before the
+  call, after the brief, the plan copy and the diff patch are written. `maestro-fp` hashes the
+  checkout and `.maestro/`, never the git directory. Removed when `pending` is cleared.
+- `$(git rev-parse --git-dir)/maestro/advice-adv-<n>.md` — what the builder is sent: the triaged
+  advice, or after a skip the fixed text *"no advice available; decide and record your assumption"*.
+  Written for **every** transport before the builder is resumed.
+- `.maestro/tmp/` (excluded from the fingerprint): **only** an Agent-tool advisor's raw answer,
+  `answer-adv-<run_id>-<n>-a<k>.json` (`k` = the attempt). The advisor's inputs — the brief, the plan
+  copy `.maestro/plan-advise-r<N>.md` and the restricted `.maestro/diff-advise-r<N>.patch` — are
+  protected inputs in `.maestro/` itself, which the fingerprint covers (`docs/briefs.md`, "Advisor
+  brief"). When that answer is accepted
+  (identity, fingerprint and schema passed) its invocation is recorded before anything else:
+  `add-session claude '{"id":"<agent id>","role":"advisor","adv":"adv-<n>","attempt":<k>,"answer":"<path>","answer_sha256":"<sha256>"}'`.
+
+### `pending`
+
+`pending` moves through three states, each written with `maestro-state --gen N set
+advisor_checkpoints.pending=… [advisor_checkpoints.used=…|advisor_checkpoints.skipped=…]`:
+
+| `pending` | Written when |
+| --- | --- |
+| `adv-<n>:requested` | the advisor is launched (first attempt: `used` rises in the same `set`) |
+| `adv-<n>:advised` | the answer passed identity, the fingerprint comparison and validation and the advice file is written — the file first, `pending` second; or a skip was decided and the fixed-text file written (`skipped` rises in the same `set`) |
+| `adv-<n>:resuming:<job id>` | **before** the builder's continuation is dispatched. `<job id>` is decided first and deterministically: `<run_id>.<role>.r<round>.a<attempt>` with the role and round of the builder turn that asked (`build` or `fix`) and the attempt one above the highest of that role and round in `.maestro/jobs/` (job ids are never reused). An Agent-tool builder has no job: `adv-<n>:resuming:agent:<agent id>` |
+
+`pending` is cleared (`""`) and the snapshot removed once that continuation's turn has been read.
+
+### Resume with `pending` set
+
+Two moments, never merged: step 0 only **records** the comparison; step 5 **acts** on it, after
+the whole resume procedure in between has run. Nothing is dispatched before step 5.
+
+**Step 0 — compare and persist, nothing else.** With `adv-<n>:requested` and `fp_at_resume` empty
+or `same`, run `maestro-fp compare "$(git rev-parse --git-dir)/maestro/fp-adv-<n>.json"` right
+after the lock is re-acquired — after waiting for the advisor's own job if it is still running, and
+**before** `maestro-preflight --resume`, the re-probes, the reconciliation of the other jobs and any
+dirty-exit repair. The order matters: preflight copies `docs/schemas/*.json` over `.maestro/`, so an
+advisor that edited `.maestro/advice-schema.json` would compare `same` afterwards. Persist the
+result at once: `maestro-state --gen N set advisor_checkpoints.fp_at_resume=same|changed|missing`
+and, on `changed`, `advisor_checkpoints.ro_off=<transport>` — that transport is ineligible for
+read-only roles for the rest of the run (`ro_off` holds every such transport, comma-separated, and
+is never cleared). That is all: no skip is counted, no advice file is written, `pending` stays
+`requested`.
+
+Across restarts (a resume that stopped before step 5):
+
+- **A recorded `same` is never trusted by itself.** Every later resume compares again in step 0,
+  before preflight can restore anything, and the new result replaces it: a user edit to
+  `.maestro/PLAN.md` between two resumes turns it into `changed`. A saved answer is reused only on
+  the `same` of the resume that reuses it.
+- **A recorded `changed` (or `missing`) is authoritative** for that request and attempt: step 0
+  does not compare again and never overwrites it. Step 2's preflight restores the schemas, so a
+  second comparison could say `same` about an answer the first one required discarding.
+- However many restarts happen, the request is settled once, in step 5, with exactly one skip.
+
+**Steps 0–4 run as usual**, the advisor's job and the `resuming:<job id>` continuation included in
+the job reconciliation: the other jobs, the blockers and decisions, and the tree comparison of step
+4. A `changed` fingerprint means the advisor touched the checkout or `.maestro/`: its edits go
+through the dirty-exit inspection there (keep or reset each change deliberately, inside the fence)
+before anything is sent anywhere.
+
+**Step 5 — settle `pending`, then continue.**
+
+- `requested`, `fp_at_resume: changed` — the result is never retried: the answer is discarded,
+  `skipped` +1, the fixed-text file written, `advised`, then `resuming:<job id>` and the dispatch.
+- `requested`, `fp_at_resume: same` (from this resume's step 0) — the answer on disk is still not
+  trusted by itself. A job's
+  answer is reused only if the job's identity check passes and the tree matched the checkpoint in
+  step 4. An Agent-tool answer is reused only when the file at the recorded path exists, a
+  `sessions.claude` record with role `advisor`, that `adv`, that path and that agent id exists, and
+  the file's sha256 equals its `answer_sha256`; anything else — a file from an earlier run included
+  — is discarded. The advice file present with the validated answer still on disk → it is rewritten
+  from that answer.
+- `requested`, `fp_at_resume: missing`, or a failed check above → the answer is discarded and the
+  advisor relaunched once for the same id as attempt 2, with a new snapshot (`used` does not rise
+  again).
+- `advised` → send the saved advice file (through `resuming`, as above).
+- `resuming:<job id>` → the job was reconciled in step 0 (`maestro-wait <job id> --peek`). It exists
+  → it is the continuation: read it as any builder turn, nothing is sent. `maestro-wait` answers
+  *"no job <id>"* (exit 2) → it was never dispatched: send the saved file, opening with *"if you
+  have already received this message, ignore the repeat"*. `resuming:agent:<agent id>` → delivery
+  cannot be proven: send the saved file again with the same opening. **Delivery is at-least-once**;
+  advice is advisory and a repeat is harmless.
+
+`fp_at_resume` is set back to `""` only when step 5 settles the request — in the same `set` as its
+`pending` change — or when an authorised new attempt starts (attempt 2 after `missing`, with its new
+snapshot).
+
+On `--resume` the advisor's frozen slug is re-probed like any slot's and the counts are restored as
+written; a recorded advisor family or model line that changed → ask, as for the other slots
+(unattended: row 2).
+
 ## Body
 
 - **Done** — stages and commits completed, with hashes.
@@ -225,12 +349,15 @@ on; a new non-resume invocation moves its
 0. **Lock, host, jobs.** Read `run_id` and the lock token from the checkpoint and take the
    lock with `maestro-lock acquire --resume` — it takes over only a **stale** owner (a live director
    keeps it: stop, attended ask / unattended row 2). Re-detect the host and your identity
-   (`maestro-host`). Stop loudly when the checkpoint is from before 2.0.0 in a way 2.0.0 cannot
+   (`maestro-host`). With `advisor_checkpoints.pending` = `adv-<n>:requested`, the advisor's
+   fingerprint comparison comes first, before anything below, and its result is only recorded
+   (`fp_at_resume`, `ro_off`); step 5 acts on it ("Advisor checkpoints", "Resume with `pending`
+   set"). Stop loudly when the checkpoint is from before 2.0.0 in a way 2.0.0 cannot
    continue: a `host` other than `claude-code`, or a roster, catalog or session that names a
    slot or transport `bin/slots.json` no longer has. Say so, and offer to discard the checkpoint and
    start again (unattended: row 2). A different model line than `director` → attended: say what
    changes and ask; unattended: row 2 (`docs/unattended.md` A24). Then reconcile every
-   recorded job (`maestro-wait <job> --peek`): `running` → back into the wait loop; `exited` /
+   recorded job (`maestro-wait <job> --peek`; the job id in a `resuming:<job id>` `pending` too): `running` → back into the wait loop; `exited` /
    `lost` → its output is read or the dirty-exit protocol runs; `lingering` / `orphaned` →
    `maestro-kill`; still alive → `result: blocked`, lock kept. Nothing is dispatched before this.
 1. Read the checkpoint, and `.maestro/pending-decision.md` when it exists. At `stage: report`: a
@@ -238,7 +365,7 @@ on; a new non-resume invocation moves its
    true`, is built (SKILL.md, "Building a `--plan-only` plan"); with several candidates, ask which
    (above). With none of these and no open decision there is nothing to resume.
 2. **Re-probe**: `maestro-preflight --gen N --resume` (codex, agy and claude health, without a
-   model turn), the limits, and the frozen `catalog` slugs (each one's probe line — the catalog is **not**
+   model turn), the limits, and the frozen `catalog` slugs (the advisor's included) (each one's probe line — the catalog is **not**
    re-resolved) — overwrite `runtime` (only `runtime`: the `codex` block, `catalog` and the
    session records are routing state). Never reason from a
    remembered limit. While a decision stays unanswered (step 3) the re-probe is only a check: it is
@@ -269,7 +396,8 @@ on; a new non-resume invocation moves its
    every worktree in the session records: `git -C <worktree> rev-parse HEAD` must equal its
    `baseline` and its fingerprint must match; a difference sends that worktree through the dirty-exit
    protocol before it is continued or integrated.
-5. Continue at `stage` with `next_action` — or with the action of the decision answered in step 3 —
+5. Continue at `stage` with `next_action` — or with the action of the decision answered in step 3;
+   an `advisor_checkpoints.pending` that is not empty is settled first ("Advisor checkpoints") —
    under the recorded configuration (`flags`, roster, `fix_cap`), continuing each worker as SKILL.md
    "Launching workers" says: Codex by thread UUID (also after an API or quota stop), from its
    session record — mode, rung tokens, and for a worktree worker from inside its worktree — agy by

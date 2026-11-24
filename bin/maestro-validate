@@ -15,7 +15,8 @@
 # 2. Extraction: strip one surrounding Markdown fence; exactly ONE top-level JSON object must
 #    parse; leading prose is allowed, trailing non-whitespace is not. toolAction/toolSummary keys
 #    (agy before 1.4.0 put them into response) are dropped.
-# 3. Schema: type, enum, required, properties, additionalProperties:false, items — recursively.
+# 3. Schema: type, enum, required, properties, additionalProperties:false, items, and minLength /
+#    maxLength (strings, in characters) and minItems / maxItems (arrays) — recursively.
 # 4. With --decide, the mechanical decision (docs/briefs.md, "Plan critique"), added as
 #    decision: {approved, reasons}:
 #    critique  approved iff verdict approve, blocking_findings and major_findings empty and every
@@ -140,6 +141,14 @@ check='
     | [ (if $s.type and (($s.type | type) == "string") and ($v | typeok($s.type) | not)
          then "\($p): expected \($s.type), got \($v | type)" else empty end),
         (if $s.enum and (($s.enum | index([$v])) == null) then "\($p): \($v | tojson) not in enum" else empty end),
+        (if ($v | type) == "string" and ($s.minLength | type) == "number" and ($v | length) < $s.minLength
+         then "\($p): \($v | length) characters, below minLength \($s.minLength)" else empty end),
+        (if ($v | type) == "string" and ($s.maxLength | type) == "number" and ($v | length) > $s.maxLength
+         then "\($p): \($v | length) characters, above maxLength \($s.maxLength)" else empty end),
+        (if ($v | type) == "array" and ($s.minItems | type) == "number" and ($v | length) < $s.minItems
+         then "\($p): \($v | length) items, below minItems \($s.minItems)" else empty end),
+        (if ($v | type) == "array" and ($s.maxItems | type) == "number" and ($v | length) > $s.maxItems
+         then "\($p): \($v | length) items, above maxItems \($s.maxItems)" else empty end),
         (if ($v | type) == "object" then
            ( ($s.required // [])[] as $r | if ($v | has($r)) then empty else "\($p): missing required \($r)" end ),
            ( if $s.additionalProperties == false then

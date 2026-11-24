@@ -2,6 +2,11 @@
 
 ## Terms
 
+**Advisor** (`--advisor`) — an optional read-only model the builder may consult at a checkpoint
+(once by default, at most three times): the builder stops with a question, the director asks the
+advisor and passes the advice back. It approves nothing and replaces neither the critique nor the
+review; unmeasured so far, so off unless you ask for it.
+
 **Arbiter** — a model from a third family asked once, at the critique cap, to rule on the major
 findings a critic still holds: "upheld" stops the run as before, "downgraded" for every finding
 approves the plan. Never on high-stakes changes.

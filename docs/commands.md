@@ -242,6 +242,69 @@ and reviewers get their brief in `-p`. That brief is short, because it names pat
 nothing. Only the inline variant (after a denied read) carries everything; above ~100 KB it is
 split, or the role goes to another family.
 
+## Advisor
+
+With `--advisor` (SKILL.md, "Advisor") an advisor call is **the critic line of the same slot and
+transport**, with three changes: job role `advisor` (`<run_id>.advisor.r<N>.a<attempt>`, N the
+request number of `adv-<N>`), the effort `advise` (policy, default `high`, clamped as for any
+stage; an Agent-tool advisor gets none, as every Agent call — the model's default) and the advice
+schema. Nothing else is new: no other flag, sandbox or tool set.
+
+**Which slot** (`maestro-roles`, SKILL.md "Advisor"): its input takes `advisor_eligible` =
+`eligible` plus `maestro-policy roles-input`'s `exclude.advisor_kept`, and `available` = every slot
+with at least one available (slot, transport) pair — preflight's transports and the catalog,
+**before** policy denials are applied. A slot named by `--advisor` that policy denies is used only
+when it is also in `available` (a flag beats a denial, never unavailability); otherwise the run halts
+with a question. It is never added to `eligible`, so it never becomes a critic or reviewer.
+
+```bash
+# Codex — read-only, the brief embedded
+codex exec -m <slug> -s read-only --color never --json --ignore-user-config -c model_reasoning_effort=high \
+  --output-schema .maestro/advice-schema.json -o "$J/answer" "$(cat .maestro/brief-advise-r<N>.md)"
+# agy — plan mode; the brief names paths, the diff is .maestro/diff-advise-r<N>.patch
+agy --model <slug at the advise effort> --mode plan --effort high --add-dir "$REPO" --output-format json \
+  --json-schema .maestro/advice-schema.json --log-file "$J/agy.log" --print-timeout 30m \
+  -p "$(cat .maestro/brief-advise-r<N>.md)"
+# claude -p — read tools only, as a critic
+claude -p --model <full id> --effort high --tools "Read,Grep,Glob" --allowedTools "Read,Grep,Glob" \
+  --permission-mode dontAsk --strict-mcp-config --setting-sources "" --output-format stream-json --verbose \
+  --json-schema "$(cat .maestro/advice-schema.json)" "$(cat .maestro/brief-advise-r<N>.md)"
+# api — as a critic
+"$MAESTRO/bin/maestro-sdk" --model <full id> --effort high --tools "Read,Grep,Glob" \
+  --allowed-tools "Read,Grep,Glob" --permission-mode dontAsk --json-schema .maestro/advice-schema.json \
+  --max-budget-usd "$B" --prompt-file .maestro/brief-advise-r<N>.md
+```
+
+- **Interactive native** (an Agent-tool advisor): the `Agent` tool with the explicit `model` and the
+  default `subagent_type`. The brief ends with `maestro-brief close --role advisor --transport
+  native`, then the schema quoted and *"Your final message must be the JSON object only."* (written by
+  you: `--schema` is for `claude -p` and `api`). The completion's text is saved to
+  `.maestro/tmp/answer-adv-<run_id>-<n>-a<k>.json` — run, request and attempt in the name, so a file
+  left by an earlier run or attempt is never taken for this one (`tmp/` is outside the fingerprint)
+  — and validated with `--envelope raw`. Once accepted, its agent id, path and sha256 go into the
+  checkpoint (`add-session claude`, `docs/checkpoint.md` "Advisor checkpoints") before the advice
+  file is written; a resume reuses the file only when all three match. It is not a job; the ledger
+  row is `--cli claude-agent`.
+- **Order** (`docs/checkpoint.md`, "Advisor checkpoints"): the brief, the plan copy
+  `.maestro/plan-advise-r<N>.md` (without `## Critique record`) and the restricted
+  `.maestro/diff-advise-r<N>.patch` (the plan's implementation files only, read by you before every advisor
+  call, the initial build included; `docs/briefs.md`, "Advisor brief") written in `.maestro/` —
+  protected inputs, never in `tmp/` — then
+  `maestro-fp snapshot > "$(git rev-parse --git-dir)/maestro/fp-adv-<n>.json"` (the git dir, which no
+  fingerprint covers — `mkdir -p` it first), then `pending` = `adv-<n>:requested`, then the launch.
+  After it: effective identity (`maestro-identity codex --role advisor` on Codex; the `init` check
+  on `claude -p` and `api`), `maestro-fp compare` against that snapshot, then
+  `maestro-validate .maestro/advice-schema.json <answer> --envelope codex|agy|claude|raw`.
+  `changed` → the advice is discarded, dirty-exit, the transport ineligible for read-only roles this
+  run, the checkpoint skipped.
+- **Ledger**: `maestro-ledger --stage advise …`, one row per call (`docs/ledger.md`).
+- **Resuming the builder** afterwards uses the builder's own continuation line above — `codex exec
+  resume <thread>`, agy `--conversation <id>` after a clean turn, `claude -p --resume <id>` and
+  `maestro-sdk --resume <id>` with every flag of the role repeated, the Agent tool `SendMessage` —
+  with the advice file's text as the prompt, and the effective identity checked again. Its job id
+  (`<run_id>.<build|fix>.r<round>.a<next attempt>`) is decided first and written into `pending` as
+  `adv-<n>:resuming:<job id>` before the launch (`docs/checkpoint.md`, "Advisor checkpoints").
+
 ## Reading results
 
 Never load a whole event stream into context — a long build log is tens of thousands of tokens:
@@ -366,7 +429,7 @@ Expected values per role (`--root` = the checkout, or the worktree of a parallel
 
 | Role | Sandbox | Approval | Reviewer | Network | Write roots |
 | --- | --- | --- | --- | --- | --- |
-| critic, gate, reviewer, probe | `read-only` | `never` | `user` | restricted | none |
+| critic, gate, reviewer, probe, arbiter, advisor | `read-only` | `never` | `user` | restricted | none |
 | builder, drafter, fix — rung 1 | `workspace-write` | `never` | `user` | restricted | `ROOT` only |
 | rung 3 | `workspace-write` | `on-request` | `auto_review` | restricted | `ROOT` only |
 | rung 4 | `danger-full-access` | `never` | `user` | not checked (`permission_profile.type: disabled`) | not checked |

@@ -48,6 +48,8 @@ roles. An assignment that became illegal → ask (unattended: row 2).
 | --- | --- | --- |
 | Invoke the skill | `/maestro` | `/maestro --unattended …` in the prompt |
 | Claude worker | `Agent` tool with an explicit `model`, default `subagent_type` (`fork` ignores `model`); `claude -p` for a pinned native id | `claude -p` |
+| Advisor (`--advisor`, SKILL.md "Advisor") | launched like a critic of its slot: a native Claude advisor on the `Agent` tool (schema quoted, answer validated `--envelope raw`), every other transport a job | the critic's `claude -p` line, or its job on another transport |
+| Builder resumed after an advisor checkpoint | `SendMessage` for an Agent-tool builder; the transport's continuation line for every other | the continuation line |
 | Long command | a job (below): `maestro-run`, foreground, returns at once | the same |
 | Waiting for it | one Bash call with `run_in_background: true`: `maestro-wait <job> --until-done`; its completion notification wakes you | `maestro-wait <job> --max 540` in a foreground loop, each call with `timeout: 600000` (the default 100 fits the 120 s default cap) |
 | Foreground cap | 600 s, cut silently | the Bash tool's: 120 s by default, 600 s at most |
@@ -280,6 +282,11 @@ authority question, a decline or a bad verdict) and the slot has another eligibl
 
 The family does not change, so critics, reviewer and gate stand. A forced `@transport` never
 switches.
+
+**Not for an advisor call** (`--advisor`, SKILL.md "Advisor"). Its quota or network failure, on a
+forced `@transport` too, switches nothing and stops nothing: the checkpoint is skipped and the
+builder resumed with *"no advice available; decide and record your assumption"*
+(`docs/unattended.md`, A16a and "Advisor"). A safety stop on it is a safety stop.
 
 **`api` is the last transport** of every Claude slot. It is a switch target only with `--sdk` or
 policy `api.fallback = true`. Announced as `transport: opus native→api (quota; API credit, budget

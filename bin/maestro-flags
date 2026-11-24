@@ -12,7 +12,8 @@
 #           critics: [{slot, transport}], reviewer: {slot, transport}|null, rounds: N|null,
 #           tests: {scope, browser}|null, skip_tests, setup, plan_only,
 #           cascade: drafter|"default" (bare --cascade: policy cascade_drafter, else luna)|null,
-#           resume, unattended, sdk}
+#           resume, unattended, sdk,
+#           advisor: {slot, transport}|"auto" (bare --advisor)|null, advisor_checkpoints: 1-3|null}
 #   With --resume the task text is the answer to the recorded decision.
 # Slots, families and transports come from bin/slots.json (plus `self`, model only).
 set -euo pipefail
@@ -26,7 +27,7 @@ wj="$(if [[ ${#words[@]} -gt 0 ]]; then printf '%s\n' "${words[@]}" | jq -R . | 
 jq -cn --slurpfile slots "$MAESTRO_BIN/slots.json" --argjson w "$wj" '
   ($slots[0] | del(._comment)) as $S
   | ["model","review","critic","reviewer","rounds","tests","skip-tests","setup","plan-only","cascade",
-     "resume","unattended","sdk"] as $known
+     "resume","unattended","sdk","advisor","advisor-checkpoints"] as $known
   | def lev($a; $b):   # edit distance, for "did you mean"
       ($a | explode) as $x | ($b | explode) as $y
       | reduce range(0; $x | length) as $i ([range(0; ($y | length) + 1)];
@@ -46,7 +47,8 @@ jq -cn --slurpfile slots "$MAESTRO_BIN/slots.json" --argjson w "$wj" '
         else {v: {slot: $c.s, transport: $c.t}} end;
   reduce $w[] as $tok ({ended: false, flags: {model: null, review: null, critics: [], reviewer: null, rounds: null, tests: null,
                                 skip_tests: false, setup: false, plan_only: false, cascade: null,
-                                resume: false, unattended: false, sdk: false},
+                                resume: false, unattended: false, sdk: false,
+                                advisor: null, advisor_checkpoints: null},
                         task: [], errors: [], seen: []};
     if .ended or ($tok | startswith("--") | not) then .task += [$tok]
     elif $tok == "--" then .ended = true
@@ -68,6 +70,13 @@ jq -cn --slurpfile slots "$MAESTRO_BIN/slots.json" --argjson w "$wj" '
           elif $f.n == "reviewer" then
             (if ($f.v // "") == "" then .errors += ["--reviewer needs =<slot>[@<transport>]"]
              else slot_t($f.v; "--reviewer"; false) as $r | if $r.err then .errors += [$r.err] else .flags.reviewer = $r.v end end)
+          elif $f.n == "advisor" then
+            (if $f.v == null then .flags.advisor = "auto"
+             elif $f.v == "" then .errors += ["--advisor needs =<slot>[@<transport>], or no value (auto)"]
+             else slot_t($f.v; "--advisor"; false) as $r | if $r.err then .errors += [$r.err] else .flags.advisor = $r.v end end)
+          elif $f.n == "advisor-checkpoints" then
+            (if ($f.v // "" | test("^[1-3]$")) then .flags.advisor_checkpoints = ($f.v | tonumber)
+             else .errors += ["--advisor-checkpoints is 1 to 3, not \($f.v // "nothing")"] end)
           elif $f.n == "rounds" then
             (if ($f.v // "" | test("^[1-8]$")) then .flags.rounds = ($f.v | tonumber) else .errors += ["--rounds is 1 to 8, not \($f.v // "nothing")"] end)
           elif $f.n == "tests" then
@@ -103,8 +112,13 @@ jq -cn --slurpfile slots "$MAESTRO_BIN/slots.json" --argjson w "$wj" '
        (if $F.cascade and $F.cascade == ($F.model.slot // "") then "--cascade: the drafter is the implementer" else empty end),
        (if $F.cascade and $F.skip_tests then "--cascade with --skip-tests" else empty end),
        (if $F.setup and $F.unattended then "--setup with --unattended" else empty end),
-       (if $F.sdk and ([$F.model, $F.reviewer, $F.critics[]] | map(select(. != null and .transport == "native")) | length) > 0
+       (if $F.sdk and ([$F.model, $F.reviewer, $F.critics[], $F.advisor]
+                        | map(select(type == "object" and .transport == "native")) | length) > 0
           then "--sdk with a forced @native" else empty end),
+       (if $F.advisor_checkpoints != null and $F.advisor == null then "--advisor-checkpoints without --advisor" else empty end),
+       (if $F.advisor != null and $F.plan_only then "--advisor with --plan-only" else empty end),
+       (if $F.advisor != null and $F.cascade then "--advisor with --cascade" else empty end),
+       (if $F.advisor != null and ($F.model.slot // "") == "self" then "--advisor with --model=self (the director builds)" else empty end),
        (if $F.resume and ([.seen[] | select(IN("resume","unattended") | not)] | length) > 0
           then "--resume with \([.seen[] | select(IN("resume","unattended") | not) | "--" + .] | join(", ")) (to change the configuration, start again)"
           else empty end) ] | map("illegal combination: " + .)) as $ill

@@ -87,8 +87,9 @@ annotated example: [policy.md](../policy.md), [examples/maestro.policy.toml](../
   at all — climbed one rung at a time, only with a failed check to point at, each rung named in
   the assignment line; the top rung is per run and per project, announced before launch, and
   never written into a global config.
-- **Read-only roles leave no trace.** Before and after every critic, gate or reviewer call the
-  director fingerprints the checkout; a changed file means the verdict is discarded.
+- **Read-only roles leave no trace.** Before and after every critic, gate, reviewer, arbiter or
+  advisor call the director fingerprints the checkout; a changed file means the verdict (or the
+  advice) is discarded.
 - **One run per repository.** A lock in `.maestro/` keeps a second director out; a `--resume` can
   take over only a dead one.
 - **A clean tree.** A run starts only on a clean git tree, so a worker's leftovers can always be

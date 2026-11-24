@@ -107,7 +107,7 @@ names its entry here.
 | --- | --- | --- | --- |
 | A1 | SKILL.md "Flags" and its illegal combinations; "Stage 0" step 1 | unknown flag or value, illegal combination | validation stop ("Where a stop is recorded") |
 | A2 | SKILL.md "Flags", plain words | plain-word mapping ambiguous or rule-breaking | validation stop |
-| A3 | SKILL.md "Flags", `--critic` and `--reviewer` | named critic or reviewer from the builder's family; two named critics from one family on high stakes | stop, row 2 (configuration authority) |
+| A3 | SKILL.md "Flags", `--critic`, `--reviewer` and `--advisor`; SKILL.md "Advisor" | named critic or reviewer from the builder's family; two named critics from one family on high stakes; a named advisor that is not available | stop, row 2 (configuration authority). A named advisor of the builder's family is legal (noted), not a stop |
 | A4 | SKILL.md "Setup"; docs/setup.md "Questions" | setup questionnaire | unreachable: `--setup` + `--unattended` is illegal (A1; SKILL.md, docs/setup.md) |
 | A5 | SKILL.md "Setup", "Stage 0" step 5; docs/policy.md; docs/setup.md | failed model probe | stop, row 2 (no silent substitution); the setup re-ask is unreachable (A4) |
 | A6 | SKILL.md "The cross-family rule"; docs/cascade.md "Drafters" | cascade family rule cannot be met | stop, row 2 |
@@ -115,12 +115,12 @@ names its entry here.
 | A8 | docs/policy.md "What halts"; SKILL.md "Stage 0" step 4 | illegal policy; denied effective implementer; a flag requires an unavailable family | stop, row 2 |
 | A9 | docs/workers.md; SKILL.md "Stage 0" step 4 | `--model` naming an unavailable family | stop, row 2 |
 | A10 | SKILL.md "The loop" step 1; "Briefs", "Test scope"; "Building a `--plan-only` plan" | interview questions; test scope; a planned plan's open decisions | classification first (row 1 → assumption, otherwise stop) |
-| A11 | SKILL.md "Briefs" and; docs/workers.md; docs/checkpoint.md | worker assumptions and worker questions | brief clause, assumption audit, classification |
+| A11 | SKILL.md "Briefs" and "Advisor"; docs/workers.md; docs/checkpoint.md | worker assumptions and worker questions, a builder's `ADVICE_REQUEST` included; the advisor's own items | brief clause, assumption audit, classification ("Advisor" below): an authority question is never sent to the advisor, and an advisor item that asks for or presumes the user's decision is removed and stops the run |
 | A12 | SKILL.md "Flags", high-stakes guard | recommend `--review` | unchanged: a recommendation in the assignment line and the report; nothing added |
 | A13 | SKILL.md "The loop" step 4, caps; docs/briefs.md "Arbiter at the cap" | critique cap, critic `reject` | `reject`, a blocking finding, or high stakes → stop, row 3. Only majors left on a change that is not high stakes → the arbiter runs here too (the user's decision; one call, no stop while it runs): every finding downgraded → the plan is approved and the run continues, the report saying "approved by arbiter <slot> over <critic>'s majors"; any upheld, an invalid answer, a failed call or no eligible third family (`maestro-roles --arbiter`) → stop, row 3 |
 | A14 | SKILL.md "The loop" step 7, caps | fix-loop cap | stop, row 4 |
 | A15 | SKILL.md "Flags", `--plan-only`; "The loop" step 4 | `--plan-only` hand-over | not a stop: the plan-only report is the normal result, with the assumption list |
-| A16a | SKILL.md "Time and the watchdog" (safety stops, dirty-exit); "Launching workers" (transport switch); docs/hosts.md "Transport switch"; docs/catalog.md "Precedence" | safety stop; quota or limit exhaustion | safety stop → row 5, exactly as today. Quota or unavailability of a Claude slot's transport → the transport-switch transaction, automatically (the user configured the order; no stop), onto the **next eligible transport serving the same model id** — denied and unavailable transports are skipped, never switched onto (`maestro-roles --transports`). Row 5 only when no such transport remains (a later one serves another version, or none is left) or a forced `@transport` failed |
+| A16a | SKILL.md "Time and the watchdog" (safety stops, dirty-exit); "Launching workers" (transport switch); docs/hosts.md "Transport switch"; docs/catalog.md "Precedence" | safety stop; quota or limit exhaustion | safety stop → row 5, exactly as today. Quota or unavailability of a Claude slot's transport → the transport-switch transaction, automatically (the user configured the order; no stop), onto the **next eligible transport serving the same model id** — denied and unavailable transports are skipped, never switched onto (`maestro-roles --transports`). Row 5 only when no such transport remains (a later one serves another version, or none is left) or a forced `@transport` failed. **Exception, an advisor call** (`--advisor`, "Advisor" below): its quota, limit or network failure — forced `@transport` or not — is no switch and no row 5: the checkpoint is skipped and the builder resumed; a safety stop on it stays row 5 |
 | A16b | SKILL.md "Time and the watchdog", dirty-exit | dirty-exit after a crash, kill or tree mismatch | not a stop by itself. Recovery keeps the outcome that triggered it: an audit stop stays row 2; a crash continues or swaps as today (A17, A18); a tree mismatch is inspected and its keep/reset decision recorded as today. A mismatch the director cannot attribute to a known worker is row 2, because someone else changed the tree |
 | A17 | SKILL.md "Time and the watchdog", swap | swap: limits, the user's call, a crashed host; no eligible critic after a swap | limits with no transport left → row 5 stop (with one left it is A16a's switch, not a swap); the user's call is unreachable (no user); a crashed host → swap as today; no eligible critic → stop, row 2 |
 | A18 | SKILL.md "Time and the watchdog" | out-of-scope decline → one rewritten brief, then reroute; transient API failure | unchanged (the director's existing authority); transient API failure → continue, unchanged |
@@ -316,6 +316,32 @@ The existing ordering is preserved.
     of the resolved configuration, and its fix loop stops at `fix_cap` rounds, attended or not.
   - An option whose action is another builder or fix turn after the fix cap without a `fix_cap`
     increase is never offered; one that reaches validation anyway fails it (above).
+
+## Advisor
+
+`--advisor` is allowed under `--unattended` (SKILL.md, "Advisor"). Nothing in it asks the user, and
+nothing in it moves a row of the matrix:
+
+- **The request is classified first** (A11, item 4 of "Classification first"). A request that asks
+  for the user's decision — scope, data kept or deleted, permissions, money, a high-stakes decision,
+  anything the plan leaves to authority — is row 2: a stop, never an advisor call. Only an
+  implementation-approach question inside the plan's authority goes on.
+- **The advisor's own output is classified the same way.** Any item in `advice`, `risks` or
+  `questions_back` that asks for or presumes such a decision is removed from what is forwarded and
+  stops the run under row 2. Items that would change scope, boundaries or the plan are removed and
+  listed in the report. `agrees_with_plan: false` or non-empty `risks` are recorded and forwarded,
+  never a stop by themselves.
+- **An ordinary failure skips the checkpoint**: a timeout, an answer still invalid after one re-ask,
+  an empty answer, quota or a network error on the advisor's transport. `skipped` rises, the reason
+  goes in `next_action` and the report, and the builder is resumed with *"no advice available;
+  decide and record your assumption"* — only for a request already classified as inside the plan's
+  authority. No new stop row, no replacement advisor, no transport switch and no row 5 for the
+  advisor's quota — on a forced `@transport` too (A16a).
+- **A safety stop** on the advisor call (`misalignment_policy_violation`, an explicit safety block)
+  is row 5 exactly as today (A16a): stop dispatch, keep checkpoint and outputs, inspect the tree,
+  report. It is not a skip.
+- **A changed fingerprint** follows the read-only rule — the advice discarded, dirty-exit, the
+  transport ineligible for read-only roles this run — and then the checkpoint is skipped as above.
 
 ## Ending a run on `needs-decision`
 

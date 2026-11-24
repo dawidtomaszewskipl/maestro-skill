@@ -28,6 +28,8 @@ than the handoff.
   builder as well.
 - **Drafter** and **gate** — only with `--cascade`: a cheap model drafts, a gate (a mechanical
   check plus a critic from another family) accepts or escalates.
+- **Advisor** — only with `--advisor`: a read-only model the builder may ask for short guidance at
+  a checkpoint. Chosen from another family unless you name one; never a gate, never a critic.
 
 ## Who checks whom: the cross-family rule
 

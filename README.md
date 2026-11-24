@@ -93,6 +93,7 @@ version and account are the same. Details: [setup and running](docs/guide/setup-
 | `/maestro --review=cross <task>` | add a review of the finished code by a model from a family other than the builder's, by default the plan critic (`full` adds the director's own read; `self` is the director's read only, no reviewer) |
 | `/maestro --unattended <task>` | nobody is there to answer: small gaps become recorded assumptions, real decisions stop the run cleanly |
 | `/maestro --sdk <task>` | run the Claude workers on the Max plan's API credit instead of the subscription (see [API credit](#api-credit)) |
+| `/maestro --advisor <task>` | optional, off by default: the builder may stop once (`--advisor-checkpoints=2` or `3` for more) to ask a read-only model of another family for short guidance, which the director passes back; `--advisor=astra` names it. Advice is never a gate and is not measured yet |
 | `/maestro --resume` | continue an interrupted run |
 
 Plain words work too: "critique with argon", "opus through agy", "no browser tests". Every flag is

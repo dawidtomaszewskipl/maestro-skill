@@ -34,7 +34,11 @@ one JSON line — `effective` (every key, defaults included), `sources` (`flags`
 `maestro-policy roles-input` prints the part `maestro-roles` takes (`policy_critic`,
 `policy_reviewer`, the named critics and reviewer, the slots to drop from `eligible`, the denied
 transports per slot, and `explicit_only` — the explicit-only slots still in the roster, which stay in
-`eligible` because `maestro-roles` keeps them out of every automatic choice itself).
+`eligible` because `maestro-roles` keeps them out of every automatic choice itself) and, for the
+advisor, `advisor_on` (true only when `--advisor` was given), `named_advisor`, `policy_advisor` and
+`exclude.advisor_kept` (a named advisor that policy blocks: it goes into `advisor_eligible`, never
+into `eligible`, and `maestro-roles` accepts it only when it is also in `available` — the slots with
+an available transport, policy ignored).
 
 ## Keys
 
@@ -48,7 +52,9 @@ All optional. Slot names are the `--model` values (strings); effort values are t
 | `reviewer = slot` | Preferred cross-family reviewer for `--review=full` and `--review=cross`. A `carbon` or `neon` named here is the reviewer only — it does not count as an eligible family for the critic choice. |
 | `cascade_drafter = slot` | Default drafter for `--cascade` (default `luna`). |
 | `critique_rounds = n` | Plan-critique cap, 1–8 (default 2). `--rounds` beats it. |
-| `[effort]` `critique`, `high_stakes_critique`, `build`, `review`, `draft` | Per-stage effort (defaults `medium`, `high`, `medium`, `high`, `medium`), one vocabulary `low\|medium\|high\|xhigh\|max`. Each stage takes one value, or a table of per-family values (`review = { openai = "xhigh", google = "high" }`) when the families need different levels. A value above a model's range is clamped to the highest effort its slugs list (agy: Hydrogen and Neon `xhigh`, Argon, Carbon, Flash and Claude-on-agy `high`) and marked `(clamped)`. maestro passes no effort on native Agent calls (the tool's own `effort` parameter is not used, `docs/workers.md`); `claude -p`, `maestro-sdk` and agy slugs take it. |
+| `advisor = slot` | The advisor slot when `--advisor` is given bare (SKILL.md, "Advisor"). It **names the advisor, never enables it**, exactly like `reviewer` names a reviewer without `--review`: without `--advisor` nothing is asked. `--advisor=<slot>` beats it. It may name a slot of the builder's family (noted in the Assign line) or an explicit-only `carbon`/`neon`; one that is denied, switched off or unavailable is dropped with a warning and the advisor is chosen automatically. `self` is not allowed. |
+| `advisor_checkpoints = n` | How many times the builder may ask the advisor, 1–3 (default 1). `--advisor-checkpoints` beats it. |
+| `[effort]` `critique`, `high_stakes_critique`, `build`, `review`, `draft`, `advise` | Per-stage effort (defaults `medium`, `high`, `medium`, `high`, `medium`, `high`), one vocabulary `low\|medium\|high\|xhigh\|max`. Each stage takes one value, or a table of per-family values (`review = { openai = "xhigh", google = "high" }`) when the families need different levels. A value above a model's range is clamped to the highest effort its slugs list (agy: Hydrogen and Neon `xhigh`, Argon, Carbon, Flash and Claude-on-agy `high`) and marked `(clamped)`. maestro passes no effort on native Agent calls (the tool's own `effort` parameter is not used, `docs/workers.md`); `claude -p`, `maestro-sdk` and agy slugs take it. |
 | `[families]` `claude\|openai\|google = "on"\|"off"` | Switch a family off even if its CLIs are installed and signed in, or `"on"` to lift a lower-level `"off"` (`true`/`false` are read the same). Claude can be switched off for workers too; the director itself is always Claude Code, and `self` stays available. |
 | `[transports]` `deny = ["<slot>@<transport>", …]` | Transports the director never picks on its own, e.g. `opus@agy`, `sonnet@api`. A denied transport is skipped in the slot's order and never switched onto; an explicit `@transport` naming it still wins, with a warning. |
 | `[pin]` `<slot> = "<version>" \| { <transport> = "<slug>" }` | Fix a line instead of following the newest model (`docs/catalog.md`, "Pins"): `sol = "6.1"` (every transport must serve 6.1), `sol = { codex = "gpt-6.1-sol" }` (that slug, other transports off), `opus = { native = "claude-opus-5" }`. The version is a quoted string (unquoted, 6.10 would be the number 6.1). A pin missing from the catalog halts. |
@@ -79,7 +85,10 @@ slot or a policy-disabled family *for the implementer*, with a warning in the as
 never overrides real unavailability (the CLI is missing or signed out) and never the cross-family
 rule. An ineligible `critic` or `reviewer` preference — its family switched off or unavailable, or
 the cross-family rule against it — is dropped with a sentence saying why, and an eligible
-alternative is chosen. A slot whose model probe fails is different: the run halts with a question
+alternative is chosen; so is an ineligible `advisor` (the cross-family rule does not apply to it).
+An explicit `--advisor=<slot>` beats a denial or a switched-off family **for the advisor role
+only**, with a warning: that slot never becomes an automatic critic or reviewer. Like every flag it
+never beats unavailability: a named advisor with no available transport halts with a question. A slot whose model probe fails is different: the run halts with a question
 (SKILL.md, stage 0 step 5).
 
 ## What halts
@@ -95,7 +104,8 @@ director checks it then):
   (`haiku@agy`, `fable@agy`, `argon@codex`, `neon@codex`) — the slots and their transports are `bin/slots.json`;
 - a `pin` whose version or slug is not in that transport's catalog;
 - a `cascade_drafter` other than `luna`, `haiku` or `gemini`;
-- a `critique_rounds` outside 1–8;
+- a `critique_rounds` outside 1–8, an `advisor_checkpoints` outside 1–3, an `advisor` that is not a
+  slot (or is `self`);
 - a file that is not valid TOML (the parser's message is quoted), or a value of the wrong type;
 - a `maestro.policy.yml` or `~/.config/maestro/policy.yml` left from before the format changed:
   "convert to TOML", with both paths — it is not read;

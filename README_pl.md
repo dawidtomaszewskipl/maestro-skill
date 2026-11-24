@@ -93,6 +93,7 @@ dni, o ile wersja CLI i konto się nie zmieniły. Szczegóły: [setup and runnin
 | `/maestro --review=cross <zadanie>` | dodatkowa recenzja gotowego kodu przez model z innej rodziny niż wykonawca, domyślnie przez krytyka planu (`full` dołącza własne czytanie dyrygenta; `self` to tylko czytanie dyrygenta, bez recenzenta) |
 | `/maestro --unattended <zadanie>` | nikogo nie ma przy klawiaturze: drobne luki stają się zapisanymi założeniami, prawdziwe decyzje czysto zatrzymują przebieg |
 | `/maestro --sdk <zadanie>` | Claude-workerzy pracują na kredycie API planu Max zamiast na subskrypcji (patrz [Kredyt API](#kredyt-api)) |
+| `/maestro --advisor <zadanie>` | opcjonalne, domyślnie wyłączone: wykonawca może raz się zatrzymać (`--advisor-checkpoints=2` albo `3`, jeśli więcej) i zapytać model z innej rodziny, tylko do odczytu, o krótką radę, którą dyrygent mu przekazuje; `--advisor=astra` wskazuje go z nazwy. Rada nigdy nie jest bramką i nie jest jeszcze zmierzona |
 | `/maestro --resume` | dokończenie przerwanego przebiegu |
 
 Zwykłe słowa też działają: „krytykuj argonem”, „opus przez agy”, „bez testów przeglądarkowych”.

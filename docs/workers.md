@@ -710,6 +710,10 @@ Anthropic's Terminal-Bench 4.0 figures sit above Artificial Analysis's run; earl
 cut both ways. None of it is measured on maestro's own tasks. `sol` and `astra` resolve to 6.2 because the resolver follows the catalog, not because the
 rubric changed; `carbon` and `neon` are explicit-only slots, the first candidates to measure.
 
+**The advisor (2.3.0) is optional and unmeasured.** No rubric row, order or rule names it, and none
+moved for it; the ledger's `advise` rows will show whether runs with an advisor need fewer fix
+rounds, and until then `--advisor` stays off by default.
+
 ## Not used, with the reason
 
 | Option | Why maestro leaves it out |
@@ -729,6 +733,10 @@ and `--json-schema` (OpenAPI-3.0-style, rejects `["integer","null"]`) accept —
 with the same file (critique and gate; review uses the same constructs). The rule that makes this possible: **no nullable fields**. `line: 0` and
 `escalate_reason: ""` mean "none"; optional lists are empty arrays. All three carry an
 `assumptions[]` field, which is where the follow-through block sends assumptions on schema calls.
+`advice-schema.json` (2.3.0, `--advisor`) adds a `boolean` and the length and cardinality keywords
+`minLength`, `maxLength` and `maxItems`, which `maestro-validate` checks itself; whether `codex exec
+--output-schema`, `claude -p --json-schema` and agy `--json-schema` accept them as written is **not
+verified on a CLI yet** — the first advisor call of each transport is that check.
 
 ## Briefs
 

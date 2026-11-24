@@ -41,4 +41,4 @@ guide, then the technical pages when you need the exact rule.
 | [../bin/slots.json](../bin/slots.json) | The one table of slots: family, transport order, pin pattern, provisional, explicit-only | you want the roster as data |
 | [manual-checks_pl.md](manual-checks_pl.md) | Checks that need a human (Polish) | you want to verify maestro by hand |
 | [examples/maestro.policy.toml](examples/maestro.policy.toml) | An annotated policy file | you want a template |
-| `schemas/` | The JSON schemas critics, the arbiter, gates and reviewers must answer with | you are debugging a verdict |
+| `schemas/` | The JSON schemas critics, the arbiter, gates, reviewers and the advisor (`advice-schema.json`, `--advisor`) must answer with | you are debugging a verdict or an advice answer |

@@ -512,6 +512,34 @@ if group T5 "verdict validation"; then
   jqt "decide: the wrong schema for the decision → invalid, not a jq error" "$(da '{"verdicts":[],"assumptions":[]}' --decide critique --ids "")" '.valid == false and .stage == "decide"'
   if "$B/maestro-validate" "$S" "$V/valid.txt" --decide gate >/dev/null 2>&1; then bad "decide: unknown kind refused"; else ok "decide: unknown kind refused"; fi
   if "$B/maestro-validate" "$S" "$V/valid.txt" --ids r1-m1 >/dev/null 2>&1; then bad "--ids without --decide refused"; else ok "--ids without --decide refused"; fi
+  # the advice schema (--advisor) and the length and cardinality keywords
+  ADV="$ROOT/docs/schemas/advice-schema.json"
+  adv() { jq -cn '{advice: "use one CTE", agrees_with_plan: true, risks: [{text: "t", applies_to: "PLAN 2"}], questions_back: [], assumptions: []} | '"${1:-.}" > "$WORK/advice.json"
+          "$B/maestro-validate" "$ADV" "$WORK/advice.json" --envelope raw; }
+  RISK='{text: "r", applies_to: "s"}'
+  jqt "advice schema: every object closed, every property required" \
+    "$(jq '[ .. | objects | select(.type == "object") | (.additionalProperties == false and ((.properties | keys) == (.required | sort))) ] | all' "$ADV")" '. == true'
+  jqt "advice schema: a valid answer" "$(adv)" '.valid and .errors == []'
+  jqt "advice schema: five risks and three questions back are still valid" "$(adv ".risks = [$RISK,$RISK,$RISK,$RISK,$RISK] | .questions_back = [\"a\",\"b\",\"c\"] | .agrees_with_plan = false")" '.valid'
+  jqt "advice schema: empty advice → invalid (minLength)" "$(adv '.advice = ""')" '.valid == false and .stage == "schema" and .errors == ["$.advice: 0 characters, below minLength 1"]'
+  jqt "advice schema: advice over 3000 characters → invalid (maxLength)" "$(adv '.advice = ([range(3001)] | map("x") | add)')" '.valid == false and .errors == ["$.advice: 3001 characters, above maxLength 3000"]'
+  jqt "advice schema: exactly 3000 characters → valid" "$(adv '.advice = ([range(3000)] | map("é") | add)')" '.valid'
+  jqt "advice schema: six risks → invalid (maxItems)" "$(adv ".risks = [$RISK,$RISK,$RISK,$RISK,$RISK,$RISK]")" '.valid == false and .errors == ["$.risks: 6 items, above maxItems 5"]'
+  jqt "advice schema: four questions back → invalid (maxItems)" "$(adv '.questions_back = ["a","b","c","d"]')" '.valid == false and .errors == ["$.questions_back: 4 items, above maxItems 3"]'
+  jqt "advice schema: assumptions missing → invalid" "$(adv 'del(.assumptions)')" '.valid == false and .errors == ["$: missing required assumptions"]'
+  jqt "advice schema: an unknown key → invalid" "$(adv '.verdict = "approve"')" '.valid == false and .errors == ["$: unexpected key verdict"]'
+  jqt "advice schema: agrees_with_plan must be a boolean" "$(adv '.agrees_with_plan = "yes"')" '.valid == false and (.errors[0] | test("agrees_with_plan: expected boolean"))'
+  jqt "advice schema: a risk without applies_to → invalid" "$(adv '.risks = [{text: "r"}]')" '.valid == false and .errors == ["$.risks[0]: missing required applies_to"]'
+  adv >/dev/null; jq -c '{status: "SUCCESS", response: "", structured_output: .}' "$WORK/advice.json" > "$WORK/advice-agy.json"
+  jqt "advice schema: through an agy envelope (structured_output)" "$("$B/maestro-validate" "$ADV" "$WORK/advice-agy.json" --envelope agy)" '.valid and .verdict.advice == "use one CTE"'
+  printf '{"type":"array","minItems":1,"items":{"type":"string","minLength":2}}' > "$WORK/min-schema.json"
+  printf '{"x":[]}' > "$WORK/min0.json"; printf '{"x":["a","bb"]}' > "$WORK/min1.json"
+  printf '{"type":"object","properties":{"x":%s}}' "$(cat "$WORK/min-schema.json")" > "$WORK/min-obj.json"
+  jqt "validate: minItems is honoured (generic)" "$("$B/maestro-validate" "$WORK/min-obj.json" "$WORK/min0.json")" '.valid == false and .errors == ["$.x: 0 items, below minItems 1"]'
+  jqt "validate: minLength on array items (generic)" "$("$B/maestro-validate" "$WORK/min-obj.json" "$WORK/min1.json")" '.valid == false and .errors == ["$.x[0]: 1 characters, below minLength 2"]'
+  jqt "no other schema uses the length or cardinality keywords (their checks are unchanged)" \
+    "$(jq -s '[ .[] | .. | objects | select(has("minLength") or has("maxLength") or has("minItems") or has("maxItems")) ] | length' \
+        "$ROOT/docs/schemas/critique-schema.json" "$ROOT/docs/schemas/gate-schema.json" "$ROOT/docs/schemas/review-schema.json" "$ROOT/docs/schemas/arbiter-schema.json")" '. == 0'
 fi
 
 # =============================================================================================
@@ -528,6 +556,24 @@ if group T6 "read-only fingerprint (checkout)"; then
   jqt "new untracked file → changed" "$("$B/maestro-fp" compare "$WORK/fp1.json")" '.diffs | index("untracked files") != null'
   rm -f new.txt; "$B/maestro-fp" snapshot > "$WORK/fp2.json"; git add f.txt
   jqt "staging → changed" "$("$B/maestro-fp" compare "$WORK/fp2.json")" '.diffs | index("staged changes") != null'
+  # --advisor: the pre-call snapshot and the advice file live in the git dir, which no fingerprint covers
+  GD="$(git rev-parse --git-dir)/maestro"; mkdir -p "$GD" .maestro
+  printf '# plan\n' > .maestro/PLAN.md
+  "$B/maestro-fp" snapshot > "$GD/fp-adv-1.json"
+  printf 'ADVISORY, NOT BINDING\n' > "$GD/advice-adv-1.md"; printf 'x' > "$GD/fp-adv-2.json"
+  jqt "advisor: snapshot and advice file in the git dir are not hashed by maestro-fp" "$("$B/maestro-fp" compare "$GD/fp-adv-1.json")" '.result == "same"'
+  jqt "… while a change to PLAN.md after that snapshot is still caught" "$(printf 'edited\n' >> .maestro/PLAN.md; "$B/maestro-fp" compare "$GD/fp-adv-1.json")" \
+    '.result == "changed" and (.diffs | index("protected .maestro inputs") != null)'
+  printf '# plan copy\n' > .maestro/plan-advise-r1.md; printf 'diff\n' > .maestro/diff-advise-r1.patch
+  "$B/maestro-fp" snapshot > "$GD/fp-adv-2.json"
+  jqt "advisor: an edit of the advisor-facing plan copy (.maestro/plan-advise-r1.md) is caught" \
+    "$(printf 'x\n' >> .maestro/plan-advise-r1.md; "$B/maestro-fp" compare "$GD/fp-adv-2.json")" '.result == "changed" and (.diffs | index("protected .maestro inputs") != null)'
+  "$B/maestro-fp" snapshot > "$GD/fp-adv-2.json"
+  jqt "advisor: an edit of the restricted patch (.maestro/diff-advise-r1.patch) is caught" \
+    "$(printf 'x\n' >> .maestro/diff-advise-r1.patch; "$B/maestro-fp" compare "$GD/fp-adv-2.json")" '.result == "changed"'
+  "$B/maestro-fp" snapshot > "$GD/fp-adv-2.json"; mkdir -p .maestro/tmp
+  jqt "advisor: only the Agent advisor's raw answer in tmp/ is outside the fingerprint" \
+    "$(printf '{}' > .maestro/tmp/answer-adv-r-1-a1.json; "$B/maestro-fp" compare "$GD/fp-adv-2.json")" '.result == "same"'
   cd "$ROOT" || exit 2
 fi
 
@@ -677,6 +723,62 @@ if group T7 "role resolution"; then
     "$(tr_ '{"slot":"opus",'"$OA"',"available":{"native":true,"api":true},"forced":"api","event":"runtime-failure","failed":"api"}')" '.action == "halt" and .row == 5'
   jqt "transports: fable (native → api) quota at run time, no api → swap row 5" \
     "$(tr_ '{"slot":"fable","order":["native","api"],"available":{"native":true,"api":false},"event":"runtime-failure","failed":"native","frozen_version":"5.2"}')" '.action == "swap" and .row == 5'
+  # the advisor (SKILL.md, "Advisor"): optional, never a gate, moves no critic or reviewer
+  jqt "advisor: off without advisor_on (advisor null, no notes)" "$(roles '{"builder":"opus","eligible":'"$ALL"',"named_advisor":"astra"}')" '.advisor == null and .notes == []'
+  jqt "advisor: auto, claude build → sol (the critic order)" "$(roles '{"builder":"opus","eligible":'"$ALL"',"advisor_on":true}')" '.advisor == "sol" and .critics == ["sol"] and .reviewer == "sol" and .notes == []'
+  jqt "advisor: auto, claude build, high stakes → astra" "$(roles '{"builder":"opus","high_stakes":true,"eligible":'"$ALL"',"advisor_on":true}')" '.advisor == "astra" and .critics == ["astra","argon"]'
+  jqt "advisor: auto, openai build → opus" "$(roles '{"builder":"sol","eligible":'"$ALL"',"advisor_on":true}')" '.advisor == "opus"'
+  jqt "advisor: auto, google build, high stakes → astra" "$(roles '{"builder":"gemini","high_stakes":true,"eligible":'"$ALL"',"advisor_on":true}')" '.advisor == "astra"'
+  jqt "advisor: review on → avoids the reviewer family when it can (claude build: argon, reviewer sol)" \
+    "$(roles '{"builder":"opus","eligible":'"$ALL"',"advisor_on":true,"review_active":true}')" '.advisor == "argon" and .reviewer == "sol" and .critics == ["sol"] and (.notes | any(test("argon is provisional")))'
+  jqt "advisor: review on, high stakes → argon (reviewer astra)" "$(roles '{"builder":"opus","high_stakes":true,"eligible":'"$ALL"',"advisor_on":true,"review_active":true}')" '.advisor == "argon" and .reviewer == "astra"'
+  jqt "advisor: review on, only the reviewer's family left → that slot, both notes" \
+    "$(roles '{"builder":"opus","eligible":["opus","sol"],"advisor_on":true,"review_active":true}')" \
+    '.advisor == "sol" and .reviewer == "sol" and (.notes | index("advisor and reviewer share a family") != null) and (.notes | index("reviewer anchored: the advisor shaped the build") != null)'
+  jqt "advisor: review off → no reviewer-based avoidance and no anchoring note" \
+    "$(roles '{"builder":"opus","eligible":["opus","sol","argon"],"advisor_on":true}')" '.advisor == "sol" and .reviewer == "sol" and .notes == []'
+  jqt "advisor: one family (degraded) → no advisor, said, critique unchanged" "$(roles '{"builder":"opus","eligible":["opus","fable","sonnet"],"advisor_on":true}')" \
+    '.advisor == null and .critics == ["fable"] and .degraded == "claude" and .stop == null and (.notes | index("no advisor: only the builder'"'"'s family is eligible") != null)'
+  jqt "advisor: named, the builder's family → allowed, noted" "$(roles '{"builder":"opus","eligible":'"$ALL"',"advisor_on":true,"named_advisor":"sonnet"}')" \
+    '.advisor == "sonnet" and .critics == ["sol"] and .reviewer == "sol" and (.notes | any(test("advisor shares the builder.s family \\(named\\)")))'
+  jqt "advisor: named explicit-only neon → the advisor only: no google critic, not the reviewer" \
+    "$(roles '{"builder":"opus","high_stakes":true,"eligible":["opus","astra","sol","carbon","neon"],"advisor_on":true,"named_advisor":"neon"}')" \
+    '.advisor == "neon" and .critics == ["astra"] and .reviewer == "astra" and (.notes | any(test("no second critic"))) and (.notes | any(test("neon is provisional")))'
+  jqt "advisor: a denied but available slot named as advisor is never a critic or reviewer" \
+    "$(roles '{"builder":"opus","eligible":["opus","astra","argon"],"advisor_eligible":["opus","astra","argon","sol"],"available":["opus","astra","argon","sol"],"advisor_on":true,"named_advisor":"sol"}')" \
+    '.advisor == "sol" and .critics == ["astra"] and .reviewer == "astra" and .stop == null'
+  jqt "advisor: a denied slot named as advisor with no available transport → stop (a flag never beats unavailability)" \
+    "$(roles '{"builder":"opus","eligible":["opus","astra","argon"],"advisor_eligible":["opus","astra","argon","sol"],"available":["opus","astra","argon"],"advisor_on":true,"named_advisor":"sol"}')" \
+    '.advisor == null and (.stop.reason | test("named advisor sol is not available this run .policy denies it and no transport of it is available."))'
+  jqt "advisor: advisor_eligible without available → a slot outside eligible is not taken" \
+    "$(roles '{"builder":"opus","eligible":["opus","astra"],"advisor_eligible":["opus","astra","sol"],"advisor_on":true,"named_advisor":"sol"}')" '.advisor == null and .stop != null'
+  jqt "advisor: a policy advisor outside eligible is not taken even if available (policy never beats its own deny)" \
+    "$(roles '{"builder":"opus","eligible":["opus","astra"],"advisor_eligible":["opus","astra","sol"],"available":["opus","astra","sol"],"advisor_on":true,"policy_advisor":"sol"}')" \
+    '.advisor == "astra" and (.notes | index("policy advisor sol is not available: auto") != null)'
+  jqt "advisor: named, not available → stop, advisor null" "$(roles '{"builder":"opus","eligible":["opus","sol"],"advisor_on":true,"named_advisor":"argon"}')" \
+    '.advisor == null and (.stop.reason | test("named advisor argon is not available"))'
+  jqt "advisor: every stop carries advisor null" "$(roles '{"builder":"opus","named_critics":["sonnet"],"eligible":'"$ALL"',"advisor_on":true}')" '.stop != null and has("advisor") and .advisor == null'
+  jqt "advisor: a policy advisor, eligible → used, marked (policy)" "$(roles '{"builder":"opus","eligible":'"$ALL"',"advisor_on":true,"policy_advisor":"gemini"}')" \
+    '.advisor == "gemini" and (.notes | index("advisor=gemini (policy)") != null) and .critics == ["sol"]'
+  jqt "advisor: a policy advisor of the builder's family → allowed, noted" "$(roles '{"builder":"opus","eligible":'"$ALL"',"advisor_on":true,"policy_advisor":"fable"}')" \
+    '.advisor == "fable" and (.notes | any(test("advisor shares the builder.s family \\(policy\\)")))'
+  jqt "advisor: a policy advisor not available → auto, with a note" "$(roles '{"builder":"opus","eligible":["opus","sol"],"advisor_on":true,"policy_advisor":"argon"}')" \
+    '.advisor == "sol" and .stop == null and (.notes | index("policy advisor argon is not available: auto") != null)'
+  jqt "advisor: the named advisor beats the policy one" "$(roles '{"builder":"opus","eligible":'"$ALL"',"advisor_on":true,"policy_advisor":"gemini","named_advisor":"astra"}')" '.advisor == "astra"'
+  jqt "advisor: builder self → off, noted" "$(roles '{"builder":"self","director_family":"claude","director_line":"opus","eligible":["self","sol"],"advisor_on":true,"named_advisor":"sol"}')" \
+    '.advisor == null and .critics == ["sol"] and (.notes | index("advisor off: the director builds") != null)'
+  jqt "advisor: reviewer and critics are the same with and without it" \
+    "$(jq -nc --argjson a "$(roles '{"builder":"sol","high_stakes":true,"fable_budget":true,"eligible":'"$ALL"'}')" \
+               --argjson b "$(roles '{"builder":"sol","high_stakes":true,"fable_budget":true,"eligible":'"$ALL"',"advisor_on":true,"review_active":true}')" \
+               '[$a.critics, $a.reviewer, $a.degraded] == [$b.critics, $b.reviewer, $b.degraded]')" '. == true'
+  jqt "advisor: swap to the advisor's family → re-resolved (sol build: opus, not an openai slot)" \
+    "$(roles '{"builder":"sol","eligible":'"$ALL"',"advisor_on":true}')" '.advisor == "opus" and .critics == ["opus"]'
+  jqt "advisor: a swap that leaves no other family → advisor off, noted (the checkpoint keeps its counts: T9)" \
+    "$(roles '{"builder":"sol","eligible":["sol","astra"],"advisor_on":true}')" '.advisor == null and .stop == null and (.notes | any(test("^no advisor")))'
+  jqt "advisor: swap, a named advisor now of the builder's family stays, noted" "$(roles '{"builder":"astra","eligible":'"$ALL"',"advisor_on":true,"named_advisor":"sol"}')" \
+    '.advisor == "sol" and (.notes | any(test("shares the builder")))'
+  jqt "advisor: explicit-only carbon and neon are never chosen automatically" \
+    "$(roles '{"builder":"sol","eligible":["sol","astra","carbon","neon"],"advisor_on":true}')" '.advisor == null and .critics == ["astra"] and (.notes | any(test("^no advisor")))'
   jqt "transports: haiku with api fallback → api after native" \
     "$(tr_ '{"slot":"haiku","order":["native","api"],"available":{"native":false,"api":true}}')" '.action == "use" and .transport == "api"'
 fi
@@ -914,6 +1016,75 @@ if group T9 "audit and .maestro fingerprint"; then
   S set "next_action=10:30" >/dev/null
   eq "set: a sexagesimal-looking value is quoted" 'next_action: "10:30"' "$(grep -o '^next_action: [^ ]*' "$CP")"
   S set tree_state=clean >/dev/null
+  acp() { grep -o '^advisor_checkpoints: {[^}]*}' "$CP"; }
+  eq "advisor: the example's advisor_checkpoints is off and zero; roster.advisor is empty" \
+    'advisor_checkpoints: {status: unused, max: 0, used: 0, skipped: 0, pending: "", fp_at_resume: "", ro_off: ""}|1' "$(acp)|$(grep -c '^  advisor:     {slot: "", ' "$CP")"
+  S set advisor_checkpoints.status=active advisor_checkpoints.max=2 >/dev/null
+  S set advisor_checkpoints.used=1 advisor_checkpoints.pending=adv-1:requested >/dev/null
+  eq "advisor: requested — used rises with it" 'advisor_checkpoints: {status: active, max: 2, used: 1, skipped: 0, pending: "adv-1:requested", fp_at_resume: "", ro_off: ""}' "$(acp)"
+  S set advisor_checkpoints.pending=adv-1:advised >/dev/null
+  S set "advisor_checkpoints.pending=adv-1:resuming:r.build.r1.a2" >/dev/null
+  eq "advisor: resuming names the continuation's job id, written before the dispatch" \
+    'advisor_checkpoints: {status: active, max: 2, used: 1, skipped: 0, pending: "adv-1:resuming:r.build.r1.a2", fp_at_resume: "", ro_off: ""}' "$(acp)"
+  S set advisor_checkpoints.pending= >/dev/null
+  jqt "… requested → advised → resuming → cleared: the checkpoint verifies" "$("$B/maestro-state" verify CHECKPOINT.md)" '.result == "ok"'
+  S set advisor_checkpoints.used=2 advisor_checkpoints.skipped=1 advisor_checkpoints.pending=adv-2:advised >/dev/null
+  S set "advisor_checkpoints.pending=adv-2:resuming:agent:a3f9" >/dev/null; S set advisor_checkpoints.pending= >/dev/null
+  S set advisor_checkpoints.status=disabled >/dev/null
+  eq "advisor: a swap turns it off; max, used and skipped are kept for the report" \
+    'advisor_checkpoints: {status: disabled, max: 2, used: 2, skipped: 1, pending: "", fp_at_resume: "", ro_off: ""}' "$(acp)"
+  jqt "… and the checkpoint verifies" "$("$B/maestro-state" verify CHECKPOINT.md)" '.result == "ok"'
+  # resume with pending requested and a changed fingerprint: step 0 records only; step 5 acts
+  S set advisor_checkpoints.status=active advisor_checkpoints.max=3 advisor_checkpoints.used=3 advisor_checkpoints.pending=adv-3:requested >/dev/null
+  S set advisor_checkpoints.fp_at_resume=changed advisor_checkpoints.ro_off=codex >/dev/null           # step 0
+  eq "advisor resume, step 0: the result and the ineligible transport are recorded; no skip, pending still requested" \
+    'advisor_checkpoints: {status: active, max: 3, used: 3, skipped: 1, pending: "adv-3:requested", fp_at_resume: "changed", ro_off: "codex"}' "$(acp)"
+  S set advisor_checkpoints.skipped=2 advisor_checkpoints.pending=adv-3:advised >/dev/null           # step 5, after steps 1-4
+  S set "advisor_checkpoints.pending=adv-3:resuming:r.build.r1.a2" advisor_checkpoints.fp_at_resume= >/dev/null
+  eq "advisor resume, step 5: one skip, advised → resuming; fp_at_resume consumed, ro_off kept" \
+    'advisor_checkpoints: {status: active, max: 3, used: 3, skipped: 2, pending: "adv-3:resuming:r.build.r1.a2", fp_at_resume: "", ro_off: "codex"}' "$(acp)"
+  # a recorded `changed` is authoritative across restarts: step 0 compares only when fp_at_resume is empty
+  GD9="$(git rev-parse --git-dir)/maestro"; mkdir -p "$GD9"; cp "$ROOT/docs/schemas/advice-schema.json" .maestro/
+  S set advisor_checkpoints.used=4 advisor_checkpoints.max=4 advisor_checkpoints.pending=adv-4:requested advisor_checkpoints.fp_at_resume= >/dev/null
+  "$B/maestro-fp" snapshot > "$GD9/fp-adv-4.json"
+  printf '{"type":"object"}\n' > .maestro/advice-schema.json                       # the advisor edits the schema
+  step0() {  # the documented step 0: compare when nothing or `same` is recorded; `changed` stays
+    local cur; cur="$(sed -n 's/^advisor_checkpoints: .*fp_at_resume: "\{0,1\}\([a-z]*\)"\{0,1\},.*/\1/p' "$CP")"
+    [[ -n "$cur" && "$cur" != same ]] && return 0
+    S set "advisor_checkpoints.fp_at_resume=$("$B/maestro-fp" compare "$GD9/fp-adv-${1:-4}.json" | jq -r .result)" >/dev/null
+  }
+  fpr() { sed -n 's/^advisor_checkpoints: .*fp_at_resume: \("[a-z]*"\).*/\1/p' "$CP"; }
+  sk0="$(sed -n 's/^advisor_checkpoints: .*skipped: \([0-9]*\),.*/\1/p' "$CP")"
+  step0                                                                             # first resume
+  cp "$ROOT/docs/schemas/advice-schema.json" .maestro/                              # step 2's preflight restores it; then a restart
+  jqt "advisor resume: after preflight restored the schema a fresh compare would say same…" "$("$B/maestro-fp" compare "$GD9/fp-adv-4.json")" '.result == "same"'
+  step0                                                                             # second resume
+  eq "… but the second resume keeps the recorded changed (not recomputed, not overwritten)" '"changed"' \
+    "$(sed -n 's/^advisor_checkpoints: .*fp_at_resume: \("[a-z]*"\).*/\1/p' "$CP")"
+  S set advisor_checkpoints.skipped=$((sk0 + 1)) advisor_checkpoints.pending=adv-4:advised advisor_checkpoints.fp_at_resume= >/dev/null   # step 5, once
+  eq "… and step 5 records exactly one skip, clearing fp_at_resume with the pending change" "$((sk0 + 1))|\"\"|adv-4:advised" \
+    "$(sed -n 's/^advisor_checkpoints: .*skipped: \([0-9]*\),.*/\1/p' "$CP")|$(sed -n 's/^advisor_checkpoints: .*fp_at_resume: \("[a-z]*"\).*/\1/p' "$CP")|$(sed -n 's/^advisor_checkpoints: .*pending: "\([^"]*\)".*/\1/p' "$CP")"
+  # a recorded `same` is re-verified on every later resume: a plan edit between two resumes is caught
+  printf '# plan\n' > .maestro/PLAN.md
+  S set advisor_checkpoints.pending=adv-5:requested >/dev/null; "$B/maestro-fp" snapshot > "$GD9/fp-adv-5.json"
+  step0 5
+  eq "advisor resume: first resume, nothing touched → same" '"same"' "$(fpr)"
+  printf 'edited between two resumes\n' >> .maestro/PLAN.md
+  step0 5
+  eq "advisor resume: second resume after a PLAN.md edit → compared again: changed (the saved answer is discarded)" '"changed"' "$(fpr)"
+  printf '# plan\n' > .maestro/PLAN.md; step0 5
+  eq "… and that changed stays, even once the plan is back as it was" '"changed"' "$(fpr)"
+  S set advisor_checkpoints.fp_at_resume= >/dev/null
+  S set "advisor_checkpoints.pending=adv-3:resuming:r.build.r1.a2" >/dev/null; rm -f "$GD9/fp-adv-4.json" "$GD9/fp-adv-5.json"
+  # reconcile the continuation named in resuming:<job id>: an existing job is read, an absent one was never sent
+  "$B/maestro-run" --gen "$g5" --job r.build.r1.a2 --run r --role build -- true >/dev/null; sleep 1.5
+  jqt "advisor resume: resuming:<job id> names an existing job → reconciled as the builder's continuation" \
+    "$("$B/maestro-wait" "$(sed -n 's/^advisor_checkpoints: .*pending: "adv-3:resuming:\([^"]*\)".*/\1/p' "$CP")" --peek)" '.job_id == "r.build.r1.a2" and .state == "exited"'
+  out="$("$B/maestro-wait" r.build.r1.a3 --peek 2>&1)"; rc=$?
+  if [[ $rc -eq 2 && "$out" == *"no job r.build.r1.a3"* ]]; then ok "advisor resume: an absent continuation job → \"no job\", exit 2: never dispatched, send the saved advice"
+  else bad "advisor resume: an absent continuation job → no job, exit 2" "rc=$rc $out"; fi
+  S set advisor_checkpoints.pending= >/dev/null
+  jqt "… and the checkpoint verifies" "$("$B/maestro-state" verify CHECKPOINT.md)" '.result == "ok"'
   h="$(cpsha)"; n1="$(naud)"
   eq "a newline in a value is refused" 2 "$(rc_of S set "next_action=one"$'\n'"stage: report")"
   eq "an unknown key is refused" 2 "$(rc_of S set nope=1)"
@@ -1061,6 +1232,14 @@ if group T10 "ledger rows from job output"; then
   "$B/maestro-ledger" --gen "$g" --job k2 --stage build --cli claude-sdk --transport api --family claude --model claude-opus-5-5 >/dev/null
   jqt "cost: the run's api spend summed" "$("$B/maestro-ledger" cost --run r --transport api)" '.cost_usd == 0.825 and .rows == 3'
   jqt "cost: another run spent nothing" "$("$B/maestro-ledger" cost --run other --transport api)" '.cost_usd == 0 and .rows == 0'
+  mkdir -p .maestro/jobs/adv1
+  printf '{"type":"thread.started","thread_id":"tadv"}\n{"type":"turn.completed","usage":{"input_tokens":7,"output_tokens":2}}\n' > .maestro/jobs/adv1/out
+  jqt "advisor: a row with stage advise is appended" \
+    "$("$B/maestro-ledger" --gen "$g" --job adv1 --stage advise --cli codex --transport codex --family openai --model gpt-6.2-astra --effort high)" '.result == "written"'
+  jqt "… the report prints it as its own stage" "$("$B/maestro-ledger" report --run r --json)" \
+    '[.rows[] | select(.stage == "advise")] | length == 1 and .[0].who == "gpt-6.2-astra@high" and .[0].input == 7'
+  md="$("$B/maestro-ledger" report --run r)"
+  if [[ "$md" == *"| advise | gpt-6.2-astra@high | codex | 1 |"* ]]; then ok "… as its own line of the Markdown table"; else bad "… as its own line of the Markdown table" "$md"; fi
   cd "$ROOT" || exit 2
 fi
 
@@ -1143,6 +1322,76 @@ if group T12 "docs consistency"; then
   eq "brief: no agy opening for a Codex critic" "" "$("$B/maestro-brief" open --role critic --transport codex)"
   out="$("$B/maestro-brief" close --role builder --transport codex --schema "$ROOT/docs/schemas/gate-schema.json" 2>&1; echo "rc=$?")"
   if [[ "$out" == *"read-only role"* && "$out" == *rc=2* ]]; then ok "brief: --schema refused for a writer"; else bad "brief: --schema refused for a writer" "$out"; fi
+  # the advisor block (--advisor): builder and fix briefs with the checkpoints left
+  out="$("$B/maestro-brief" close --role builder --transport codex --advisor-checkpoints 2)"
+  # shellcheck disable=SC2016  # literal backticks
+  if [[ "$out" == *"(requests left: 2)"* && "$out" == *'`ADVICE_REQUEST`'* && "$out" == *'`END_ADVICE_REQUEST`'* && "$out" == *"timeout"* && "$out" != *"<N>"* ]]; then
+    ok "brief: advisor block in a Codex builder brief, with the count"; else bad "brief: advisor block in a Codex builder brief, with the count" "$out"; fi
+  out="$("$B/maestro-brief" close --role fix --transport agy --advisor-checkpoints 1 --unattended)"
+  if [[ "$out" == *"(requests left: 1)"* && "$out" == *"edit files only"* && "$(tail -1 <<<"$out")" == *"do not decide it"* ]]; then
+    ok "brief: advisor block in an edits-only fix brief, before the unattended line"; else bad "brief: advisor block in an edits-only fix brief" "$out"; fi
+  out="$("$B/maestro-brief" close --role builder --transport native)"; rc=$?
+  if [[ $rc -eq 0 && "$out" == "Do not ask questions."*"timeout"* && "$out" != *"ADVICE_REQUEST"* ]]; then
+    ok "brief: no advisor block without --advisor-checkpoints"; else bad "brief: no advisor block without --advisor-checkpoints" "rc=$rc $out"; fi
+  for t in native claude-cli api codex agy; do
+    out="$("$B/maestro-brief" close --role advisor --transport "$t")"; rc=$?
+    if [[ $rc -eq 0 && "$out" == "Do not ask questions."* && $(wc -l <<<"$out") -eq 1 ]]; then ok "brief: advisor close on $t = the closing block alone (read-only)"
+    else bad "brief: advisor close on $t = the closing block alone (read-only)" "rc=$rc $out"; fi
+  done
+  for t in claude-cli api; do
+    out="$("$B/maestro-brief" close --role advisor --transport "$t" --schema "$ROOT/docs/schemas/advice-schema.json" --unattended)"; rc=$?
+    if [[ $rc -eq 0 && "$out" == *'"minLength": 1'* && "$out" == *"Your final message must be the JSON object only."* && "$(tail -1 <<<"$out")" == *"do not decide it"* ]]; then
+      ok "brief: a $t advisor gets the advice schema quoted, then the unattended line"; else bad "brief: a $t advisor gets the advice schema quoted" "rc=$rc $out"; fi
+  done
+  for t in native codex agy; do
+    out="$("$B/maestro-brief" close --role advisor --transport "$t" --schema "$ROOT/docs/schemas/advice-schema.json" 2>&1)"; rc=$?
+    if [[ $rc -eq 2 && "$out" == *"--schema is for a claude-cli or api read-only role"* ]]; then ok "brief: no --schema for a $t advisor (its line carries the schema, or you quote it)"
+    else bad "brief: no --schema for a $t advisor" "rc=$rc $out"; fi
+  done
+  eq "brief: advisor open — the agy paragraph on agy, nothing on the others" "1 0 0 0 0" \
+    "$("$B/maestro-brief" open --role advisor --transport agy --repo /r | grep -c 'inside /r') $(for t in native claude-cli api codex; do "$B/maestro-brief" open --role advisor --transport "$t" | wc -c; done | paste -sd' ')"
+  eq "brief: the inline agy variant for an advisor after a denied read" 1 "$("$B/maestro-brief" open --role advisor --transport agy --inline | grep -c 'Do NOT call any tools')"
+  eq "brief: --advisor-checkpoints refused for a read-only role, a drafter, 0 and 4" "2 2 2 2" \
+    "$("$B/maestro-brief" close --role critic --transport codex --advisor-checkpoints 1 >/dev/null 2>&1; echo $?) $("$B/maestro-brief" close --role drafter --transport codex --advisor-checkpoints 1 >/dev/null 2>&1; echo $?) $("$B/maestro-brief" close --role builder --transport codex --advisor-checkpoints 0 >/dev/null 2>&1; echo $?) $("$B/maestro-brief" close --role builder --transport codex --advisor-checkpoints 4 >/dev/null 2>&1; echo $?)"
+  out="$("$B/maestro-brief" close --role advisor --transport claude-cli --schema "$ROOT/docs/schemas/advice-schema.json")"
+  if [[ "$out" == *'"maxItems": 5'* && "$out" == *"Your final message must be the JSON object only."* && "$out" != *"edit files only"* ]]; then
+    ok "brief: a claude -p advisor gets the schema quoted (read-only)"; else bad "brief: a claude -p advisor gets the schema quoted" "$out"; fi
+  eq "brief: an agy advisor opens with the read-inside paragraph; a Codex advisor gets only the closing block" "1 1" \
+    "$("$B/maestro-brief" open --role advisor --transport agy --repo /r | grep -c 'inside /r') $("$B/maestro-brief" close --role advisor --transport codex | wc -l)"
+  eq "brief: the triage header in SKILL.md and docs/briefs.md agree" "1 1" \
+    "$(grep -c 'ADVISORY, NOT BINDING — the approved plan and the spec win' "$ROOT/SKILL.md") $(grep -c '^> ADVISORY, NOT BINDING — the approved plan and the spec win.$' "$ROOT/docs/briefs.md")"
+  # every flag maestro-flags knows is documented in SKILL.md "Flags" and in docs/guide or the README
+  missing="" nflags=0
+  for n in $(grep -A1 '\["model","review","critic"' "$B/maestro-flags" | grep -oE '"[a-z-]+"' | tr -d '"'); do
+    nflags=$((nflags + 1)); grep -qE -- "--$n\b" "$ROOT/SKILL.md" || missing+="--$n "
+  done
+  eq "every flag maestro-flags knows is in SKILL.md (15 flags read from its source)" "15|" "$nflags|$missing"
+  # the advisor sees no verdict; the resume order; the transport-switch exception
+  # shellcheck disable=SC2016  # literal backticks
+  eq "docs: PLAN.md's critique record heading is named in SKILL.md and the advisor brief uses the copy without it" "1 1 1" \
+    "$(grep -c '`## Critique record`, last in the' "$ROOT/SKILL.md") $(grep -c 'PLAN.md keeps every critique and verdict text under one exact heading, `## Critique record`' "$ROOT/docs/briefs.md") $(grep -c '^> Plan: <the copy of PLAN.md without its `## Critique record` section>' "$ROOT/docs/briefs.md")"
+  # shellcheck disable=SC2016  # literal backticks
+  RS="$(sed -n '/^### Resume with `pending` set/,/^## /p' "$ROOT/docs/checkpoint.md")"
+  eq "docs: on resume the advisor's fingerprint compare comes before maestro-preflight --resume" 1 "$(tr '\n' ' ' <<<"$RS" | grep -c 'and \*\*before\*\* `maestro-preflight')"
+  # shellcheck disable=SC2016  # literal backticks
+  eq "docs: step 0 only records the result (fp_at_resume, ro_off); step 5 acts; nothing dispatched before" "1 1 1 1" \
+    "$(tr '\n' ' ' <<<"$RS" | grep -c 'That is all: no skip is counted, no advice file is written, `pending` stays `requested`.') $(grep -c 'Nothing is dispatched before step 5.' <<<"$RS") $(grep -c '^\*\*Step 5 — settle `pending`, then continue.\*\*' <<<"$RS") $(grep -c '^- `requested`, `fp_at_resume: changed`' <<<"$RS")"
+  eq "docs: an absent resuming:<job id> job is maestro-wait's \"no job\" (exit 2)" 1 "$(grep -c '\*"no job <id>"\* (exit 2) → it was never dispatched' <<<"$RS")"
+  # the advisor's inputs are protected; the diff is restricted and read by the director
+  # shellcheck disable=SC2016  # literal backticks
+  eq "docs: no advisor input in the excluded tmp/ (only the Agent advisor's raw answer)" "0 1 1" \
+    "$(grep -rc 'tmp/plan-advise' "$ROOT/SKILL.md" "$ROOT"/docs/*.md | awk -F: '{n += $2} END {print n}') $(grep -c '`.maestro/plan-advise-r<N>.md` and' "$ROOT/docs/briefs.md") $(grep -c '\*\*only\*\* an Agent-tool advisor.s raw answer' "$ROOT/docs/checkpoint.md")"
+  # shellcheck disable=SC2016  # literal backticks
+  eq "docs: the advisor-facing diff is restricted to the plan's implementation files and read by the director; no mechanical filter" "1 1 1 1 0" \
+    "$(grep -c 'restricted to the implementation files the' "$ROOT/docs/briefs.md") $(grep -c '\*\*Before every advisor call — the initial build included — you read that patch before sending' "$ROOT/docs/briefs.md") $(grep -c 'No mechanical filter can find every quotation of' "$ROOT/docs/briefs.md") $(grep -c '^> The current change: <the restricted patch, or its path> CHANGELOG.md and quoted review text were withheld.$' "$ROOT/docs/briefs.md") $(grep -rc 'filter-diff' "$ROOT/SKILL.md" "$ROOT"/docs/*.md "$ROOT/CHANGELOG.md" "$B/maestro-brief" | awk -F: '{n += $2} END {print n}')"
+  eq "brief: maestro-brief has no filter-diff subcommand" 2 "$("$B/maestro-brief" filter-diff --quotes /dev/null >/dev/null 2>&1; echo $?)"
+  eq "docs: setup resolves the policy advisor with maestro-roles before offering it; a dropped one is not offered" "1 1" \
+    "$(grep -c 'First resolve the policy preference against the setup roster' "$ROOT/docs/setup.md") $(grep -c 'The policy slot drops out' "$ROOT/docs/setup.md")"
+  eq "docs: the advisor exception is in A16a, the transport switch (hosts.md) and SKILL.md" "1 1 1" \
+    "$(grep -c '^| A16a .*Exception, an advisor call' "$ROOT/docs/unattended.md") $(grep -c '^\*\*Not for an advisor call\*\*' "$ROOT/docs/hosts.md") $(grep -c 'The one exception is an advisor call' "$ROOT/SKILL.md")"
+  # shellcheck disable=SC2016  # literal backticks
+  eq "the advisor's flags are in the READMEs and docs/policy.md names its keys" "1 1 3" \
+    "$(grep -c -- '--advisor <task>' "$ROOT/README.md") $(grep -c -- '--advisor <zadanie>' "$ROOT/README_pl.md") $(grep -cE '^\| `(advisor|advisor_checkpoints) = |, `advise` \|' "$ROOT/docs/policy.md")"
   # Removed in 2.0.0: the third-party transport, its model line and family, non-Claude-Code hosts.
   # Allowed: CHANGELOG history, maestro-host's detection of other agent CLIs (to refuse them),
   # maestro-flags' message for the removed --host flag, and one "Removed in 2.0.0" line per page.
@@ -1170,11 +1419,13 @@ if group T13 "effective identity"; then
   idc() { CODEX_HOME="$CH" "$B/maestro-identity" codex --thread th1 --wait 0 "$@"; }
   { echo '{"type":"session_meta"}'; ro_tc read-only gpt-6.1-sol high ""; } > "$RO"
   jqt "codex critic, read-only rollout → OK" "$(idc --role critic --model gpt-6.1-sol --effort high)" '.result == "OK" and .effective_config.sandbox == "read-only"'
+  jqt "codex advisor: the read-only profile → OK" "$(idc --role advisor --model gpt-6.1-sol --effort high)" '.result == "OK" and .effective_config.sandbox == "read-only"'
   jqt "codex: wrong effort → MISMATCH" "$(idc --role critic --model gpt-6.1-sol --effort medium)" '.result == "MISMATCH" and (.mismatches | index("effort=high") != null)'
   jqt "codex: a critic on a writer profile → MISMATCH" "$(idc --role builder --root /r --model gpt-6.1-sol --effort high)" '.result == "MISMATCH"'
   ro_tc workspace-write gpt-6.1-sol medium /r >> "$RO"
   jqt "codex resume: the record after the offset is the one checked" "$(idc --role builder --root /r --offset 2 --model gpt-6.1-sol --effort medium)" '.result == "OK"'
   jqt "codex resume: a writer outside its root → MISMATCH" "$(idc --role builder --root /other --offset 2 --model gpt-6.1-sol --effort medium)" '.mismatches | any(test("writable="))'
+  jqt "codex advisor on a writer profile → MISMATCH" "$(idc --role advisor --offset 2 --model gpt-6.1-sol --effort medium)" '.result == "MISMATCH" and (.mismatches | any(test("sandbox=workspace-write")))'
   jqt "codex: no record after the offset → MISSING" "$(idc --role critic --offset 3 --model gpt-6.1-sol --effort high)" '.result == "MISSING"'
   ro_tc read-only gpt-6.1-sol high "" ' | .payload.cyber_access_program = "extended"' >> "$RO"
   jqt "codex: cyber_access_program other than standard → MISMATCH" "$(idc --role critic --offset 3 --model gpt-6.1-sol --effort high)" '.mismatches | any(test("cyber_access_program"))'
@@ -1229,7 +1480,7 @@ SH
     '.stops == [] and .transports.native.available and .transports.codex.available and .transports.codex.version == "0.169.0"
      and .transports.agy.available and .codex_config.mode == "isolated" and .git.objects and .git.index_file and .git.refs'
   jqt "preflight: a login that expires within a day is a warning" "$out" '.warnings | any(test("login expires"))'
-  eq "preflight: .maestro/ excluded once, schemas copied" "1 4" "$(grep -cxF '.maestro/' "$(git rev-parse --git-path info/exclude)") $(find .maestro -maxdepth 1 -name '*-schema.json' | wc -l)"
+  eq "preflight: .maestro/ excluded once, schemas copied (advice-schema.json the fifth)" "1 5 1" "$(grep -cxF '.maestro/' "$(git rev-parse --git-path info/exclude)") $(find .maestro -maxdepth 1 -name '*-schema.json' | wc -l) $(find .maestro -maxdepth 1 -name advice-schema.json | wc -l)"
   pf --interactive false >/dev/null
   eq "preflight: a second run does not add the exclude line again" 1 "$(grep -cxF '.maestro/' "$(git rev-parse --git-path info/exclude)")"
   printf 'model_provider = "corp"\n[mcp_servers.x]\nauth_token = "y"\n[profiles.p]\nopenai_base_url = "https://x"\n' > "$CHM/config.toml"
@@ -1254,6 +1505,16 @@ SH
   jqt "preflight: an unborn HEAD passes the git probes, the worktree probe is skipped with a warning" \
     "$(cd "$UB" && PATH="$FB:$PATH" CODEX_HOME="$CHM" "$B/maestro-preflight" --gen "$gu" --worktree)" \
     '.git == {objects: true, index_file: true, refs: true} and .stops == [] and (.warnings | any(test("unborn")))'
+  # --advisor on --resume: compare against the saved snapshot BEFORE preflight, which restores the schemas
+  GDP="$(git rev-parse --git-dir)/maestro"; mkdir -p "$GDP"
+  pf --resume >/dev/null; "$B/maestro-fp" snapshot > "$GDP/fp-adv-1.json"
+  printf '{"type":"object"}\n' > .maestro/advice-schema.json          # what a misbehaving advisor could do
+  jqt "advisor resume: compare first → the edited advice schema is caught" "$("$B/maestro-fp" compare "$GDP/fp-adv-1.json")" \
+    '.result == "changed" and (.diffs | index("protected .maestro inputs") != null)'
+  pf --resume >/dev/null
+  jqt "… after preflight --resume (schemas copied back) the same compare says same: so it must come first" \
+    "$("$B/maestro-fp" compare "$GDP/fp-adv-1.json")" '.result == "same"'
+  rm -f "$GDP/fp-adv-1.json"
   chmod a-w "$(git rev-parse --absolute-git-dir)/refs/maestro" 2>/dev/null || { mkdir -p "$(git rev-parse --absolute-git-dir)/refs/maestro"; chmod a-w "$(git rev-parse --absolute-git-dir)/refs/maestro"; }
   jqt "preflight: a git write that fails is a stop (refs read-only)" "$(pf)" '.git.refs == false and (.stops | any(test("git refs write failed")))'
   chmod u+w "$(git rev-parse --absolute-git-dir)/refs/maestro"
@@ -1295,6 +1556,32 @@ if group T15 "flags"; then
            "--cascade --skip-tests:--cascade with --skip-tests" "--setup --unattended:--setup with --unattended" \
            "--sdk --model=opus@native:--sdk with a forced @native" "--sdk --critic=sonnet@native:--sdk with a forced @native" \
            "--resume --rounds=2:--resume with --rounds"; do
+    a="${c%%:*}" want="${c#*:}"
+    # shellcheck disable=SC2086
+    out="$(fl $a t)"; rc=$?
+    if [[ $rc -ne 0 ]] && jq -e --arg w "$want" '.errors | any(contains("illegal combination: " + $w))' >/dev/null <<<"$out"; then ok "illegal: $a"; else bad "illegal: $a" "$out"; fi
+  done
+  # --advisor
+  jqt "--advisor bare → auto, one checkpoint left to policy" "$(fl --advisor t)" '.flags.advisor == "auto" and .flags.advisor_checkpoints == null and .errors == []'
+  jqt "--advisor=astra" "$(fl --advisor=astra t)" '.flags.advisor == {slot: "astra", transport: null}'
+  jqt "--advisor=neon (explicit-only, named)" "$(fl --advisor=neon t)" '.flags.advisor == {slot: "neon", transport: null} and .errors == []'
+  jqt "--advisor=astra@codex --advisor-checkpoints=2" "$(fl --advisor=astra@codex --advisor-checkpoints=2 t)" '.flags.advisor == {slot: "astra", transport: "codex"} and .flags.advisor_checkpoints == 2 and .errors == []'
+  jqt "no --advisor → advisor and advisor_checkpoints null" "$(fl t)" '.flags.advisor == null and .flags.advisor_checkpoints == null'
+  jqt "--sdk --advisor (auto, no transport) is legal" "$(fl --sdk --advisor t)" '.errors == []'
+  jqt "--advisor with --model=opus and --unattended is legal" "$(fl --advisor --model=opus --unattended t)" '.errors == []'
+  for c in "--advisor=:--advisor needs" "--advisor=self:self only builds" "--advisor=grok:unknown slot grok" "--advisor=sol@agy:has no transport agy" \
+           "--advisor-checkpoints=0:--advisor-checkpoints is 1 to 3" "--advisor-checkpoints=4 --advisor:--advisor-checkpoints is 1 to 3" \
+           "--advisor-checkpoints --advisor:--advisor-checkpoints is 1 to 3" "--advisor --advisor=sol:--advisor given twice" \
+           "--advisr:did you mean --advisor?" "--advisor-checkpoint=2:did you mean --advisor-checkpoints?"; do
+    a="${c%%:*}" want="${c#*:}"
+    # shellcheck disable=SC2086
+    out="$(fl $a t)"; rc=$?
+    if [[ $rc -ne 0 ]] && jq -e --arg w "$want" '.errors | any(contains($w))' >/dev/null <<<"$out"; then ok "flag error: $a"; else bad "flag error: $a" "$out"; fi
+  done
+  for c in "--advisor-checkpoints=2:--advisor-checkpoints without --advisor" "--advisor --plan-only:--advisor with --plan-only" \
+           "--advisor --cascade:--advisor with --cascade" "--advisor=sol --cascade=haiku:--advisor with --cascade" \
+           "--advisor --model=self:--advisor with --model=self" "--sdk --advisor=opus@native:--sdk with a forced @native" \
+           "--resume --advisor:--resume with --advisor"; do
     a="${c%%:*}" want="${c#*:}"
     # shellcheck disable=SC2086
     out="$(fl $a t)"; rc=$?
@@ -1360,7 +1647,8 @@ if group T18 "policy"; then
   jqt "policy: no files → the defaults" "$out" \
     '.files == {repo: null, user: null} and .stops == [] and .warnings == []
      and .effective == {deny: [], implementer: null, critic: null, reviewer: null, cascade_drafter: "luna", critique_rounds: 2,
-           effort: {critique: "medium", high_stakes_critique: "high", build: "medium", review: "high", draft: "medium"},
+           advisor: null, advisor_checkpoints: 1,
+           effort: {critique: "medium", high_stakes_critique: "high", build: "medium", review: "high", draft: "medium", advise: "high"},
            families: {claude: "on", openai: "on", google: "on"}, transports_deny: [], pin: {},
            api: {fallback: false, max_usd_per_run: 20}}
      and (.sources | to_entries | all(.value == "default")) and .sources["effort.build"] == "default"'
@@ -1506,7 +1794,7 @@ if group T18 "policy"; then
   out="$(ri)"
   jqt "roles-input: critic, reviewer (an ineligible one dropped), the exclusion filter" "$out" \
     '.policy_critic == "opus" and .policy_reviewer == null and .named_critics == [] and .named_reviewer == null
-     and .exclude == {slots: ["fable","haiku","argon","carbon","neon","gemini"], denied: ["fable","haiku"], families_off: ["google"], kept_by_flag: []}
+     and .exclude == {slots: ["fable","haiku","argon","carbon","neon","gemini"], denied: ["fable","haiku"], families_off: ["google"], kept_by_flag: [], advisor_kept: []}
      and .explicit_only == []
      and .transports_denied == {opus: ["agy"], sonnet: ["api","agy"]} and .fable_budget == false and .stops == []
      and (.warnings | any(test("policy reviewer argon dropped"))) and (.unmapped | any(test("^fable_budget")))'
@@ -1533,6 +1821,82 @@ if group T18 "policy"; then
   jqt "policy: --cascade=<denied slot> is kept with an explicit-wins warning" \
     "$("$B/maestro-policy" roles-input --repo "$PD/repo.toml" --user "$PD/user.toml" --flags "$("$B/maestro-flags" "--cascade=haiku t")")" \
     '(.exclude.kept_by_flag | index("haiku") != null) and (.warnings | any(test("--cascade=haiku")))'
+  # the advisor keys: advisor (names, never enables), advisor_checkpoints, effort.advise
+  prepo 'advisor = "astra"' 'advisor_checkpoints = 2' '[effort]' 'advise = "xhigh"'
+  puser 'advisor = "opus"' 'advisor_checkpoints = 3' '[effort]' 'advise = "low"'
+  out="$(pol)"
+  jqt "policy: advisor, advisor_checkpoints and effort.advise from repo over user" "$out" \
+    '.effective.advisor == "astra" and .effective.advisor_checkpoints == 2 and .effective.effort.advise == "xhigh"
+     and .sources.advisor == "repo" and .sources.advisor_checkpoints == "repo" and .sources["effort.advise"] == "repo" and .stops == []'
+  prepo
+  jqt "policy: … from the user file where the repo is silent" "$(pol)" '.effective.advisor == "opus" and .effective.advisor_checkpoints == 3 and .effective.effort.advise == "low" and .sources.advisor == "user"'
+  jqt "policy: --advisor=<slot> and --advisor-checkpoints beat both files" "$(pol --flags "$("$B/maestro-flags" "--advisor=argon --advisor-checkpoints=1 t")")" \
+    '.effective.advisor == "argon" and .effective.advisor_checkpoints == 1 and .sources.advisor == "flags" and .sources.advisor_checkpoints == "flags"'
+  jqt "policy: a bare --advisor keeps the policy advisor" "$(pol --flags "$("$B/maestro-flags" "--advisor t")")" '.effective.advisor == "opus" and .sources.advisor == "user"'
+  out="$(ri)"
+  jqt "roles-input: a policy advisor alone enables nothing (advisor_on false)" "$out" '.advisor_on == false and .policy_advisor == "opus" and .named_advisor == null'
+  jqt "roles-input: … and maestro-roles then returns no advisor" \
+    "$("$B/maestro-roles" <<<"$(jq -c '{builder: "sol", eligible: ["sol","opus"], advisor_on, named_advisor, policy_advisor}' <<<"$out")")" '.advisor == null and .critics == ["opus"]'
+  out="$(ri --flags "$("$B/maestro-flags" "--advisor t")")"
+  jqt "roles-input: bare --advisor → advisor_on, the policy advisor passed on" "$out" '.advisor_on == true and .policy_advisor == "opus" and .named_advisor == null'
+  jqt "roles-input → maestro-roles: the policy advisor is used, marked (policy)" \
+    "$("$B/maestro-roles" <<<"$(jq -c '{builder: "sol", eligible: ["sol","opus","argon"], advisor_on, named_advisor, policy_advisor}' <<<"$out")")" \
+    '.advisor == "opus" and (.notes | index("advisor=opus (policy)") != null)'
+  puser 'advisor = "sol"' 'deny = ["sol"]'
+  out="$(ri --flags "$("$B/maestro-flags" "--advisor t")")"
+  jqt "roles-input: a denied policy advisor is dropped with a warning" "$out" '.policy_advisor == null and (.warnings | any(test("policy advisor sol dropped: denied"))) and .exclude.advisor_kept == []'
+  out="$(ri --flags "$("$B/maestro-flags" "--advisor=sol t")")"
+  jqt "roles-input: a denied slot named by --advisor is kept for the advisor role only" "$out" \
+    '.named_advisor == "sol" and .exclude.advisor_kept == ["sol"] and .exclude.kept_by_flag == [] and (.exclude.slots | index("sol") != null)
+     and (.warnings | any(test("^--advisor=sol: denied by policy — explicit wins, for the advisor role only")))'
+  # the director's recipe: eligible = available - exclude.slots; advisor_eligible = eligible + exclude.advisor_kept
+  pipe() { jq -c --argjson av "$1" '{builder: "opus", eligible: ($av - .exclude.slots), advisor_eligible: (($av - .exclude.slots) + .exclude.advisor_kept),
+                 available: $av, advisor_on, named_advisor, policy_advisor}' <<<"$out" | "$B/maestro-roles"; }
+  noadv="$(jq -nc '{builder: "opus", eligible: ["opus","astra"]}' | "$B/maestro-roles")"
+  jqt "roles-input → maestro-roles: denied but available sol advises; astra critiques and reviews as without it" "$(pipe '["opus","sol","astra"]')" \
+    '.advisor == "sol" and .stop == null and .critics == ["astra"] and .reviewer == "astra" and .critics == '"$(jq -c .critics <<<"$noadv")"
+  jqt "roles-input → maestro-roles: denied AND unavailable sol (Codex down, no openai slot available) → stop" "$(pipe '["opus","argon"]')" \
+    '.advisor == null and (.stop.reason | test("named advisor sol is not available"))'
+  jqt "roles-input → maestro-roles: denied sol, Codex unavailable, astra gone too → stop, not advisor sol" "$(pipe '["opus","gemini"]')" '.advisor == null and .stop != null'
+  # setup step 1b: the policy advisor is offered by name only when maestro-roles keeps it
+  puser 'advisor = "sol"'
+  out="$(ri --flags "$("$B/maestro-flags" "--advisor t")")"
+  r1b="$("$B/maestro-roles" <<<"$(jq -c '{builder: "opus", eligible: ["opus","argon"], available: ["opus","argon"], advisor_on, named_advisor, policy_advisor}' <<<"$out")")"
+  jqt "setup 1b: policy advisor sol, Codex unavailable, argon eligible → auto picks argon, noted (offer auto, not --advisor=sol)" "$r1b" \
+    '.advisor == "argon" and .stop == null and (.notes | index("policy advisor sol is not available: auto") != null)'
+  jqt "setup 1b: … while --advisor=sol for the same roster would halt the run" \
+    "$("$B/maestro-roles" <<<'{"builder":"opus","eligible":["opus","argon"],"available":["opus","argon"],"advisor_on":true,"named_advisor":"sol"}')" '.advisor == null and .stop != null'
+  puser 'advisor = "sol"' 'deny = ["sol"]'
+  out="$(ri --flags "$("$B/maestro-flags" "--advisor t")")"
+  r1b="$("$B/maestro-roles" <<<"$(jq -c '{builder: "opus", eligible: (["opus","sol","argon"] - .exclude.slots), available: ["opus","sol","argon"], advisor_on, named_advisor, policy_advisor}' <<<"$out")")"
+  jqt "setup 1b: policy advisor sol denied by policy → dropped (warning), auto picks argon" "$out" '.policy_advisor == null and (.warnings | any(test("policy advisor sol dropped: denied")))'
+  jqt "setup 1b: … and maestro-roles gives argon, not sol" "$r1b" '.advisor == "argon" and .stop == null'
+  # auto never promises a slot at step 1b: the result depends on review_active, which step 2 decides
+  s1b() { jq -c --argjson ra "$1" '{builder: "opus", eligible: (["opus","sol","astra","argon"] - .exclude.slots), available: ["opus","sol","astra","argon"],
+                                    advisor_on, named_advisor, policy_advisor, review_active: $ra}' <<<"$out" | "$B/maestro-roles"; }
+  jqt "setup 1b → step 2: Opus builds, sol denied, no review → auto resolves to astra" "$(s1b false)" '.advisor == "astra" and .reviewer == "astra"'
+  jqt "setup 1b → step 2: … with --review=cross (reviewer astra) → auto resolves to argon: name it only after step 2" \
+    "$(s1b true)" '.advisor == "argon" and .reviewer == "astra"'
+  jqt "setup 1b → step 2: Opus builds, astra the only cross-family slot, --review=cross → astra advises and reviews, anchored" \
+    "$(jq -nc '{builder: "opus", eligible: ["opus","sonnet","astra"], available: ["opus","sonnet","astra"], advisor_on: true, review_active: true}' | "$B/maestro-roles")" \
+    '.advisor == "astra" and .reviewer == "astra" and .critics == ["astra"] and .stop == null
+     and (.notes | index("advisor and reviewer share a family") != null) and (.notes | index("reviewer anchored: the advisor shaped the build") != null)'
+  # shellcheck disable=SC2016  # literal backticks
+  eq "docs: setup says reviewer avoidance is a preference and keeps the anchoring warning" 1 "$(grep -c '^- \*\*Avoiding the reviewer.s family is a preference\*\*' "$ROOT/docs/setup.md")"
+  # shellcheck disable=SC2016  # literal backticks
+  eq "docs: setup offers auto without naming a slot and names the resolved one after step 2" "1 1" \
+    "$(grep -c '^- \*\*`auto` never promises a slot.\*\*' "$ROOT/docs/setup.md") $(grep -c 'with `review_active` known and \*\*name the resolved slot\*\*' "$ROOT/docs/setup.md")"
+  puser 'advisor = "sol"'
+  out="$(ri --flags "$("$B/maestro-flags" "--advisor t")")"
+  jqt "setup 1b: policy advisor sol eligible → kept, marked (policy): offer it by name" \
+    "$("$B/maestro-roles" <<<"$(jq -c '{builder: "opus", eligible: ["opus","sol","argon"], available: ["opus","sol","argon"], advisor_on, named_advisor, policy_advisor}' <<<"$out")")" \
+    '.advisor == "sol" and (.notes | index("advisor=sol (policy)") != null)'
+  rm -f "$PD/user.toml"
+  stop1 "stop: advisor_checkpoints 4" "advisor_checkpoints: 4 is outside 1–3" 'advisor_checkpoints = 4'
+  stop1 "stop: advisor_checkpoints 0" "advisor_checkpoints: 0 is outside 1–3" 'advisor_checkpoints = 0'
+  stop1 "stop: an unknown advisor slot" "advisor: unknown slot gpt-6" 'advisor = "gpt-6"'
+  stop1 "stop: self as advisor" "advisor: self only builds" 'advisor = "self"'
+  stop1 "stop: effort.advise ultra as a single value" "effort.advise: ultra is an openai level" '[effort]' 'advise = "ultra"'
   prepo; puser
 fi
 

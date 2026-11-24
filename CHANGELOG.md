@@ -1,5 +1,118 @@
 # Changelog
 
+## 2.3.0 — 2026-11-24
+
+**`--advisor`: optional advisor checkpoints in the build, off by default.** The builder may stop
+once (`--advisor-checkpoints=<1–3>`, default 1) to ask a read-only model for short guidance; the
+director classifies the request, calls the advisor, triages the answer and resumes the builder on
+its own transport. Advice is never a gate: it approves no plan and no diff, replaces neither the
+plan critique nor the cross review, stops no run and moves no rubric row. The rubric, the critic,
+reviewer and arbiter orders, the cross-family rule and `bin/slots.json` are unchanged. The advisor
+is **unmeasured** (`docs/workers.md`, "Evidence and the rubric").
+
+### Flags and policy
+- `maestro-flags`: `--advisor[=<slot>[@<transport>]]` (bare = `"auto"`), `--advisor-checkpoints=<1–3>`;
+  `--advisor=` and `--advisor=self` are errors; illegal: `--advisor-checkpoints` without `--advisor`,
+  `--advisor` with `--plan-only`, `--cascade` or `--model=self`, `--sdk` with `--advisor=<slot>@native`.
+- `maestro-policy`: keys `advisor` (names the advisor, never enables it), `advisor_checkpoints` (1–3,
+  default 1) and `effort.advise` (default `high`). `roles-input` adds `advisor_on`, `named_advisor`,
+  `policy_advisor` and `exclude.advisor_kept`: a slot named by `--advisor` that policy denies is kept
+  for the advisor role only, never for `eligible`.
+
+### Roles, briefs, validation
+- `maestro-roles`: inputs `advisor_on`, `named_advisor`, `policy_advisor`, `advisor_eligible`,
+  `review_active`; output `advisor` (null in every stop). Named → any family, the builder's included
+  (noted), not available → stop; policy → used when eligible, else auto with a note; auto → the
+  first eligible slot of the critic order for the stakes from another family, never explicit-only,
+  avoiding the reviewer's family when review is on (`advisor and reviewer share a family`,
+  `reviewer anchored: the advisor shaped the build`); none → off, noted; builder `self` → off.
+  Critics and reviewer are computed exactly as before.
+- `maestro-brief`: role `advisor` (read-only), and `close --role builder|fix --advisor-checkpoints N`
+  prints the advisor block (`ADVICE_REQUEST` … `END_ADVICE_REQUEST`), verbatim in `docs/briefs.md`.
+- `maestro-identity codex --role advisor`: the read-only profile.
+- `maestro-validate` honours `minLength`, `maxLength`, `minItems` and `maxItems` (generic; no earlier
+  schema uses them). New `docs/schemas/advice-schema.json`; preflight copies it with the others.
+
+### Docs
+- SKILL.md: the flags, `## Advisor`, the loop and report lines; `docs/commands.md` "Advisor" (the
+  critic line of the slot with role `advisor`, effort `advise` and the advice schema); `docs/briefs.md`
+  the advisor block, the advisor brief and the triage format; `docs/checkpoint.md` "Advisor
+  checkpoints" (ids `adv-<n>`, `advisor_checkpoints: {max, used, skipped, pending}`, the snapshot and
+  advice file in the git dir, `requested` → `advised` → `resuming`, at-least-once delivery);
+  `docs/unattended.md` "Advisor" (classification first, a failure skips the checkpoint, a safety stop
+  stays row 5); `docs/setup.md` step 1b (recommended `none`; at most four calls per run);
+  `docs/ledger.md` stage `advise`; `docs/policy.md`, `docs/hosts.md`, the guide and both READMEs.
+
+### Review fixes (astra cross review, fix round 1)
+- **Resume order:** with `pending` = `adv-<n>:requested` the saved snapshot is compared right after
+  the lock, before `maestro-preflight --resume` (which copies the schemas back and would hide an edited
+  `advice-schema.json`); a `changed` result is kept through the recovery (T14 shows the two orders).
+- **Delivery:** `pending` = `adv-<n>:resuming:<job id>` names the continuation's job id (decided before
+  the dispatch; `agent:<id>` for an Agent-tool builder); recovery reconciles exactly that job.
+- **Agent-tool advisor answer:** `.maestro/tmp/answer-adv-<run_id>-<n>-a<k>.json`, its agent id, path
+  and sha256 recorded with `add-session claude`; reused on resume only when all three match.
+- **A flag never beats unavailability:** `maestro-roles` takes `available` (slots with an available
+  transport, policy ignored); a denied named advisor outside it stops; a policy advisor is used only
+  from `eligible`.
+- **Counts survive a swap:** `advisor_checkpoints.status` (`unused`, `active`, `disabled`) turns further
+  requests off; `max`, `used` (request ids consumed, not ledger rows) and `skipped` are kept.
+- **No verdict reaches the advisor:** PLAN.md keeps critique and verdict text under `## Critique
+  record`; the advisor gets `.maestro/tmp/plan-advise-r<N>.md` without it, and quoted review text is
+  removed from a fix-round request.
+- **A16a and the transport switch** name the advisor exception (quota or network → skip, never row 5;
+  a safety stop stays row 5).
+- **Setup step 1b:** with a policy `advisor`, that slot is offered by name (`--advisor=<slot>`) and
+  `auto` is not offered, since a bare `--advisor` would select the policy slot.
+- The checkpoint example no longer pairs a `--cascade` run with an advisor; an Agent-tool advisor's
+  effort is recorded as `default`. `docs/README.md` names the advice schema.
+
+### Review fixes (astra re-review, fix round 2)
+- **Resume, two moments:** step 0 only records the advisor comparison (`advisor_checkpoints.fp_at_resume`
+  `same|changed|missing`, and `ro_off` for the transport made ineligible for read-only roles); the job
+  reconciliation, blockers, decisions and the dirty-exit inspection of any advisor edit run in their
+  usual steps; step 5 consumes it (one skip, the fixed-text file, `advised` → `resuming`). Nothing is
+  dispatched before step 5. An absent `resuming:<job id>` job is `maestro-wait`'s "no job" (exit 2).
+- **Setup step 1b** resolves the policy advisor with `maestro-roles` against the setup roster first:
+  offered by name only when it survives; when it is denied or unavailable, `auto` (bare `--advisor`)
+  is offered with the reason.
+- **The advisor's inputs are protected:** the plan copy `.maestro/plan-advise-r<N>.md` and the patch
+  sit in `.maestro/`, written before the snapshot; only an Agent-tool advisor's raw answer is in `tmp/`.
+
+### Review fixes (astra, fix round 3)
+- **A recorded `changed` is authoritative:** step 0 never overwrites it, so a restart after preflight
+  restored the schema cannot turn it into `same`; step 5 settles the request once, with one skip.
+- **Setup step 1b** no longer names the slot `auto` will pick: it depends on `review_active`, which
+  step 2 decides; the resolved slot is named after step 2, in the flag line's explanation and the
+  Assign line.
+
+### Review fixes (astra, fix round 4 — authorised beyond the fix cap: simplify)
+- **The advisor-facing diff:** no mechanical filter (one cannot be complete). It is `git diff HEAD`
+  restricted to the plan's implementation files, without `CHANGELOG.md` and record files that quote
+  review text, written to `.maestro/diff-advise-r<N>.patch` before the snapshot; in a fix round the
+  director reads it and removes any hunk (or file) that quotes critic or reviewer text or a finding.
+  The brief says "CHANGELOG.md and quoted review text were withheld."
+- **A recorded `same` is re-verified:** every later resume compares the protected inputs against the
+  saved snapshot again in step 0, before preflight, before an answer is reused; `changed` still
+  stays.
+- **Setup step 1b:** avoiding the reviewer's family is a preference, applied only when another
+  eligible cross-family slot exists; otherwise one slot serves both roles with the anchoring warning,
+  kept in the Assign line.
+
+### Evidence
+- **Verified locally (2026-11-24, this machine, no model call):** the full test suite
+  (`bash tests/run.sh`) passes, with new cases for the flags, the policy keys, `maestro-roles`'
+  advisor choice (auto per family and stakes, reviewer avoidance, named, policy, explicit-only,
+  denied-but-named, one family, `self`), the advisor block in builder and fix briefs, `--role
+  advisor` in `maestro-brief` and `maestro-identity`, the advice schema with the new length and
+  cardinality checks, the `advise` ledger stage in the report, the checkpoint's
+  `advisor_checkpoints` patched with `maestro-state set`, and that `maestro-fp` does not hash the
+  snapshot and advice file kept in the git dir.
+- **Open:** no advisor call has run against a real model. Whether `codex exec --output-schema`,
+  `claude -p --json-schema` and agy `--json-schema` accept the advice schema's `boolean`,
+  `minLength`, `maxLength` and `maxItems` as written is not verified; whether builders actually
+  stop with `ADVICE_REQUEST` when told to, and whether advice saves fix rounds, is unmeasured — the
+  ledger's `advise` rows are where it will show.
+
 ## 2.2.0 — 2026-11-24
 
 **New CLI versions and models, no routing change.** The docs are brought up to Codex 0.172.0,

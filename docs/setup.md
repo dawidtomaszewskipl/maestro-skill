@@ -57,6 +57,53 @@ given.
 | --- | --- | --- |
 | Mode and implementer (`Wykonawca`) | up to four valid pairs, e.g. "full run · opus", "full run · sol", "full run · gemini", "cascade · luna drafts, sonnet escalates", "plan only · opus later"; a transport other than the first eligible one as `opus@agy` | the rubric row for the run; cascade only for large mechanical work that is not high-stakes and whose family rule can be met; plan-only when the prompt asks for a plan or the task is an idea |
 
+**Step 1b — per run, the advisor (its own call, after step 1 is answered)**
+
+Asked only when the user's words did not mention an advisor, no `--advisor` flag was given, and step
+1's answer is a full run with an external implementer — never for `self`, plan-only or cascade,
+where `--advisor` is illegal or off.
+
+| Question (header) | Options, recommended first | Recommended when |
+| --- | --- | --- |
+| Advisor (`Doradca`) | `none` · then either the policy advisor or `auto` · then named slots — four options in all; the rest through "Other" | **always `none`**: the rubric has no advisor row and the ledger no evidence, so an unanswered question never enables one |
+
+What each option means, and the flag it writes — the option picked must be what the flag line
+selects:
+
+- `none` → no flag.
+- **First resolve the policy preference against the setup roster**, before building the options:
+  `maestro-policy roles-input --flags "$(maestro-flags --advisor …)"` (the step-1 answers plus a bare
+  `--advisor`), then `maestro-roles` with `advisor_on: true`, its `policy_advisor`, the step-1
+  builder and stakes, and the real `eligible` and `available` lists of stage 0. `effective.advisor`
+  of `maestro-policy resolve` is only the preference; the roles result decides.
+- **The policy slot survives** (`advisor` equals the policy slot, the note `advisor=<slot>
+  (policy)`): a bare `--advisor` would resolve to it, not to automatic choice, so it is offered by
+  name with its family — "opus (policy, Claude; the builder's family)" — and writes
+  `--advisor=<slot>`. `auto` is **not offered** then: no flag line could select it.
+- **The policy slot drops out** — policy-denied or switched off (`roles-input` gives
+  `policy_advisor: null` and a warning), or not available this run (the note `policy advisor <slot>
+  is not available: auto`): it is **not** offered, since `--advisor=<slot>` would halt the run.
+  `auto` is offered with a bare `--advisor`, its description saying why the policy one dropped out
+  — "auto: a slot of another family, avoiding the reviewer's family if you choose a review (policy
+  sol unavailable: Codex signed out)".
+- **No policy `advisor`**: `auto` — "a slot of another family, chosen by `maestro-roles`, avoiding
+  the reviewer's family if you choose a review" — writes a bare `--advisor`.
+- **`auto` never promises a slot.** Which slot it picks depends on `review_active`, which step 2
+  decides: with Opus building, Sol denied and Astra and Argon eligible, auto is Astra without a
+  review and Argon once `cross` makes Astra the reviewer. After step 2, run `maestro-roles` again
+  with `review_active` known and **name the resolved slot** in the flag line's explanation and the
+  Assign line (`advisor=argon (auto; reviewer astra)`).
+- **Avoiding the reviewer's family is a preference**, applied only when another eligible
+  cross-family slot exists. With Opus building and Astra the only eligible cross-family slot, a
+  `cross` review makes Astra both the reviewer and the advisor: `maestro-roles` says so with
+  `advisor and reviewer share a family` and the warning `reviewer anchored: the advisor shaped the
+  build`. Say this in the `auto` option's description when the roster already shows a single
+  candidate, and keep the resolved slot and the warning in the Assign line after step 2
+  (`advisor=astra (auto; reviewer astra — anchored)`).
+- **Named slots** (one or two, to make four options) come from families other than the step-1
+  implementer's and write `--advisor=<slot>`; a same-family slot only when typed into "Other", and
+  the Assign line notes it.
+
 **Step 2 — per run, computed from step 1**
 
 | Question (header) | Options, recommended first | Recommended when |
@@ -70,14 +117,15 @@ Each option's description says why, in one line tied to the task: "money + concu
 correctness", "3 Blade views + a modal → UI, screenshots decide". Use the `preview` field when two
 options differ in a way a short flag line shows best.
 
-**Budget:** step 0 once, then steps 1 and 2 per run — at most three calls per run. With separate
-runs, a step-2 question whose recommendation is the same for every run is asked once for all.
+**Budget:** step 0 once, then steps 1, 1b and 2 per run — at most four calls per run, the fourth
+only when step 1b applies; step 2 keeps its four questions. With separate runs, a step-2 question
+whose recommendation is the same for every run is asked once for all.
 Anything left unanswered takes the recommended option, and the flag line says so.
 
 ## Output
 
 ```
-Setup: /maestro --model=opus --critic=astra,argon --rounds=2 --review=cross --tests=covering <task>
+Setup: /maestro --model=opus --critic=astra,argon --rounds=2 --review=cross --tests=covering [--advisor[=<slot>]] <task>
 Assign: implementer=opus (user, setup; rubric: UI) · critic=astra (user, setup) · …
 ```
 
