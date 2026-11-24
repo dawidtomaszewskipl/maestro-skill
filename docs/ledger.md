@@ -17,19 +17,17 @@
 | --- | --- |
 | Codex | the last `turn.completed.usage` in the `.jsonl`: `input_tokens`, `cached_input_tokens`, `cache_write_input_tokens`, `output_tokens`, `reasoning_output_tokens` → `reasoning_tokens` |
 | agy | the envelope's `usage`: `input_tokens`, `output_tokens`, `thinking_tokens` → `reasoning_tokens`, `cache_read_tokens` → `cached_input_tokens`, `total_tokens`; plus `duration_seconds`, `denied_actions[].action` |
-| Claude subagent | the Agent tool's completion: `total_tokens`, `tool_uses`, `duration_ms` and the model; no input/output split, so those fields are `null` — `maestro-ledger --cli claude-agent --served <model> --agent-id <id> --total-tokens N --tool-uses N --duration-ms N` (no job) |
+| Claude subagent | the Agent tool's completion: `total_tokens`, `tool_uses`, `duration_ms` and, when it names one, the model (Claude Code 2.1.325 does not: `model_served` is then `null`); no input/output split, so those fields are `null` — `maestro-ledger --cli claude-agent [--served <model>] --agent-id <id> --total-tokens N --tool-uses N --duration-ms N` (no job) |
 | `claude -p` | the `result` event: `usage.input_tokens`, `usage.cache_read_input_tokens` → `cached_input_tokens`, `usage.cache_creation_input_tokens` → `cache_write_input_tokens`, `usage.output_tokens`, `duration_ms`/1000; `model_served` = the `modelUsage` key(s) |
 | `api` (`maestro-sdk`) | as `claude -p` (the same event stream), plus `cost_usd` = `result.total_cost_usd` — the SDK's estimate from its bundled price table, not an invoice; `null` on every other CLI |
-| Cursor `agent -p` | the `result` event: `usage.inputTokens`, `usage.cacheReadTokens` → `cached_input_tokens`, `usage.cacheWriteTokens` → `cache_write_input_tokens`, `usage.outputTokens`, `duration_ms`/1000; `model_served` = `init.model` (a label) |
-| Codex, `effective_config` | the call's `turn_context` in the session rollout, as the effective-config check read it (`docs/commands.md`): `{model, effort, sandbox, approval_policy, approvals_reviewer, network, write_roots}`; `null` for non-Codex calls |
+| Codex, `effective_config` | the call's `turn_context` in the session rollout, as `maestro-identity codex` read it (`docs/commands.md`): its `effective_config` object `{model, effort, sandbox, approval_policy, approvals_reviewer, network, cyber_access_program}`; `null` for non-Codex calls |
 
-`cli` is one of `codex`, `agy`, `cursor-agent`, `claude-cli` (`claude -p`), `claude-sdk`
-(`maestro-sdk`), `claude-agent` (the Agent tool); `transport` the slot's transport (`native`, `agy`,
-`cursor`, `codex`, `api`); `host` the
-director's host; `job_id` the maestro job (null for an Agent-tool call). `run_id` and `host` come
-from the job's `meta.json`; an interactive Claude Code launches with the Bash tool's background mode,
-so its job directories have none, and `maestro-ledger` takes both from the lock record (or from
-`--run`/`--host`). Missing → `null`, never
+`cli` is one of `codex`, `agy`, `claude-cli` (`claude -p`), `claude-sdk` (`maestro-sdk`),
+`claude-agent` (the Agent tool); `transport` the slot's transport (`native`, `agy`, `codex`, `api`);
+`host` the director's host (`claude-code`); `job_id` the maestro job (null for an Agent-tool call). `run_id` and `host` come
+from the job's `meta.json`, which every job has in both modes (interactive launches go through
+`maestro-run` too). Only a job directory without one falls back to the run and host options,
+then to the lock record. Missing → `null`, never
 estimated. `codex exec review` (a manual extra, not the cross reviewer)
 reports zero usage, so its token fields are `null`.
 
@@ -52,6 +50,12 @@ anywhere — the rollout's `turn_context` has no tier field either — so `servi
 always `null`. Token
 totals are never presented as subscription cost.
 
+An advisor call (`--advisor`, SKILL.md "Advisor") is one row with `stage: "advise"`, built like a
+critic's row from its job (or, on the Agent tool, `--cli claude-agent`); a validation re-ask or a
+relaunch of the same request is another row for the same checkpoint (`used` counts requests, not
+rows); a skipped checkpoint whose call ran still gets its row, with the reason in `outcome`. `maestro-ledger` takes any stage name, so
+nothing else changes.
+
 A worker swap mid-run gets its own row with `outcome: "swapped: <reason>"` on the abandoned call; a
 transport switch (`docs/hosts.md`) gets `outcome: "transport-switch: <from>→<to> (<reason>)"`.
 
@@ -68,7 +72,10 @@ edited by anything else stop the next write).
 
 `Stage | Who (model@effort) | Wall | In | Out | Result`, totals per family, the cascade line when it
 ran (`cascade: accepted at round N | escalated after N — draft+gate cost vs escalation cost`), and
-the guarantees line (review mode, tests, sandbox rung, what was skipped or degraded).
+the guarantees line (review mode, tests, sandbox rung, what was skipped or degraded). Advisor calls
+are their own `advise` rows of the table; with `--advisor` the report adds the line `advisor:
+<slot→model> checkpoints used N of M, skipped K, same-family: yes|no` (from the checkpoint's
+`advisor_checkpoints`).
 
 ## API spend
 

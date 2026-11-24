@@ -6,26 +6,52 @@
 #
 # Input:  {builder: slot, drafter: slot|null, high_stakes: bool, eligible: [slot…],
 #          named_critics: [slot…], policy_critic: slot|null, policy_reviewer: slot|null,
-#          fable_budget: bool, director_family: family|null, director_line: slot|null}
+#          named_reviewer: slot|null (--reviewer), fable_budget: bool,
+#          director_family: family|null, director_line: slot|null,
+#          advisor_on: bool (--advisor given), named_advisor: slot|null (--advisor=<slot>),
+#          policy_advisor: slot|null, advisor_eligible: [slot…] (default: eligible),
+#          available: [slot…] (slots with an available (slot, transport) pair, policy ignored),
+#          review_active: bool (--review is full or cross)}
 #   eligible = slots with at least one eligible (model, transport) pair this run; "self" is the
 #   director's family AND model line — both must be known for self to build.
+#   An explicit_only slot (bin/slots.json: carbon, neon) is never chosen automatically and never
+#   counts as an eligible family, per role: named as builder, drafter, critic (--critic or policy
+#   critic) it counts for the critic choice; named only as reviewer (--reviewer or policy
+#   reviewer) it is the reviewer and nothing else — the critic and degraded choice ignore it.
 #
 #   maestro-roles --row6 < {eligible: [slot…], director_family, director_line}
 #       rubric row 6 (a change smaller than the handoff): self when the director's family and line
-#       are known and self is eligible, else the first eligible of sonnet, sol, gemini, grok, else halt.
+#       are known and self is eligible, else the first eligible of sonnet, sol, gemini, else halt.
 #
 #   maestro-roles --transports < input.json
-# Input:  {slot, order: [transport…], available: {transport: bool}, denied: [transport…],
+# Input:  {slot, order: [transport…] (default: the slot's order in bin/slots.json), available: {transport: bool}, denied: [transport…],
 #          forced: transport|null, event: "first-use"|"runtime-failure", failed: transport|null,
 #          frozen_version: "5.5"|null, versions: {transport: "5.5"}}
 # Output: {action: "use"|"switch"|"swap"|"halt", transport, reason, row}  (docs/catalog.md,
 #          "Precedence"; row = the --unattended stop-matrix row when the action is a stop)
-# Output: {critics: [slot…], reviewer: slot|null, degraded: family|null, notes: [...],
-#          stop: null | {reason, remedy}}
+# Output: {critics: [slot…], reviewer: slot|null, degraded: family|null, advisor: slot|null,
+#          notes: [...], stop: null | {reason, remedy}}
+#   The advisor (SKILL.md, "Advisor") is optional, never a gate, and moves no critic or reviewer:
+#   off unless advisor_on, and off when the director builds (self). advisor_eligible = eligible plus
+#   a named advisor that policy blocks (maestro-policy roles-input: exclude.advisor_kept); only the
+#   advisor role reads it, and a slot outside `eligible` counts only when it is also in `available`
+#   (a flag beats a policy denial, never unavailability). Named → any family, the builder's
+#   included (noted), an explicit-only slot too; otherwise → stop. Policy → used when in `eligible`,
+#   else auto with a note. Auto → the first eligible slot of the critic order
+#   for the stakes and the builder's family, never explicit-only; with review_active it prefers a
+#   family other than the reviewer's. None → advisor null with a note (no stop).
+#
+#   maestro-roles --arbiter < {builder, drafter, high_stakes, eligible: [slot…],
+#                              critics_with_findings: [slot…], director_family}
+#       the arbiter at the critique cap (docs/briefs.md, "Arbiter at the cap"): the first eligible
+#       slot of a family that is neither the builder's, nor the drafter's, nor that of any critic
+#       still holding a finding. Per family: openai sol, astra; google argon, gemini; claude opus,
+#       fable, sonnet (carbon and neon, explicit_only, are deliberately in no order). High stakes,
+#       or no such family → no arbiter: today's stop.
+# Output: {arbiter: slot|null, reason, stop: null | {reason}}
 set -euo pipefail
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-  sed -n '2,/^[^#]/{/^#/s/^# \{0,1\}//p}' "$0"; exit 0
-fi
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+SLOTS="$MAESTRO_BIN/slots.json"
 
 if [[ "${1:-}" == "--row6" ]]; then
   # shellcheck disable=SC2016  # jq program
@@ -33,18 +59,18 @@ if [[ "${1:-}" == "--row6" ]]; then
     (.eligible // []) as $el
     | if .director_family and .director_line and (($el | index("self")) != null)
       then {implementer: "self", reason: "rubric row 6"}
-      else ([ "sonnet", "sol", "gemini", "grok" ][] | . as $x | select(($el | index($x)) != null)) as $f
+      else ([ "sonnet", "sol", "gemini" ][] | . as $x | select(($el | index($x)) != null)) as $f
            | {implementer: $f, reason: "rubric row 6: self not eligible (director family or line unknown)"}
       end' | { read -r l || true; if [[ -n "${l:-}" ]]; then printf '%s\n' "$l"; else
-      echo '{"implementer":null,"reason":"rubric row 6: self not eligible and none of sonnet, sol, gemini, grok eligible","stop":{"row":2}}'; fi; }
+      echo '{"implementer":null,"reason":"rubric row 6: self not eligible and none of sonnet, sol, gemini eligible","stop":{"row":2}}'; fi; }
   exit 0
 fi
 
 if [[ "${1:-}" == "--transports" ]]; then
   # shellcheck disable=SC2016  # jq program
-  exec jq -c '
+  exec jq -c --slurpfile slots "$SLOTS" '
   . as $in
-  | ($in.order // []) as $order
+  | ($in.order // (if ($in.slot | type) == "string" then $slots[0][$in.slot].transports else null end) // []) as $order
   | ($in.denied // []) as $denied
   | def avail($t): ($in.available[$t] // false);
     def denied($t): ($denied | index($t)) != null;
@@ -80,35 +106,106 @@ if [[ "${1:-}" == "--transports" ]]; then
   end'
 fi
 
+if [[ "${1:-}" == "--arbiter" ]]; then
+  # shellcheck disable=SC2016  # jq program
+  exec jq -c --slurpfile slots "$SLOTS" '
+  . as $in
+  | ($slots[0]) as $S
+  | def fam($s): if $s == "self" then ($in.director_family // "unknown")
+      elif ($s | type) != "string" then "unknown" else ($S[$s].family // "unknown") end;
+    def none($r): {arbiter: null, reason: $r, stop: {reason: $r}};
+  ($in.eligible // []) as $el
+  | ($in.critics_with_findings // []) as $cw
+  | fam($in.builder) as $bf
+  | (if $in.drafter then fam($in.drafter) else null end) as $df
+  | ($cw | map(fam(.)) | unique) as $cf
+  | ([$bf, $df] + $cf | map(select(. != null)) | unique) as $excl
+  | if $in.high_stakes then none("high stakes: no arbiter, the findings go to the user")
+    elif ($cw | length) == 0 then none("no critic holds a finding: nothing to arbitrate")
+    elif ($excl | index("unknown")) != null then none("the family of the builder, the drafter or a critic is unknown")
+    else
+      ([ (["openai", ["sol", "astra"]], ["google", ["argon", "gemini"]], ["claude", ["opus", "fable", "sonnet"]])
+         | .[0] as $f | select(($excl | index($f)) == null)
+         | .[1][] | . as $x | select(($el | index($x)) != null and fam($x) == $f) ] | first // null) as $a
+      | "builder \($bf)\(if $df then ", drafter \($df)" else "" end), findings held by \($cf | join(", "))" as $who
+      | if $a == null then none("no eligible third family (\($who))")
+        else {arbiter: $a,
+              reason: ("third family \(fam($a)) (\($who))"
+                       + (if $S[$a].provisional // false then "; \($a) is provisional (unmeasured)" else "" end)),
+              stop: null}
+        end
+    end'
+fi
+
 # shellcheck disable=SC2016  # jq program
-exec jq -c '
+exec jq -c --slurpfile slots "$SLOTS" '
 . as $in
+| ($slots[0]) as $S
 | def line($s): if $s == "self" then ($in.director_line // null) else $s end;
   def fam($s): if $s == "self" then ($in.director_family // "unknown")
-    elif ($s | IN("opus","fable","sonnet","haiku")) then "claude"
-    elif ($s | IN("astra","sol","luna","terra")) then "openai"
-    elif ($s | IN("argon","gemini")) then "google" elif $s == "grok" then "xai" else "unknown" end;
+    elif ($s | type) != "string" then "unknown" else ($S[$s].family // "unknown") end;
+  def xo($s): ($s | type) == "string" and ($S[$s].explicit_only // false);
 ($in.eligible // []) as $el
 | (fam($in.builder)) as $bf
 | (if $in.drafter then fam($in.drafter) else null end) as $df
 | ([$bf, $df] | map(select(. != null))) as $excl
-| ($el | map(fam(.)) | unique | map(select(. != "unknown"))) as $fams
-| { claude: {critic: ["sol","astra","argon","gemini","grok"], hs: ["astra","sol","argon","gemini","grok"], second: ["google","xai","openai"]},
-    openai: {critic: ["opus","argon","gemini","grok","sonnet"],
-             hs: ((if $in.fable_budget then ["fable"] else [] end) + ["opus","argon","gemini","grok"]),
-             second: ["google","xai","claude"]},
-    google: {critic: ["sol","opus","grok"], hs: ["astra","fable","opus","grok"], second: ["openai","claude","xai"]},
-    xai:    {critic: ["sol","opus","argon","gemini"], hs: ["astra","fable","opus","argon","gemini"], second: ["openai","claude","google"]} } as $T
+# explicit_only slots count for the critic choice only where they are named for a role that counts
+| ([$in.builder, $in.drafter, $in.policy_critic] + ($in.named_critics // []) | map(select(. != null))) as $named_c
+| ([ $el[] | . as $x | select(xo($x) and (($named_c | index($x)) == null)) ]) as $xo_out
+| ($el - $xo_out) as $el_c
+| ($el_c | map(fam(.)) | unique | map(select(. != "unknown"))) as $fams
+| ($in.named_reviewer // null) as $nr
+# the default orders: carbon and neon (explicit_only) are deliberately in none of them
+| { claude: {critic: ["sol","astra","argon","gemini"], hs: ["astra","sol","argon","gemini"], second: ["google","openai"]},
+    openai: {critic: ["opus","argon","gemini","sonnet"],
+             hs: ((if $in.fable_budget then ["fable"] else [] end) + ["opus","argon","gemini"]),
+             second: ["google","claude"]},
+    google: {critic: ["sol","opus"], hs: ["astra","fable","opus"], second: ["openai","claude"]} } as $T
 | def ok($s): ($el | index($s)) != null and (($excl | index(fam($s))) == null);
   def first_of($l): [ $l[] | select(ok(.)) ] | first // null;
   def slot_of_family($f): {openai: ["sol","astra","luna"], claude: ["opus","fable","sonnet"],
-                           google: ["argon","gemini"], xai: ["grok"]}[$f] // [] | first_of(.);
-  def prov($s): if ($s | IN("grok","argon")) then ["\($s) is provisional (unmeasured)"] else [] end;
+                           google: ["argon","gemini"]}[$f] // [] | first_of(.);
+  def prov($s): if ($s | type) == "string" and ($S[$s].provisional // false) then ["\($s) is provisional (unmeasured)"] else [] end;
+  def dorder($f): if $f == "claude" then
+       (if (line($in.builder) // "" | IN("sonnet","opus")) then ["fable","opus","sonnet"] else ["opus","fable","sonnet"] end)
+     elif $f == "openai" then
+       (if line($in.builder) == "astra" then ["sol","luna"] else ["astra","sol","luna"] end)
+     else ["argon","gemini"] end;
+  ([ $in.builder, $in.drafter ] | map(select(. != null)) | map(line(.)) | map(select(. != null))) as $used
+  # the automatic reviewer, for when the default (the critic) is explicit-only and was named for
+  # critique only: the same rules with every explicit-only slot left out that is not the builder or
+  # drafter — the critic order of the builder family, or with one family left the degraded order
+  | ([ $el[] | . as $x | select(xo($x) and (([$in.builder, $in.drafter] | index($x)) == null)) ]) as $xo_r
+  | (($el - $xo_r) | map(fam(.)) | unique | map(select(. != "unknown"))) as $fams_r
+  | (if ($fams_r | length) == 1 then
+       {slot: ([ dorder($fams_r[0])[] | . as $x | select(($el | index($x)) != null and ($used | index($x)) == null) ] | first // null),
+        degraded: $fams_r[0]}
+     else {slot: first_of(($T[$bf] // {critic: [], hs: []}) | if $in.high_stakes then .hs else .critic end), degraded: null} end) as $auto_rev
+  # the cross reviewer: --reviewer, else the policy reviewer when legal, else the first selected
+  # critic that is not explicit-only (the branch already made it legal), else the automatic
+  # reviewer (the critic order for the stakes of the run)
+  | def rev($cs): if $nr then $nr
+      else ($in.policy_reviewer as $r | ([ $cs[] | select(xo(.) | not) ] | first // null) as $c
+            | if $r and ok($r) then $r elif $c then $c else $auto_rev.slot end) end;
+    def revnotes($cs; $r): (if $r and (($cs | index($r)) == null) then prov($r) else [] end)
+      + (if ($xo_out | length) > 0 then ["explicit-only, not chosen automatically: \($xo_out | join(", "))"] else [] end)
+      + (if ($cs | any(xo(.))) and $r != null and ($cs | index($r)) == null and $r == $auto_rev.slot and $nr == null
+         then ["reviewer \($r): the explicit-only critic was named for critique only"
+               + (if $auto_rev.degraded then " (degraded: same-family review)" else "" end)] else [] end)
+      + (if $r == null and ($cs | any(xo(.))) then ["no cross reviewer: the explicit-only critic was named for critique only and no other reviewer is eligible"] else [] end);
 
 # --- the builder family (and for self, the line) must be known -------------------------------------
-if $bf == "unknown" or ($in.builder == "self" and line("self") == null) then
+(if $bf == "unknown" or ($in.builder == "self" and line("self") == null) then
   {critics: [], reviewer: null, degraded: null, notes: [],
    stop: {reason: "self is not eligible: the director model family or line is unknown", remedy: "pick an external builder, or state the director model from a measured source"}}
+
+# --- a named reviewer: it beats policy, never the family rule ---------------------------------------
+elif $nr and (($el | index($nr)) == null) then
+  {critics: [], reviewer: null, degraded: null, notes: [],
+   stop: {reason: "named reviewer \($nr) is not available this run", remedy: "name an available reviewer"}}
+elif $nr and (($excl | index(fam($nr))) != null) then
+  {critics: [], reviewer: null, degraded: null, notes: [],
+   stop: {reason: "named reviewer \($nr) shares the builder or drafter family", remedy: "name a reviewer from another family"}}
 
 # --- named critics: they beat policy, never the family rule -----------------------------------
 elif (($in.named_critics // []) | length) > 0 then
@@ -130,10 +227,12 @@ elif (($in.named_critics // []) | length) > 0 then
       (if $in.high_stakes and ($nf | length) < 2 then
          ([ ($T[$bf] // {second: []}).second[] | . as $x | select(($nf | index($x)) == null) | slot_of_family($x) | select(. != null) ] | first // null)
        else null end) as $extra
-      | {critics: ($n + (if $extra then [$extra] else [] end)),
-         reviewer: ($in.policy_reviewer as $r | if $r and ok($r) then $r else $n[0] end),
+      | ($n + (if $extra then [$extra] else [] end)) as $cs
+      | rev($cs) as $rv
+      | {critics: $cs,
+         reviewer: $rv,
          degraded: null,
-         notes: ([ $n[] | prov(.)[] ]
+         notes: ([ $n[] | prov(.)[] ] + revnotes($cs; $rv)
                  + (if $extra then ["high stakes: second critic \($extra) added from another family"] + prov($extra) else [] end)
                  + (if $in.high_stakes and ($nf | length) < 2 and ($extra == null) then ["high stakes: no second critic (no other family eligible)"] else [] end)),
          stop: null}
@@ -142,21 +241,17 @@ elif (($in.named_critics // []) | length) > 0 then
 # --- single eligible family: degraded same-family critique ---------------------------------------
 elif ($fams | length) == 1 then
   ($fams[0]) as $f
-  | ([ $in.builder, $in.drafter ] | map(select(. != null)) | map(line(.)) | map(select(. != null))) as $used
-  | (if $f == "claude" then
-       (if (line($in.builder) // "" | IN("sonnet","opus")) then ["fable","opus","sonnet"] else ["opus","fable","sonnet"] end)
-     elif $f == "openai" then
-       (if line($in.builder) == "astra" then ["sol","luna"] else ["astra","sol","luna"] end)
-     elif $f == "google" then ["argon","gemini"]
-     else [] end) as $order
+  | dorder($f) as $order
   | ([ $order[] | . as $x | select(($el | index($x)) != null and ($used | index($x)) == null) ] | first // null) as $c
   | if $c == null then
       {critics: [], reviewer: null, degraded: $f, notes: [],
        stop: {reason: "only the \($f) family is eligible and it has no second model line for critique", remedy: "make another family eligible"}}
     else
-      {critics: [$c], reviewer: $c, degraded: $f,
+      rev([$c]) as $rv
+      | {critics: [$c], reviewer: $rv, degraded: $f,
        notes: (["families=\($f) (degraded: same-family critique)"]
-              + (if $f == "openai" and $c == "astra" then ["Astra critiques an OpenAI build: allowed only in OpenAI-only degraded mode"] else [] end)),
+              + (if $f == "openai" and $c == "astra" then ["Astra critiques an OpenAI build: allowed only in OpenAI-only degraded mode"] else [] end)
+              + revnotes([$c]; $rv)),
        stop: null}
     end
 
@@ -179,13 +274,57 @@ else
           (if $in.high_stakes then
              ([ $row.second[] | select(. != fam($c1)) | slot_of_family(.) | select(. != null) ] | first // null)
            else null end) as $c2
-          | ($in.policy_reviewer as $r | if $r and ok($r) then $r else $c1 end) as $rev
-          | {critics: ([$c1, $c2] | map(select(. != null))), reviewer: $rev, degraded: null,
+          | ([$c1, $c2] | map(select(. != null))) as $cs
+          | rev($cs) as $rev
+          | {critics: $cs, reviewer: $rev, degraded: null,
              notes: ( (if $pc then ["critic=\($pc) (policy)"] else [] end)
                       + (if $in.high_stakes and $c2 == null then ["high stakes: no second critic (fewer than three eligible families)"] else [] end)
-                      + prov($c1) + (if $c2 then prov($c2) else [] end) ),
+                      + prov($c1) + (if $c2 then prov($c2) else [] end) + revnotes($cs; $rev) ),
              stop: null}
         end
     end
-end
+end) as $r
+
+# --- the advisor: after critics and reviewer, which it never changes ------------------------------
+| def addnotes($n): $r.notes + [ $n[] | . as $x | select(($r.notes | index($x)) == null) ];
+  ($in.advisor_eligible // $el) as $ael
+  | ($in.review_active // false) as $ra
+  | ($in.available // []) as $av
+  | def in_el($s): ($s | type) == "string" and (($el | index($s)) != null);
+    # a named advisor outside `eligible` (denied by policy) needs an available transport too
+    def aok($s): in_el($s) or (($s | type) == "string" and (($ael | index($s)) != null) and (($av | index($s)) != null));
+    def advnotes($a; $why):
+      prov($a)
+      + (if fam($a) == $bf then ["advisor shares the builder'"'"'s family (\($why))"] else [] end)
+      + (if $ra and $r.reviewer != null and $a == $r.reviewer then ["reviewer anchored: the advisor shaped the build"] else [] end);
+  if ($in.advisor_on // false) | not then $r + {advisor: null}
+  elif $r.stop != null then $r + {advisor: null}
+  elif $in.builder == "self" then $r + {advisor: null, notes: addnotes(["advisor off: the director builds"])}
+  elif $in.named_advisor then
+    ($in.named_advisor) as $na
+    | if aok($na) | not then
+        {critics: [], reviewer: null, degraded: null, advisor: null, notes: [],
+         stop: {reason: ("named advisor \($na) is not available this run"
+                         + (if (($ael | index($na)) != null) and (($av | index($na)) == null) then " (policy denies it and no transport of it is available)" else "" end)),
+                remedy: "name an available advisor, or run without --advisor=<slot>"}}
+      else $r + {advisor: $na, notes: addnotes(advnotes($na; "named"))} end
+  elif $in.policy_advisor and in_el($in.policy_advisor) then
+    $r + {advisor: $in.policy_advisor, notes: addnotes(["advisor=\($in.policy_advisor) (policy)"] + advnotes($in.policy_advisor; "policy"))}
+  else
+    (if $in.policy_advisor then ["policy advisor \($in.policy_advisor) is not available: auto"] else [] end) as $pn
+    | ([ (($T[$bf] // {critic: [], hs: []}) | if $in.high_stakes then .hs else .critic end)[]
+         | . as $x | select(($el | index($x)) != null and (xo($x) | not) and fam($x) != $bf) ]) as $cand
+    | (if $ra and $r.reviewer != null then
+         ([ $cand[] | select(fam(.) != fam($r.reviewer)) ] | first // null) as $other
+         | if $other then {a: $other, n: []}
+           elif ($cand | length) > 0 then {a: $cand[0], n: ["advisor and reviewer share a family"]}
+           else {a: null, n: []} end
+       else {a: ($cand[0] // null), n: []} end) as $pick
+    | if $pick.a == null then
+        $r + {advisor: null,
+              notes: addnotes($pn + (if ([ $el[] | select((xo(.) | not) and fam(.) != $bf and fam(.) != "unknown") ] | length) == 0
+                                     then ["no advisor: only the builder'"'"'s family is eligible"]
+                                     else ["no advisor: no eligible slot of another family in the critic order"] end))}
+      else $r + {advisor: $pick.a, notes: addnotes($pn + $pick.n + advnotes($pick.a; "auto"))} end
+  end
 '

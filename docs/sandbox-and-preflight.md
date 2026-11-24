@@ -18,7 +18,7 @@ codex sandbox -- <project verification command>                                 
 codex sandbox -c 'sandbox_mode="workspace-write"' -- <project verification command>  # builder
 ```
 
-Run it from the repository directory (`codex sandbox -C` requires `--permission-profile` on 0.159.2).
+Run it from the repository directory (`codex sandbox -C` still requires `--permission-profile` on 0.169.0).
 `codex sandbox` has no `--ignore-user-config`, so in **isolated** mode (`docs/workers.md`, "Config
 modes") give it an empty `CODEX_HOME` — it needs no sign-in — so that it applies the same policy as
 an isolated worker:
@@ -143,7 +143,9 @@ its agy workers run no commands at all and the permission model below is what bo
 
 Antigravity's headless mode denies any tool action that would need a prompt and cancels the turn
 (`status:"CANCELED"`, `denied_actions`, exit 0). `--mode plan` for critics, `--mode accept-edits`
-for edits-only builders, `--add-dir "$REPO"` so the worker sees the project at all. Workspace trust
+for edits-only builders — always explicit, because since 1.5.7 the default is Auto where the account
+allows it (this account falls back to the default mode) — and `--add-dir "$REPO"` so the worker sees
+the project at all. Workspace trust
 (`trustedWorkspaces` in `~/.gemini/antigravity-cli/settings.json`) must cover the repo; the stage-0
 `/skills` probe listing zero workspace skills while `.agents/skills/` is populated is the symptom.
 
@@ -153,42 +155,6 @@ A clean working tree — commit or stash first. A write-mode worker that times o
 quota or is cancelled leaves valid-looking half-implementations behind, and without a baseline you
 cannot tell its work from yours. `.maestro/` is excluded via the repo's exclude file (`git rev-parse --git-path info/exclude`), so it never dirties
 the tree and `git stash -u` leaves it alone; never `git clean -x` in a maestro checkout.
-
-## Cursor — rungs and the reach probe
-
-Measured on agent 2026.10.01 (2026-10-11; `docs/workers.md`, "xAI — Cursor `agent`"):
-
-| Rung | Line | What the worker can do |
-| --- | --- | --- |
-| 1 | `--sandbox enabled`, no `--force` | write the workspace and `/tmp`; no other path, no `$HOME`; no network (Cursor's proxy answers `CONNECT … 403`) |
-| — | `--sandbox disabled`, no `--force` | run only what the user's allowlist names; everything else `Rejected:` — maestro never relies on it for workers, because the outcome depends on the user's `cli-config.json` |
-| 4 | `--force` | everything, unsandboxed — **only** on the user's explicit approval for this run, never under `--unattended`, never in a test or canary |
-
-A Cursor builder runs the tests only when the **reach probe** passed: one cheap model turn,
-`agent -p --sandbox enabled … "Run exactly this shell command once and reply with its exit code and
-the last 5 lines of its output: <cheap check>"`, judged by effect as above — a container-backed or
-networked check (Sail, a database) fails inside rung 1. Failed → the builder is edits-only and the
-director runs the tests. `/tmp` is writable at rung 1 but outside every brief's boundaries; the
-brief says so.
-
-**Rung 1 with the project's own network allowlist.** Cursor reads a per-repository
-`<repo>/.cursor/sandbox.json`; with `{"networkPolicy": {"default": "deny", "allow": ["<host>", …]}}`
-the sandboxed worker reached the one listed host that was tried and was refused the one unlisted
-host that was tried, and the rest of rung 1 held (measured 2026-10-28, agent 2026.10.22, `--sandbox
-enabled --trust`, no `--force`: `example.com` listed → HTTP 200; `www.iana.org` not listed → `curl:
-(56) CONNECT tunnel failed, response 403`; both reachable from the director's shell before and after;
-a write to a disposable directory outside the workspace and outside `/tmp` — in `/dev/shm`, writable
-from the director's shell — failed, the path does not exist inside the sandbox; a write into `/tmp`
-succeeds, as rung 1 always allowed) (evidence: maestro run docs-20261028-0134,
-`M2b-cursor-allowlist-containment.txt`). A two-host measurement, not a proof that the allowlist is
-exact. So a project whose tests need a package registry or an API can list those hosts; the reach
-probe then shows whether a Cursor builder can run its tests at rung 1. This is a **user setup step**: maestro never writes
-`.cursor/sandbox.json` (nor `~/.cursor/sandbox.json`); the existing reach probe measures whatever
-the project has, judged by effect, and its result decides as before. Two cautions from Cursor's
-documentation and forum, not measured here: with `sandbox.networkAccess:
-user_config_with_defaults` (the default) Cursor adds its own default allowlist, and a tool call
-asking for `required_permissions: ["network"]` may be approved past the file — an unattended run
-cannot approve anything, but an interactive one could.
 
 ## `claude -p` — no sandbox rung
 
@@ -201,8 +167,11 @@ added once a gate shows it.
 
 ## The director's own shell
 
-On every host but Claude Code the **director's** commands run under that host's own rules
-(`docs/hosts.md`, "Supported configuration"): Codex's default sandbox has no network, so a Codex
-director must run with `--sandbox danger-full-access` to reach the model APIs and run tests; a
-Cursor director runs only what its project allowlist names; an agy director asks for each command
-unless `permissions.allow` covers it. Stage 0 step 3a checks this before anything is launched.
+The director is Claude Code, so its commands run under Claude Code's own rules. With the Bash sandbox
+on, two things a run needs can fail:
+- since 2.1.323, `git worktree add/remove` and commits inside a worktree are read-only;
+- model APIs may be unreachable from the sandbox.
+
+`maestro-preflight` (stage 0 step 3a) checks git writes (`--worktree` for a split) and the free
+health checks before anything is launched, and names the remedy: allow the repository's `.git` and
+the CLIs' hosts, or run without the sandbox.

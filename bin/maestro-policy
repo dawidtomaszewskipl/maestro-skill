@@ -1,0 +1,456 @@
+#!/usr/bin/env bash
+# maestro-policy — read, merge and validate the policy files (docs/policy.md). The only reader of
+# maestro.policy.toml: deterministic, no state, no model call. TOML through python3's tomllib.
+#
+#   maestro-policy resolve     [--repo FILE] [--user FILE] [--flags JSON]
+#   maestro-policy roles-input [--repo FILE] [--user FILE] [--flags JSON]
+#
+#   --repo   default <repo top>/maestro.policy.toml (none outside a git repository)
+#   --user   default ${XDG_CONFIG_HOME:-$HOME/.config}/maestro/policy.toml
+#   --flags  the `flags` object of maestro-flags (its whole output line is taken too). Read for
+#            --rounds (critique_rounds), --model (implementer), --critic, --reviewer, --advisor and
+#            --advisor-checkpoints only.
+#
+# Precedence per key: flags > repo > user > defaults. A scalar, each families.<x>, each pin.<slot>
+# and each api.<key> comes from the highest level that sets it; a deny or transports.deny list
+# replaces a lower one; effort resolves per stage and family (at each level effort.<stage>.<family>,
+# else a shared effort.<stage>). Only the winning value of a key is validated; a removed 1.x name
+# and a malformed file stop wherever they stand.
+#
+# resolve prints one JSON line:
+#   {effective: {deny, implementer, critic, reviewer, cascade_drafter, critique_rounds, advisor,
+#                advisor_checkpoints,
+#                effort: {<stage>: level | {claude, openai, google}}, families, transports_deny,
+#                pin: {<slot>: "<version>" | {<transport>: "<slug>"}}, api: {fallback, max_usd_per_run}},
+#    sources: {"<key path>": "flags"|"repo"|"user"|"default"},
+#    files: {repo: path|null, user: path|null}, warnings: [...], stops: [...]}
+#   stops halt the run (docs/policy.md, "What halts"); warnings go in the Assign line.
+#
+# roles-input prints what the policy contributes to maestro-roles' input:
+#   {policy_critic, policy_reviewer, named_critics, named_reviewer,
+#    advisor_on (--advisor given; a policy `advisor` alone enables nothing), named_advisor, policy_advisor,
+#    exclude: {slots, denied, families_off, kept_by_flag,     drop exclude.slots from `eligible`
+#              advisor_kept},  a named advisor that policy blocks: add it to `advisor_eligible` only
+#                              (maestro-roles also needs it in `available`: a flag beats a denial,
+#                              never unavailability)
+#    explicit_only: [slot…]   explicit_only slots of bin/slots.json still in the roster; they stay in
+#                             `eligible` — maestro-roles itself keeps them out of every automatic choice
+#                             and family count unless one is named for that role
+#    transports_denied: {<slot>: [transport…]},              `denied` of maestro-roles --transports
+#    fable_budget: false (only when fable is excluded), unmapped: [...], warnings, stops}
+#
+# Exit 0 whenever it could report (the problems are in `stops`); 2 on a usage error.
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+
+cmd="${1:-}"
+[[ "$cmd" == "resolve" || "$cmd" == "roles-input" ]] || mae_die "usage: maestro-policy resolve|roles-input [--repo FILE] [--user FILE] [--flags JSON]"
+shift
+repo="" user="${XDG_CONFIG_HOME:-$HOME/.config}/maestro/policy.toml" flags="null"
+repo_set=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo)  [[ $# -ge 2 ]] || mae_die "--repo needs a file"; repo="$2"; repo_set=1; shift 2 ;;
+    --user)  [[ $# -ge 2 ]] || mae_die "--user needs a file"; user="$2"; shift 2 ;;
+    --flags) [[ $# -ge 2 ]] || mae_die "--flags needs a JSON object"; flags="$2"; shift 2 ;;
+    *) mae_die "unknown argument: $1" ;;
+  esac
+done
+if (( ! repo_set )); then
+  top="$(git rev-parse --show-toplevel 2>/dev/null)" && repo="$top/maestro.policy.toml"
+fi
+jq -e 'type == "object" or . == null' >/dev/null 2>&1 <<<"$flags" || mae_die "--flags is not a JSON object"
+
+exec python3 -I - "$cmd" "$repo" "$user" "$flags" "$MAESTRO_BIN/slots.json" <<'PY'
+import json, math, os, re, sys, tomllib
+
+cmd, repo_path, user_path, flags_json, slots_path = sys.argv[1:6]
+with open(slots_path, encoding="utf-8") as f:
+    SLOTS = {k: v for k, v in json.load(f).items() if not k.startswith("_")}
+FAMILIES = ["claude", "openai", "google"]
+STAGES = {"critique": "medium", "high_stakes_critique": "high", "build": "medium", "review": "high", "draft": "medium",
+          "advise": "high"}
+LEVELS = ["low", "medium", "high", "xhigh", "max"]
+RANGE = {"claude": LEVELS, "openai": LEVELS + ["ultra"], "google": LEVELS[:4]}   # the family's widest model
+DRAFTERS = ["luna", "haiku", "gemini"]
+REMOVED = {"slot": "grok", "family": "xai", "key": "cursor_fast", "transport": "cursor"}  # Removed in 2.0.0
+GONE = "was removed in 2.0.0: delete the entry"
+DEFAULTS = {"deny": [], "implementer": None, "critic": None, "reviewer": None, "cascade_drafter": "luna",
+            "critique_rounds": 2, "advisor": None, "advisor_checkpoints": 1,
+            "transports.deny": [], "api.fallback": False, "api.max_usd_per_run": 20}
+DEFAULTS.update({f"families.{f}": "on" for f in FAMILIES})
+DEFAULTS.update({f"effort.{s}": v for s, v in STAGES.items()})
+TOP = ["deny", "implementer", "critic", "reviewer", "cascade_drafter", "critique_rounds", "advisor",
+       "advisor_checkpoints", "effort", "families", "transports", "pin", "api"]
+
+warnings, stops = [], []
+known_slots = ", ".join(SLOTS)
+
+
+def show(v):
+    return json.dumps(v, default=str, ensure_ascii=False)
+
+
+def fam(slot):
+    return SLOTS[slot]["family"] if slot in SLOTS else None
+
+
+# --- validators: each returns (value, None) or (None, "what is wrong") ---------------------------
+def v_slot(v, self_ok=False):
+    if not isinstance(v, str):
+        return None, "must be a slot name (a string)"
+    if v == REMOVED["slot"]:
+        return None, f"the slot {v} {GONE}"
+    if v == "self":
+        return (v, None) if self_ok else (None, "self only builds (implementer, deny)")
+    if v not in SLOTS:
+        return None, f"unknown slot {v} (known: {known_slots})"
+    return v, None
+
+
+def v_slots(v):
+    if not isinstance(v, list):
+        return None, "must be a list of slot names"
+    for x in v:
+        _, e = v_slot(x, True)
+        if e:
+            return None, e
+    return list(dict.fromkeys(v)), None
+
+
+def v_pairs(v):
+    if not isinstance(v, list):
+        return None, "must be a list of <slot>@<transport> pairs"
+    for x in v:
+        m = re.fullmatch(r"([a-z]+)@([a-z]+)", x) if isinstance(x, str) else None
+        if not m:
+            return None, f"{show(x)} is not <slot>@<transport>"
+        s, t = m.groups()
+        if t == REMOVED["transport"]:
+            return None, f"{x}: the transport {t} {GONE}"
+        _, e = v_slot(s)
+        if e:
+            return None, f"{x}: {e}"
+        if t not in SLOTS[s]["transports"]:
+            return None, f"{s} has no transport {t} (its transports: {', '.join(SLOTS[s]['transports'])})"
+    return list(dict.fromkeys(v)), None
+
+
+def v_drafter(v):
+    if v == REMOVED["slot"]:
+        return None, f"the slot {v} {GONE}"
+    return (v, None) if isinstance(v, str) and v in DRAFTERS else (None, f"must be one of {', '.join(DRAFTERS)}")
+
+
+def v_rounds(v):
+    ok = isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 8
+    return (v, None) if ok else (None, f"{show(v)} is outside 1–8")
+
+
+def v_checkpoints(v):
+    ok = isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 3
+    return (v, None) if ok else (None, f"{show(v)} is outside 1–3")
+
+
+def v_effort(v, family=None):
+    if not isinstance(v, str) or v not in RANGE["openai"]:
+        return None, f"{show(v)} is not an effort level ({'|'.join(LEVELS)}; ultra for openai only)"
+    if family is None and v not in LEVELS:
+        return None, f"{v} is an openai level: set it as effort.<stage>.openai"
+    if family is not None and v not in RANGE[family]:
+        return None, f"{v} is outside the {family} range ({'|'.join(RANGE[family])})"
+    return v, None
+
+
+def v_onoff(v):
+    if isinstance(v, bool):
+        return ("on" if v else "off"), None
+    return (v, None) if v in ("on", "off") else (None, 'must be "on" or "off"')
+
+
+def v_bool(v):
+    return (v, None) if isinstance(v, bool) else (None, "must be true or false")
+
+
+def v_usd(v):
+    ok = isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v >= 0
+    return (v, None) if ok else (None, "must be a number of USD, 0 or more")
+
+
+def v_pin(slot, v):
+    if isinstance(v, str):
+        if re.fullmatch(r"[0-9]+(\.[0-9]+)*", v):
+            return v, None
+        return None, f'"{v}" is not a version (digits and dots, e.g. "6.1")'
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return None, f'the version must be a quoted string ("{v}"), not a number'
+    if not isinstance(v, dict) or not v:
+        return None, 'must be "<version>" or {<transport> = "<slug>"}'
+    for t, slug in v.items():
+        if t == REMOVED["transport"]:
+            return None, f"the transport {t} {GONE}"
+        if t not in SLOTS[slot]["transports"]:
+            return None, f"{slot} has no transport {t} (its transports: {', '.join(SLOTS[slot]['transports'])})"
+        if not isinstance(slug, str) or not re.search(SLOTS[slot]["line_re"], slug):
+            return None, f"{t}: {show(slug)} is not a {slot} slug"
+    return dict(v), None
+
+
+# --- one file → {key path: (value, error)} -----------------------------------------------------
+def table(label, name, v):
+    if isinstance(v, dict):
+        return v
+    stops.append(f"{label}: {name} must be a table")
+    return {}
+
+
+def load(level, path):
+    """Returns (flat, path|None). Unknown keys warn; removed names and a malformed file stop."""
+    if not path:
+        return {}, None
+    for ext in (".yml", ".yaml"):
+        old = re.sub(r"\.toml$", "", path) + ext
+        if os.path.exists(old):
+            stops.append(f"convert to TOML: {old} → {re.sub(r'[.]ya?ml$', '', old)}.toml")
+    if not os.path.exists(path):
+        return {}, None
+    path = os.path.abspath(path)
+    label = f"{level} policy ({path})"
+    try:
+        with open(path, "rb") as f:
+            doc = tomllib.load(f)
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
+        stops.append(f"{label}: malformed TOML: {e}")
+        return {}, path
+    except OSError as e:
+        stops.append(f"{label}: unreadable: {e.strerror}")
+        return {}, path
+    flat = {}
+    for k, v in doc.items():
+        if k == REMOVED["key"]:
+            stops.append(f"{label}: the key {k} {GONE}")
+        elif k not in TOP:
+            warnings.append(f"{label}: unknown key {k} (ignored)")
+        elif k == "deny":
+            flat[k] = v_slots(v)
+        elif k == "implementer":
+            flat[k] = v_slot(v, True)
+        elif k in ("critic", "reviewer", "advisor"):
+            flat[k] = v_slot(v)
+        elif k == "cascade_drafter":
+            flat[k] = v_drafter(v)
+        elif k == "critique_rounds":
+            flat[k] = v_rounds(v)
+        elif k == "advisor_checkpoints":
+            flat[k] = v_checkpoints(v)
+        elif k == "effort":
+            for s, sv in table(label, k, v).items():
+                if s not in STAGES:
+                    warnings.append(f"{label}: unknown key effort.{s} (ignored)")
+                elif isinstance(sv, dict):
+                    for f_, fv in sv.items():
+                        if f_ == REMOVED["family"]:
+                            stops.append(f"{label}: effort.{s}.{f_}: the family {f_} {GONE}")
+                        elif f_ not in FAMILIES:
+                            stops.append(f"{label}: effort.{s}.{f_}: unknown family (known: {', '.join(FAMILIES)})")
+                        else:
+                            flat[f"effort.{s}.{f_}"] = v_effort(fv, f_)
+                else:
+                    flat[f"effort.{s}"] = v_effort(sv)
+        elif k == "families":
+            for f_, fv in table(label, k, v).items():
+                if f_ == REMOVED["family"]:
+                    stops.append(f"{label}: families.{f_}: the family {f_} {GONE}")
+                elif f_ not in FAMILIES:
+                    stops.append(f"{label}: families.{f_}: unknown family (known: {', '.join(FAMILIES)})")
+                else:
+                    flat[f"families.{f_}"] = v_onoff(fv)
+        elif k == "transports":
+            for tk, tv in table(label, k, v).items():
+                if tk == "deny":
+                    flat["transports.deny"] = v_pairs(tv)
+                else:
+                    warnings.append(f"{label}: unknown key transports.{tk} (ignored)")
+        elif k == "pin":
+            for s, pv in table(label, k, v).items():
+                _, e = v_slot(s)
+                if e:
+                    stops.append(f"{label}: pin.{s}: {e}")
+                else:
+                    flat[f"pin.{s}"] = v_pin(s, pv)
+        elif k == "api":
+            for ak, av in table(label, k, v).items():
+                if ak == "fallback":
+                    flat["api.fallback"] = v_bool(av)
+                elif ak == "max_usd_per_run":
+                    flat["api.max_usd_per_run"] = v_usd(av)
+                else:
+                    warnings.append(f"{label}: unknown key api.{ak} (ignored)")
+    for k in [k for k, (_, e) in flat.items() if e and GONE in e]:    # a removed name stops even where it loses
+        stops.append(f"{label}: {k}: {flat.pop(k)[1]}")
+    return flat, path
+
+
+flags = json.loads(flags_json) or {}
+if isinstance(flags.get("flags"), dict):
+    flags = flags["flags"]
+fl = {}
+
+
+def fslot(x):
+    return x["slot"] if isinstance(x, dict) and isinstance(x.get("slot"), str) else None
+
+
+if isinstance(flags.get("rounds"), int):
+    fl["critique_rounds"] = (flags["rounds"], None)
+if fslot(flags.get("model")):
+    fl["implementer"] = (fslot(flags["model"]), None)
+flag_critics = flags["critics"] if isinstance(flags.get("critics"), list) else []
+named_critics = [fslot(c) for c in flag_critics if fslot(c)]
+if named_critics:
+    fl["critic"] = (named_critics[0], None)
+if fslot(flags.get("reviewer")):
+    fl["reviewer"] = (fslot(flags["reviewer"]), None)
+if fslot(flags.get("advisor")):                          # --advisor=<slot>; bare --advisor ("auto") names none
+    fl["advisor"] = (fslot(flags["advisor"]), None)
+if isinstance(flags.get("advisor_checkpoints"), int):
+    fl["advisor_checkpoints"] = (flags["advisor_checkpoints"], None)
+if flags.get("cascade") not in (None, "", "default"):   # --cascade=<drafter>; bare --cascade keeps the policy's
+    fl["cascade_drafter"] = (flags["cascade"], None)
+
+user_flat, user_file = load("user", user_path)
+repo_flat, repo_file = load("repo", repo_path)
+LAYERS = [("flags", fl, "flags"), ("repo", repo_flat, f"repo policy ({repo_file})"),
+          ("user", user_flat, f"user policy ({user_file})"), ("default", {k: (v, None) for k, v in DEFAULTS.items()}, "")]
+sources = {}
+
+
+def pick(keys):
+    """The highest level that sets one of `keys` (in that order): (value, level, key). An invalid
+    winner is a stop and the default stands in for it."""
+    for level, flat, label in LAYERS:
+        for k in keys:
+            if k in flat:
+                val, err = flat[k]
+                if err is None:
+                    return val, level, k
+                stops.append(f"{label}: {k}: {err}")
+                return DEFAULTS.get(keys[-1]), "default", keys[-1]
+    return None, "default", keys[-1]
+
+
+def take(key):
+    val, level, _ = pick([key])
+    sources[key] = level
+    return val
+
+
+eff = {k: take(k) for k in ["deny", "implementer", "critic", "reviewer", "cascade_drafter", "critique_rounds",
+                            "advisor", "advisor_checkpoints"]}
+eff["effort"] = {}
+for s in STAGES:
+    got = {f: pick([f"effort.{s}.{f}", f"effort.{s}"]) for f in FAMILIES}
+    if len({(lv, k) for _, lv, k in got.values()}) == 1 and got["claude"][2] == f"effort.{s}":
+        eff["effort"][s] = got["claude"][0]
+        sources[f"effort.{s}"] = got["claude"][1]
+    else:
+        eff["effort"][s] = {f: got[f][0] for f in FAMILIES}
+        for f in FAMILIES:
+            sources[f"effort.{s}.{f}"] = got[f][1]
+eff["families"] = {f: take(f"families.{f}") for f in FAMILIES}
+eff["transports_deny"] = take("transports.deny")
+eff["pin"] = {}
+for s in SLOTS:
+    if any(f"pin.{s}" in flat for _, flat, _ in LAYERS):
+        val, level, _ = pick([f"pin.{s}"])
+        if val is not None:
+            eff["pin"][s] = val
+            sources[f"pin.{s}"] = level
+eff["api"] = {"fallback": take("api.fallback"), "max_usd_per_run": take("api.max_usd_per_run")}
+
+# --- the merged roster: denied slots and families switched off ------------------------------------
+off = [f for f in FAMILIES if eff["families"][f] == "off"]
+
+
+def blocked(slot):
+    if slot in eff["deny"]:
+        return "denied"
+    if fam(slot) in off:
+        return f"families.{fam(slot)} is off"
+    return None
+
+
+def flag_slot(flag, slot):
+    """An explicit slot beats a denial and a family switch, with a warning (SKILL.md, "Flags")."""
+    if blocked(slot):
+        warnings.append(f"{flag}={slot}: {blocked(slot)} by policy — explicit wins")
+        kept.append(slot)
+
+
+kept = []
+for key, flag in (("implementer", "--model"), ("cascade_drafter", "--cascade"), ("critic", None), ("reviewer", "--reviewer")):
+    why = blocked(eff[key]) if eff[key] else None
+    if sources[key] == "flags":
+        if flag:
+            flag_slot(flag, eff[key])
+    elif not why or sources[key] == "default":
+        pass    # the default drafter matters only under --cascade; the director's roster check has it
+    elif key in ("implementer", "cascade_drafter"):
+        stops.append(f"{key} {eff[key]} ({sources[key]} policy) is not eligible: {why}")
+    else:
+        warnings.append(f"policy {key} {eff[key]} dropped: {why}")
+for c in named_critics:
+    flag_slot("--critic", c)
+# The advisor (SKILL.md, "Advisor"): a named one beats a denial for this role only — it is kept for
+# advisor_eligible, never for `eligible`, so it never becomes an automatic critic or reviewer.
+advisor_kept = []
+if eff["advisor"] and blocked(eff["advisor"]):
+    if sources["advisor"] == "flags":
+        warnings.append(f"--advisor={eff['advisor']}: {blocked(eff['advisor'])} by policy — explicit wins, for the advisor role only")
+        advisor_kept.append(eff["advisor"])
+    elif sources["advisor"] in ("repo", "user"):
+        warnings.append(f"policy advisor {eff['advisor']} dropped: {blocked(eff['advisor'])}")
+if flags.get("cascade") not in (None, "") and eff["cascade_drafter"] and eff["cascade_drafter"] == eff["implementer"]:
+    stops.append(f"--cascade: the drafter {eff['cascade_drafter']} ({sources['cascade_drafter']}) is the implementer "
+                 f"({sources['implementer']}) — illegal (docs/cascade.md); name another drafter or another --model")
+kept = list(dict.fromkeys(kept))
+for x in [flags.get("model"), flags.get("reviewer"), flags.get("advisor")] + flag_critics:
+    if isinstance(x, dict) and x.get("transport") and f"{x.get('slot')}@{x['transport']}" in eff["transports_deny"]:
+        warnings.append(f"{x['slot']}@{x['transport']}: transport denied by policy — explicit wins")
+
+if cmd == "resolve":
+    out = {"effective": eff, "sources": sources, "files": {"repo": repo_file, "user": user_file},
+           "warnings": warnings, "stops": stops}
+else:
+    excl = [s for s in list(SLOTS) + ["self"] if blocked(s) and s not in kept]
+    tden = {}
+    for p in eff["transports_deny"]:
+        s, t = p.split("@")
+        tden.setdefault(s, []).append(t)
+
+    def pol(key):
+        return eff[key] if sources[key] in ("repo", "user") and not blocked(eff[key]) else None
+
+    out = {"policy_critic": pol("critic"), "policy_reviewer": pol("reviewer"), "named_critics": named_critics,
+           "named_reviewer": eff["reviewer"] if sources["reviewer"] == "flags" else None,
+           "advisor_on": flags.get("advisor") is not None,
+           "named_advisor": eff["advisor"] if sources["advisor"] == "flags" else None,
+           "policy_advisor": pol("advisor"),
+           "exclude": {"slots": excl, "denied": eff["deny"], "families_off": off, "kept_by_flag": kept,
+                       "advisor_kept": advisor_kept},
+           "explicit_only": [s for s in SLOTS if SLOTS[s].get("explicit_only") and s not in excl],
+           "transports_denied": tden}
+    if "fable" in excl:
+        out["fable_budget"] = False
+    out["unmapped"] = [
+        "fable_budget: no policy key (false here only when fable is excluded); otherwise the director sets it",
+        "named_reviewer: pass it to maestro-roles as is (it checks availability and the family rule)",
+        "advisor_eligible: `eligible` plus exclude.advisor_kept (the director's); available: the slots with an available (slot, transport) pair from preflight and the catalog, policy ignored — a kept advisor outside it stops; advisor_on, named_advisor and policy_advisor: pass them as is",
+        "review_active: not policy; true when --review is full or cross",
+        "builder, drafter, high_stakes, eligible, director_family, director_line: not policy; `eligible` is preflight's minus exclude.slots",
+        "implementer, cascade_drafter, critique_rounds, advisor_checkpoints, effort, pin, api: not maestro-roles input (resolve has them)"]
+    out["warnings"], out["stops"] = warnings, stops
+for k in ("warnings", "stops"):
+    out[k] = list(dict.fromkeys(out[k]))
+print(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
+PY

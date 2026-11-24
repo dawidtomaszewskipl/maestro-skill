@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 # maestro-ledger — build a complete ledger row from a job's output and append it (docs/ledger.md).
 #
-#   maestro-ledger --gen N --job <id> --stage <stage> --cli codex|agy|claude-cli|claude-sdk|cursor-agent
-#                 --transport native|agy|cursor|codex|api --family <family> --model <requested>
+#   maestro-ledger --gen N --job <id> --stage <stage> --cli codex|agy|claude-cli|claude-sdk
+#                 --transport native|agy|codex|api --family <family> --model <requested>
 #                 [--effort E] [--round R] [--outcome TEXT] [--verdict V]
 #                 [--effective-config JSON|TEXT] [--service-tier TIER] [--run ID] [--host H] [--dry-run]
 #   maestro-ledger --gen N --cli claude-agent --stage <stage> --transport native --family claude
-#                 --model <alias> --served <model id> --agent-id <id> --total-tokens N
+#                 --model <alias> [--served <model id>] --agent-id <id> --total-tokens N
 #                 [--tool-uses N] [--duration-ms N] [--status success|error] [other options as above]
 #       An Agent-tool call (interactive Claude Code) has no job: its numbers come from the
 #       subagent's completion (total tokens, tool uses, duration — the harness reports no split
 #       into input and output, so those fields stay null) and job_id is null.
+#   maestro-ledger report --run <id> [--json]
+#       the report's cost table (docs/ledger.md, "Report table") from the run's rows: per stage and
+#       model — calls, wall time, tokens, verdicts — plus per-family totals and the api spend.
+#       Missing numbers show as "–", never as 0. Read-only, no --gen.
 #   maestro-ledger cost --run <id> [--transport api]
 #       {run_id, transport, cost_usd, rows}: the USD the run's rows report (cost_usd, an estimate of
 #       the SDK's own price table — not an invoice). Read-only, no --gen. The director subtracts it
@@ -18,11 +22,10 @@
 #
 # Reads .maestro/jobs/<id>/: `out` (the event stream or envelope), `answer` (codex -o), `exit`,
 # `meta.json`. run_id and host come from meta.json (a maestro-run job), else from --run/--host,
-# else from the lock record — an interactive Claude Code launches with the Bash tool's background
-# mode, so its job directories have no meta.json. Usage is taken from the CLI's own fields —
+# else from the lock record (a job directory written by hand, without maestro-run, has no meta.json). Usage is taken from the CLI's own fields —
 # codex: the last turn.completed.usage; agy: the envelope's usage (cumulative per conversation: kept raw in raw_cumulative); claude-cli:
 # the result event's usage and modelUsage; claude-sdk (the api transport, maestro-sdk): the same
-# event stream, plus cost_usd from result.total_cost_usd; cursor-agent: the result event's usage and init.model.
+# event stream, plus cost_usd from result.total_cost_usd.
 # Codex resumes and agy conversations report CUMULATIVE usage: the raw counters go into
 # raw_cumulative and the token fields get the delta against the previous row of the same session.
 # Missing numbers are null, never estimated. Appends through maestro-state (audited); --dry-run
@@ -31,6 +34,44 @@ set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/_lib.sh"
 
 SD="$(mae_state_dir)"
+
+if [[ "${1:-}" == report ]]; then
+  shift; r_run="" r_json=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --run) r_run="$2"; shift 2 ;;
+      --json) r_json=1; shift ;;
+      *) mae_die "maestro-ledger report: unknown option $1" ;;
+    esac
+  done
+  [[ -n "$r_run" ]] || mae_die "maestro-ledger report needs --run"
+  # shellcheck disable=SC2016  # jq program
+  tbl="$({ [[ -f "$SD/ledger.jsonl" ]] && cat "$SD/ledger.jsonl"; true; } | jq -sc --arg r "$r_run" '
+    def n: if type == "number" then . else 0 end;
+    def known(f): [ .[] | f | select(type == "number") ] | if length == 0 then null else add end;
+    [ .[] | select(.run_id == $r) ] as $rows
+    | { run_id: $r, calls: ($rows | length),
+        rows: [ $rows | group_by([.stage, .model_served // .model_requested, .effort, .transport])[]
+                | { stage: .[0].stage, who: ((.[0].model_served // .[0].model_requested // "?")
+                      + (if .[0].effort then "@" + .[0].effort else "" end)),
+                    transport: .[0].transport, calls: length, wall_s: known(.duration_s),
+                    input: known(.input_tokens), output: known(.output_tokens), total: known(.total_tokens),
+                    cost_usd: known(.cost_usd), verdicts: ([ .[] | .verdict // .outcome | select(. != null) ] | unique) } ],
+        families: ( $rows | group_by(.family) | map({family: (.[0].family // "?"), calls: length,
+                    total: known(.total_tokens), cost_usd: known(.cost_usd)}) ),
+        api_usd: ([ $rows[] | select(.transport == "api") | .cost_usd | n ] | add // 0) }')"
+  if [[ $r_json -eq 1 ]]; then printf '%s\n' "$tbl"; exit 0; fi
+  jq -r '
+    def f: if . == null then "–" else tostring end;
+    "| Stage | Who | Transport | Calls | Wall s | In | Out | Total | Result |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    (.rows[] | "| \(.stage) | \(.who) | \(.transport | f) | \(.calls) | \(.wall_s | f) | \(.input | f) | \(.output | f) | \(.total | f) | \(.verdicts | join(", ")) |"),
+    "",
+    "Per family: " + ([ .families[] | "\(.family) \(.calls) calls, \(.total | f) tokens" ] | join(" · ")),
+    (if .api_usd > 0 then "api spend: $\(.api_usd) (the SDK'"'"'s estimate, not an invoice)" else empty end),
+    "Token totals are not subscription cost."' <<<"$tbl"
+  exit 0
+fi
 
 if [[ "${1:-}" == cost ]]; then
   shift; c_run="" c_tr=""
@@ -83,12 +124,12 @@ num() { [[ -z "$2" || "$2" =~ ^[0-9]+$ ]] || mae_die "maestro-ledger: $1 must be
 num --total-tokens "$total_opt"; num --tool-uses "$tool_uses"; num --duration-ms "$dur_ms"
 if [[ "$cli" == claude-agent ]]; then
   [[ -z "$job" ]] || mae_die "maestro-ledger: an Agent-tool call has no job (drop --job)"
-  [[ -n "$served_opt" && -n "$agent_id" && -n "$total_opt" ]] \
-    || mae_die "maestro-ledger --cli claude-agent needs --served, --agent-id and --total-tokens (from the completion)"
+  [[ -n "$agent_id" && -n "$total_opt" ]] \
+    || mae_die "maestro-ledger --cli claude-agent needs --agent-id and --total-tokens (from the completion); --served when it names the model"
   J="$SD/jobs/.none"; out=/dev/null
 else
   [[ -n "$job" ]] || mae_die "maestro-ledger needs --job"
-  J="$SD/jobs/$job"
+  J="$(mae_job_dir "$SD" "$job")"
   [[ -d "$J" ]] || mae_die "maestro-ledger: no job $job"
   out="$J/out"; [[ -f "$out" ]] || out=/dev/null
 fi
@@ -100,10 +141,16 @@ case "$cli" in
     usage="$(jq -c '{input_tokens, cached_input_tokens, cache_write_input_tokens, output_tokens,
                      reasoning_tokens: .reasoning_output_tokens}' <<<"$u")"
     status="$(if grep -q '"turn.failed"' "$out"; then echo failed; elif grep -q '"turn.completed"' "$out"; then echo completed; else echo incomplete; fi)"
-    denied=null; served=null; dur=null
+    denied=null; served=null
+    # Codex events carry no timestamps: wall time = launch (meta.json started_at, else the out
+    # file's birth time) to finish (the exit file's mtime, else the out file's last write).
+    t0="$(jq -r '.started_at // empty | fromdateiso8601? // empty' "$J/meta.json" 2>/dev/null || true)"
+    [[ -n "$t0" ]] || { t0="$(stat -c %W "$out" 2>/dev/null || echo 0)"; [[ "$t0" == 0 ]] && t0=""; }
+    t1="$(stat -c %Y "$J/exit" 2>/dev/null || stat -c %Y "$out" 2>/dev/null || true)"
+    dur=null; [[ -n "$t0" && -n "$t1" && "$t1" -ge "$t0" ]] && dur=$(( t1 - t0 ))
     # The served model is the thread's latest turn_context in its rollout (the effective-config source).
     if [[ -n "$sid" ]]; then
-      ro="$(find "${CODEX_HOME:-$HOME/.codex}/sessions" -name "rollout-*-$sid.jsonl" 2>/dev/null | head -1 || true)"
+      ro="$(mae_codex_rollout "$sid")"
       if [[ -n "$ro" ]]; then
         m="$( { grep '"type":"turn_context"' "$ro" || true; } | tail -1 | jq -r '.payload.model // empty' 2>/dev/null || true)"
         [[ -n "$m" ]] && served="$(jq -cn --arg m "$m" '$m')"
@@ -117,7 +164,7 @@ case "$cli" in
     status="$(jq -r '.status // "none"' <<<"$env_")"; denied="$(jq -c '[(.denied_actions // [])[].action]' <<<"$env_")"
     served=null; dur="$(jq -c '.duration_seconds // null' <<<"$env_")" ;;
   claude-cli|claude-sdk)
-    res="$(jq -c 'select(.type == "result")' "$out" 2>/dev/null | tail -1)"; [[ -n "$res" ]] || res='{}'
+    res="$(mae_result_event "$out")"; [[ -n "$res" ]] || res='{}'
     sid="$(jq -r '.session_id // empty' <<<"$res")"
     usage="$(jq -c '(.usage // {}) | {input_tokens, cached_input_tokens: .cache_read_input_tokens,
                      cache_write_input_tokens: .cache_creation_input_tokens, output_tokens, reasoning_tokens: null}' <<<"$res")"
@@ -125,23 +172,14 @@ case "$cli" in
     status="$(jq -r '.subtype // "none"' <<<"$res")"; denied="$(jq -c '[(.permission_denials // [])[].tool_name]' <<<"$res")"
     dur="$(jq -c 'if .duration_ms then .duration_ms / 1000 else null end' <<<"$res")"
     if [[ "$cli" == claude-sdk ]]; then cost="$(jq -c '.total_cost_usd // null' <<<"$res")"; fi ;;
-  cursor-agent)
-    res="$(jq -c 'select(.type == "result")' "$out" 2>/dev/null | tail -1)"; [[ -n "$res" ]] || res='{}'
-    sid="$(jq -r '.session_id // empty' <<<"$res")"
-    usage="$(jq -c '(.usage // {}) | {input_tokens: .inputTokens, cached_input_tokens: .cacheReadTokens,
-                     cache_write_input_tokens: .cacheWriteTokens, output_tokens: .outputTokens, reasoning_tokens: null}' <<<"$res")"
-    served="$(jq -c 'select(.type == "system" and .subtype == "init") | .model' "$out" 2>/dev/null | head -1)"
-    [[ -n "$served" ]] || served=null
-    status="$(jq -r '.subtype // "none"' <<<"$res")"; denied=null
-    dur="$(jq -c 'if .duration_ms then .duration_ms / 1000 else null end' <<<"$res")" ;;
   claude-agent)
     sid="$agent_id"
     usage="$(jq -cn --argjson t "$total_opt" '{input_tokens: null, cached_input_tokens: null,
                      cache_write_input_tokens: null, output_tokens: null, reasoning_tokens: null, total_tokens: $t}')"
-    served="$(jq -cn --arg m "$served_opt" '$m')"
+    served="$(if [[ -n "$served_opt" ]]; then jq -cn --arg m "$served_opt" '$m'; else echo null; fi)"
     status="${status_opt:-success}"; denied=null
     dur="$(if [[ -n "$dur_ms" ]]; then jq -n --argjson d "$dur_ms" '$d / 1000'; else echo null; fi)" ;;
-  *) mae_die "maestro-ledger: --cli is codex, agy, claude-cli, claude-sdk, cursor-agent or claude-agent" ;;
+  *) mae_die "maestro-ledger: --cli is codex, agy, claude-cli, claude-sdk or claude-agent" ;;
 esac
 
 # Cumulative counters (codex resume, agy conversation). Per COUNTER: the baseline is the last

@@ -1,0 +1,72 @@
+# maestro.policy.toml — standing roster preferences for the maestro skill.
+#
+# Put this file at the root of a repository (team-shared, committed) or at
+# ~/.config/maestro/policy.toml (your own defaults). Precedence:
+#   command-line flags  >  repo maestro.policy.toml  >  ~/.config/maestro/policy.toml  >  skill defaults
+# Every key is optional. Slot names are the --model values:
+#   sonnet opus fable haiku astra sol luna terra argon carbon neon gemini self   (bin/slots.json;
+#   carbon and neon are explicit-only: they serve only a role they are named for)
+# Transports: native agy codex api (a slot@transport pair names one).
+# Effort values: low medium high xhigh max (ultra for OpenAI only); clamped per transport.
+# Check a file with: bin/maestro-policy resolve   (TOML: the plain keys come before the [tables]).
+
+# Slots the director never picks on its own. An explicit --model still wins,
+# with a warning in the assignment line.
+deny = ["fable", "haiku"]
+
+# Default implementer when --model is absent. Without this key the rubric decides.
+implementer = "sol"
+
+# Preferred critic and reviewer when the cross-family rule allows them
+# (Opus is cross-family to the Sol implementer above; Fable is denied, so it is not listed here).
+critic = "opus"
+reviewer = "opus"
+
+# Default drafter for --cascade (luna | haiku | gemini; Google is switched off below).
+cascade_drafter = "luna"
+
+# Plan-critique cap, 1-8 (default 2). --rounds on the command line beats it.
+critique_rounds = 2
+
+# The advisor slot for a bare --advisor (optional checkpoints in the build; SKILL.md "Advisor").
+# This names the advisor, it never turns one on: without --advisor nothing is asked.
+advisor = "opus"
+# How many times the builder may ask it, 1-3 (default 1). --advisor-checkpoints beats it.
+advisor_checkpoints = 1
+
+# Per-stage effort. A stage takes one value, or per-family values (openai/google/claude)
+# when the families need different levels (Argon, Carbon and Flash stop at high, Hydrogen and Neon at xhigh;
+# a single higher value is clamped and marked (clamped)).
+[effort]
+critique = "medium"
+high_stakes_critique = { openai = "xhigh", google = "high" }
+build = "medium"
+review = "high"
+draft = "medium"
+advise = "high"     # the advisor call (--advisor)
+
+# Switch a family off even though its CLI is installed and signed in ("on" | "off";
+# "on" lifts a lower-precedence "off", it cannot make an absent CLI available).
+[families]
+google = "off"
+# claude = "on"    # Claude workers can be switched off too (the director is always Claude Code)
+
+# Transports the director never picks on its own (an explicit slot@transport still wins).
+[transports]
+deny = [
+  "opus@agy",      # Opus only through Claude Code itself (and api)
+  "sonnet@api",
+]
+
+# Pin a line instead of following the newest model (docs/catalog.md, "Pins").
+# A version is a quoted string: 6.10 unquoted would be the number 6.1.
+[pin]
+sol = "6.1"                               # every transport of the slot must serve 6.1
+# opus = { native = "claude-opus-5-5" }   # exact slug on one transport, the others off
+
+# Claude through the Agent SDK on an API key (the Max plan's monthly API credit; docs/workers.md).
+# --sdk uses it for every Claude slot; fallback = true also makes it the last transport a Claude
+# slot switches to when the subscription's limit is spent. Usually set in ~/.config/maestro/policy.toml.
+[api]
+fallback = true
+max_usd_per_run = 20       # USD per run, summed from the ledger's cost_usd (an SDK estimate)

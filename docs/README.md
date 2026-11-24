@@ -16,7 +16,7 @@ guide, then the technical pages when you need the exact rule.
 | [how-it-works.md](guide/how-it-works.md) | What happens during a run, step by step; what you are asked; what "approved" means; what happens when something fails |
 | [models-and-roles.md](guide/models-and-roles.md) | Which models maestro can use, who checks whom and why, how the newest model is found, what "provisional" and "degraded" mean |
 | [costs-and-limits.md](guide/costs-and-limits.md) | Which subscription pays for what, the API credit, the cost table in the report, what happens at a usage limit, the hard stops |
-| [setup-and-hosts.md](guide/setup-and-hosts.md) | Installing, signing in, running from Claude Code, Codex, Cursor or agy, the policy file, the safety defaults |
+| [setup-and-hosts.md](guide/setup-and-hosts.md) | Installing, signing in, running in Claude Code (interactive or headless), the policy file, the safety defaults |
 | [glossary.md](guide/glossary.md) | Every maestro term in a sentence or two, plus a short FAQ |
 
 ## The technical pages — for the director, and for you when you need the exact rule
@@ -24,7 +24,7 @@ guide, then the technical pages when you need the exact rule.
 | Page | What it holds | Read it when |
 | --- | --- | --- |
 | [../SKILL.md](../SKILL.md) | The skill itself: every rule the director follows | you want the binding wording of a rule |
-| [hosts.md](hosts.md) | Host detection, launching and waiting for jobs, asking the user, the repository lock, transport switch, end-to-end canaries | something behaves differently in one host |
+| [hosts.md](hosts.md) | Detecting Claude Code, interactive vs headless, launching and waiting for jobs, asking the user, the repository lock, transport switch | something behaves differently interactive vs headless |
 | [commands.md](commands.md) | The exact command lines per CLI and role, reading results, validating verdicts, the effective-config check | you want to see what a worker is launched with |
 | [workers.md](workers.md) | Measured facts about each CLI: flags, sandboxes, permissions, quirks, model notes | a worker did something unexpected |
 | [catalog.md](catalog.md) | The live model catalog: sources, version rules, probes, pins, freezing | a slot resolved to a model you did not expect |
@@ -33,9 +33,12 @@ guide, then the technical pages when you need the exact rule.
 | [cascade.md](cascade.md) | The `--cascade` protocol: drafter, gates, escalation | you use the cascade |
 | [checkpoint.md](checkpoint.md) | The checkpoint file, decisions, the resume procedure, the audit | a resume did something you did not expect |
 | [ledger.md](ledger.md) | The cost ledger's fields and sources | you are reading `.maestro/ledger.jsonl` |
-| [unattended.md](unattended.md) | The `--unattended` rules: stop matrix, ask-point inventory, scenarios | you run maestro headless |
+| [unattended.md](unattended.md) | The `--unattended` rules: stop matrix, ask-point inventory, decisions and answers | you run maestro headless |
+| [unattended-reference.md](unattended-reference.md) | How the ask-point inventory was found, and the scenario test of the stop rules | you change the unattended rules |
 | [sandbox-and-preflight.md](sandbox-and-preflight.md) | What each sandbox denies, the reach probe, the escalation ladder | a worker could not run the tests |
 | [troubleshooting.md](troubleshooting.md) | Real incidents with their diagnoses | something hangs, fails or looks wrong |
+| [evidence.md](evidence.md) | Measurement history: job survival, end-to-end canaries | you want to know how a rule was measured |
+| [../bin/slots.json](../bin/slots.json) | The one table of slots: family, transport order, pin pattern, provisional, explicit-only | you want the roster as data |
 | [manual-checks_pl.md](manual-checks_pl.md) | Checks that need a human (Polish) | you want to verify maestro by hand |
-| [examples/maestro.policy.yml](examples/maestro.policy.yml) | An annotated policy file | you want a template |
-| `schemas/` | The JSON schemas critics, gates and reviewers must answer with | you are debugging a verdict |
+| [examples/maestro.policy.toml](examples/maestro.policy.toml) | An annotated policy file | you want a template |
+| `schemas/` | The JSON schemas critics, the arbiter, gates, reviewers and the advisor (`advice-schema.json`, `--advisor`) must answer with | you are debugging a verdict or an advice answer |

@@ -7,9 +7,11 @@ sprawdzenia modelom z innych firm, przekazuje kodowanie modelowi, który najlepi
 zadania, sprawdza wynik, uruchamia Twoje testy, commituje i mówi, kto co zrobił i ile to
 kosztowało.
 
-Działa wewnątrz czterech asystentów (**hostów**): **Claude Code**, **Codex**, **Cursor** (jego
-terminalowe polecenie `agent`) i **agy** (Antigravity). Korzysta z modeli czterech **rodzin**:
-Claude (Anthropic), GPT (OpenAI), Gemini (Google) i Grok (xAI).
+Działa wewnątrz **Claude Code** — interaktywnie albo bez okna, przez `claude -p`. Korzysta
+z modeli trzech **rodzin**: Claude (Anthropic), GPT (OpenAI, przez CLI `codex`) i Gemini (Google,
+przez `agy`, Antigravity).
+
+Usunięte w 2.0.0: dyrygowanie z Codexa, Cursora albo agy (`$maestro`, `--host`), worker Cursora (`agent`) i slot Grok (rodzina xAI) — Codex i agy zostają jako workerzy.
 
 English: [README.md](README.md). Przewodnik dla tych, którzy chcą zobaczyć całość (po angielsku):
 [docs/guide/](docs/README.md).
@@ -39,8 +41,9 @@ Ciebie zmienia wybór.
    wyboru i dokładnym modelem za każdą nazwą. „Niech buduje sol” to zmienia.
 3. **Plan i krytyka.** Pisze plan. Krytycy z innych rodzin czytają plan (jeszcze nie kod)
    i odpowiadają: zatwierdzam albo popraw. Plan krąży, aż każdy krytyk go zatwierdzi, do limitu
-   rund (dwie, chyba że ustawisz inaczej). Nie zatwierdzony na limicie? Przebieg staje i oddaje Ci
-   spór do rozstrzygnięcia.
+   rund (dwie, chyba że ustawisz inaczej). Nie zatwierdzony na limicie? Model z
+   trzeciej rodziny rozstrzyga raz to, co zostało (nigdy przy ryzykownej zmianie); jeśli któraś
+   uwaga się utrzyma, przebieg staje i oddaje Ci spór do rozstrzygnięcia.
 4. **Budowa.** Wybrany model pisze kod w granicach, które wyznaczył plan.
 5. **Kontrola.** Dyrygent sam czyta cały diff i uruchamia testy. Na życzenie model z innej
    rodziny niż wykonawca — zwykle ten, który krytykował plan — recenzuje wynik względem planu.
@@ -49,34 +52,34 @@ Ciebie zmienia wybór.
    pominięto.
 
 Przerwa — wyczerpany limit, zamknięty laptop, zakończona sesja? Nic nie przepada:
-`/maestro --resume` kontynuuje od miejsca, w którym przebieg stanął — nawet z innego hosta, po
-tym, jak powie, co się zmienia, i zapyta o zgodę.
+`/maestro --resume` kontynuuje od miejsca, w którym przebieg stanął, także w nowej sesji Claude
+Code.
 
 ## Szybki start
 
-Potrzebujesz Linuksa, bash ≥ 5, jq ≥ 1.6, gita i util-linux (`setsid`, `flock`) oraz tych
-z czterech asystentów, których chcesz używać — zainstalowanych i zalogowanych (`claude`, `codex`,
-`agent`, `agy`). maestro korzysta z Twoich subskrypcji; nie dodaje żadnego własnego konta.
+Potrzebujesz Linuksa, bash ≥ 5, jq ≥ 1.6, gita i util-linux (`setsid`, `flock`), Claude Code
+(`claude`) oraz tych CLI workerów, których chcesz w zespole — zainstalowanych i zalogowanych
+(`codex`, `agy`). maestro korzysta z Twoich subskrypcji; nie dodaje żadnego własnego konta.
 
 ```bash
 git clone <to repozytorium> maestro-skill && cd maestro-skill
-./install.sh                    # instaluje skill dla Claude Code, Codexa, Cursora i agy
+./install.sh                    # kopiuje skill do ~/.claude/skills/maestro
 ./install.sh --check            # pokazuje, gdzie jest zainstalowany
 ```
 
-Potem, w projekcie z czystym drzewem gita, w wybranym asystencie:
+Potem, w projekcie z czystym drzewem gita:
 
 ```text
-/maestro dodaj eksport listy faktur do CSV      # Claude Code, Cursor, agy
-$maestro dodaj eksport listy faktur do CSV      # Codex
+/maestro dodaj eksport listy faktur do CSV                          # w Claude Code
+claude -p "/maestro --unattended dodaj eksport listy faktur do CSV"     # bez okna
 ```
+
+Aktualizacja z 1.x: instalator zamienia stary symlink `~/.claude/skills/maestro` na kopię i wymienia
+pozostałości (`~/.agents/skills/maestro`, `~/.gemini/config/skills/maestro`), które możesz usunąć.
 
 Pierwszy przebieg w repozytorium zużywa kilka tanich wywołań na sprawdzenie, do których modeli
 sięgają Twoje konta; kolejne przebiegi w tym repozytorium korzystają z tej odpowiedzi do siedmiu
-dni, o ile wersja CLI i konto się nie zmieniły. Dwa hosty wymagają
-jednorazowego ustawienia: Codex uruchamiasz z `--sandbox danger-full-access` (dyrygent musi
-sięgać do API modeli i uruchamiać testy), a Cursorowi dajesz w projekcie listę dozwolonych
-komend. Szczegóły: [setup and hosts](docs/guide/setup-and-hosts.md).
+dni, o ile wersja CLI i konto się nie zmieniły. Szczegóły: [setup and running](docs/guide/setup-and-hosts.md).
 
 ## Polecenia, których naprawdę będziesz używać
 
@@ -90,9 +93,10 @@ komend. Szczegóły: [setup and hosts](docs/guide/setup-and-hosts.md).
 | `/maestro --review=cross <zadanie>` | dodatkowa recenzja gotowego kodu przez model z innej rodziny niż wykonawca, domyślnie przez krytyka planu (`full` dołącza własne czytanie dyrygenta; `self` to tylko czytanie dyrygenta, bez recenzenta) |
 | `/maestro --unattended <zadanie>` | nikogo nie ma przy klawiaturze: drobne luki stają się zapisanymi założeniami, prawdziwe decyzje czysto zatrzymują przebieg |
 | `/maestro --sdk <zadanie>` | Claude-workerzy pracują na kredycie API planu Max zamiast na subskrypcji (patrz [Kredyt API](#kredyt-api)) |
+| `/maestro --advisor <zadanie>` | opcjonalne, domyślnie wyłączone: wykonawca może raz się zatrzymać (`--advisor-checkpoints=2` albo `3`, jeśli więcej) i zapytać model z innej rodziny, tylko do odczytu, o krótką radę, którą dyrygent mu przekazuje; `--advisor=astra` wskazuje go z nazwy. Rada nigdy nie jest bramką i nie jest jeszcze zmierzona |
 | `/maestro --resume` | dokończenie przerwanego przebiegu |
 
-Zwykłe słowa też działają: „krytykuj grokiem”, „opus przez agy”, „bez testów przeglądarkowych”.
+Zwykłe słowa też działają: „krytykuj argonem”, „opus przez agy”, „bez testów przeglądarkowych”.
 Wszystkie flagi są wymienione w `SKILL.md`; ściąga z objaśnieniami jest w
 [słowniku](docs/guide/glossary.md).
 
@@ -106,7 +110,7 @@ końca przebiegu. Nowy Opus albo nowy Sol nie wymaga aktualizacji maestro.
 | Rodzina | Sloty | Do czego |
 | --- | --- | --- |
 | Claude | `opus` | codzienne funkcje, zmiany wieloetapowe, wszystko ze zrzutami ekranu i UI |
-| | `fable` | najtrudniejsze problemy poprawności i duże przebudowy — najmocniejszy i najdroższy |
+| | `fable` | najtrudniejsze problemy poprawności i duże przebudowy — najmocniejszy i najdroższy (Fable 5.2) |
 | | `sonnet` | mechaniczna budowa według ustalonego planu |
 | | `haiku` | masowe edycje bez żadnej oceny |
 | OpenAI | `astra` | najmocniejszy krytyk ryzykownych planów; wykonawca, gdy ogranicza Cię budżet Claude |
@@ -114,11 +118,11 @@ końca przebiegu. Nowy Opus albo nowy Sol nie wymaga aktualizacji maestro.
 | | `luna` | szybki i tani: szkicuje w kaskadzie (niżej) |
 | | `terra` | starsza linia, używana tylko gdy ją wskażesz |
 | Google | `argon` | krytyk i recenzent od Google; buduje tylko gdy go wskażesz |
-| | `gemini` | szybka i tania praca mechaniczna, gdy chcesz oszczędzić pulę Claude |
-| xAI | `grok` | krytyk, który znajdował prawdziwe błędy; jako wykonawca jeszcze niezmierzony, dlatego oznaczany *provisional* (tymczasowy) |
+| | `carbon`, `neon` | Gemini 4 Carbon i Neon — tu jeszcze niezmierzone: używane tylko gdy wskażesz je jako wykonawcę, krytyka albo recenzenta (nigdy jako szkicującego w kaskadzie, nigdy wybierane na arbitra) |
+| | `gemini` | szybka i tania praca mechaniczna, gdy chcesz oszczędzić pulę Claude — dziś Gemini 4 Hydrogen (następca Gemini 3.8 Flash według zapowiedzi Google z 2026-11-12), wcześniej Gemini Flash |
 
 Do slotu może prowadzić więcej niż jedna droga (**transport**): `opus` działa natywnie w Claude
-Code, albo przez agy, albo przez Cursora, albo na kredycie API. Gdy jedna droga wyczerpie limit
+Code, albo przez agy, albo na kredycie API (`fable` i `haiku`: natywnie albo na kredycie API). Gdy jedna droga wyczerpie limit
 w trakcie przebiegu, maestro kontynuuje ten sam model następną drogą i mówi o tym.
 
 Dwa tańsze tryby: `--cascade` pozwala tańszemu modelowi najpierw naszkicować zmianę, a bramka
@@ -128,8 +132,8 @@ zrecenzowany plan za cenę samej krytyki.
 ## Ile to kosztuje
 
 - Każde wywołanie modelu schodzi z subskrypcji tego CLI, które je obsłużyło: GPT z ChatGPT, Gemini
-  z agy, Grok z Cursora; Claude z Twojego planu Claude, gdy działa natywnie, z puli agy albo
-  Cursora, gdy idzie przez nie, a na drodze `api` z kredytu API. Więcej krytyków to więcej tokenów
+  z agy; Claude z Twojego planu Claude, gdy działa natywnie, z puli agy, gdy idzie przez agy,
+  a na drodze `api` z kredytu API. Więcej krytyków to więcej tokenów
   na etapie planu, ale rozłożonych na pule, które inaczej stałyby bezczynnie.
 - Każde wywołanie trafia do **ledgera** (`.maestro/ledger.jsonl`): model zamówiony, model, który
   odpowiedział, tokeny i czas. Raport sumuje to per etap i per rodzina. Tokeny nigdy nie są
@@ -152,24 +156,24 @@ subskrypcji:
 3. We własnym terminalu: `mkdir -p ~/.config/maestro && install -m 600 /dev/stdin
    ~/.config/maestro/anthropic-api-key`, wklej klucz, potem Ctrl-D.
 4. `./install.sh --sdk` (Node ≥ 18) instaluje przypiętą wersję Agent SDK obok skilla.
-5. `~/.agents/skills/maestro/bin/maestro-sdk --check` powinno zwrócić `"available": true`.
+5. `~/.claude/skills/maestro/bin/maestro-sdk --check` powinno zwrócić `"available": true`.
 
 Potem `/maestro --sdk <zadanie>` puszcza wszystkich Claude-workerów przez SDK na tym kluczu.
-Z `api: {fallback: true}` w `~/.config/maestro/policy.yml` maestro przełącza się na niego samo,
+Z `api.fallback = true` w `~/.config/maestro/policy.toml` maestro przełącza się na niego samo,
 gdy limit skończy się w trakcie przebiegu. `api.max_usd_per_run` (domyślnie $20) ogranicza jeden
 przebieg. Raport pokazuje, ile przebieg wydał.
 
-Gdy limit się skończy, staje też Twoja sesja Claude Code. Dyryguj wtedy z Codexa, Cursora albo
-agy, a z kredytu niech korzystają tylko Claude-workerzy. Claude Code uruchomiony na kluczu API to
-użycie Claude Code i nie pobiera kredytu.
+Gdy limit się skończy, staje też Twoja sesja Claude Code; `--sdk` od początku zostawia subskrypcję
+wyłącznie dyrygentowi. Claude Code uruchomiony na kluczu API to użycie Claude Code i nie pobiera
+kredytu.
 
 ## Stałe preferencje
 
-Zapisujesz je w `maestro.policy.yml` w repozytorium (dla zespołu) albo w
-`~/.config/maestro/policy.yml` (dla siebie): nigdy nie wybieraj slotu (`deny: [fable]`), nigdy nie
-używaj drogi (`transports: {deny: [opus@cursor]}`), przypnij wersję (`pin: {sol: "6.1"}`), wyłącz
-rodzinę (`families: {google: off}`), ustaw wysiłek modelu per etap. Flagi biją plik repozytorium,
-a ten bije Twój własny. [Przykład z komentarzami](docs/examples/maestro.policy.yml).
+Zapisujesz je w `maestro.policy.toml` w repozytorium (dla zespołu) albo w
+`~/.config/maestro/policy.toml` (dla siebie): nigdy nie wybieraj slotu (`deny = ["fable"]`), nigdy nie
+używaj drogi (`transports.deny = ["opus@agy"]`), przypnij wersję (`pin.sol = "6.1"`), wyłącz
+rodzinę (`families.google = "off"`), ustaw wysiłek modelu per etap. Flagi biją plik repozytorium,
+a ten bije Twój własny. [Przykład z komentarzami](docs/examples/maestro.policy.toml).
 
 ## Bezpieczne domyślne zachowania
 
@@ -183,11 +187,10 @@ diffu i nie uruchomi testów.
 
 ## Znane ograniczenia
 
-- **Grok** jako wykonawca nie był jeszcze mierzony.
-- **Claude przez Cursora** nie jest jeszcze zweryfikowany (okoliczności opisuje
-  [docs/workers.md](docs/workers.md)).
-- **agy** może dyrygować tylko w sesji interaktywnej, a Ty zatwierdzasz jego komendy i zapisy
-  plików (albo dodajesz reguły zezwoleń).
+- **Argon** jako wykonawca nie był jeszcze mierzony, a **Gemini 4 Hydrogen** jest nowy: Google go
+  nie ogłosił, a ledger nie ma jeszcze żadnych jego przebiegów.
+- **Fable i Haiku** nie mają drugiej drogi w subskrypcji: gdy skończy się ich limit natywny, dalej
+  pracują tylko na kredycie API (`--sdk` albo `api.fallback = true`).
 - **Kredyt API** widać tylko w Console; kwota w dolarach w ledgerze to szacunek SDK, nie faktura.
 
 Przypadki, które warto sprawdzić ręcznie, są opisane krok po kroku w
@@ -195,7 +198,7 @@ Przypadki, które warto sprawdzić ręcznie, są opisane krok po kroku w
 
 ## Testy
 
-`bash tests/run.sh` uruchamia zestaw testów (bez wywołań modeli; około pięciu minut; grupa lint
+`bash tests/run.sh` uruchamia zestaw testów (bez wywołań modeli; około trzech minut; grupa lint
 wymaga `shellcheck`). Obejmuje skrypty pomocnicze w `bin/`, nie dokumentację.
 
 ## Co czytać dalej
@@ -203,7 +206,7 @@ wymaga `shellcheck`). Obejmuje skrypty pomocnicze w `bin/`, nie dokumentację.
 - [docs/README.md](docs/README.md) — mapa wszystkich stron.
 - Przewodnik (po angielsku): [how it works](docs/guide/how-it-works.md) · [models and
   roles](docs/guide/models-and-roles.md) · [costs and limits](docs/guide/costs-and-limits.md) ·
-  [setup and hosts](docs/guide/setup-and-hosts.md) · [glossary](docs/guide/glossary.md).
+  [setup and running](docs/guide/setup-and-hosts.md) · [glossary](docs/guide/glossary.md).
 - Strony techniczne w `docs/` czyta sam dyrygent w trakcie pracy, dlatego są precyzyjne, a nie
   przystępne: [hosty](docs/hosts.md) · [katalog modeli](docs/catalog.md) ·
   [komendy](docs/commands.md) · [workerzy](docs/workers.md) · [polityka](docs/policy.md) ·

@@ -20,17 +20,22 @@ until there are no gaps.
 
 **Assignment.** It picks the builder, the critics and (if you asked for one) the reviewer, and
 prints one line with each choice and its reason: the rubric row that fired, a policy entry, your
-own words. The line also shows the exact model behind each name, the host it runs in and which
-model families are available. Say "let sol build" and it changes.
+own words. The line also shows the exact model behind each name, whether Claude Code runs
+interactively or headless, and which model families are available. Say "let sol build" and it changes.
 
 **Plan.** The director writes `PLAN.md`: what will change, where, which tests prove it, what is
 out of bounds.
 
 **Critique.** The plan — never the code — goes to the critics, who always come from a different
 company than the builder. Each answers with a verdict (approve, revise or reject) and findings
-graded blocking, major or minor. The director revises and resends until every critic approves,
-up to the round cap (two by default). If the cap is reached without approval, the run stops and
-hands you the disagreement; nothing is built.
+graded blocking (the plan cannot meet the spec, or would cause damage) or major (a defect that an
+input the spec allows can reach — the critic must name that input); everything else is a note. The
+director revises and resends until every critic approves, up to the round cap (two by default).
+From the second round a critic only checks whether its earlier findings were resolved and whether
+the revision broke something new. If the cap is reached with nothing but major findings left, one
+model from a third company — the arbiter — rules on them once: all of them unfounded and the plan
+is approved (the report says so); otherwise, and always on a high-stakes change, the run stops
+and hands you the disagreement; nothing is built.
 
 **Build.** The builder gets a brief: the plan, the boundaries, the conventions, what "done" looks
 like. It writes the code and, when its sandbox allows it, runs the tests covering the change. Some
@@ -65,7 +70,8 @@ model, how long it took, how many tokens, which checks ran, what was skipped or 
   `--review` gets a recommendation in the assignment line, not a review added behind your back.
 
 `--setup` turns the flags into a short questionnaire (what to build, who builds, who critiques,
-how many rounds, which tests) and ends with a flag line you can paste next time.
+how many rounds, which tests, and — for a full run with an external builder — whether it gets an
+advisor, recommended "none") and ends with a flag line you can paste next time.
 
 ## What "approval" means
 
@@ -92,7 +98,7 @@ tests.
 ## When something goes wrong
 
 - **A usage limit.** Routine, not a failure. A Claude slot continues on its next road to the same
-  model (natively, then agy, then Cursor, then the API credit if enabled) and the report says so.
+  model (natively, then agy for Opus and Sonnet, then the API credit if enabled) and the report says so.
   With no road left, the run writes its checkpoint and stops; `--resume` checks the limit again
   and continues.
 - **A model refuses.** A safety refusal is never retried: the run stops and reports. An ordinary
@@ -103,18 +109,18 @@ tests.
 - **A worker dies mid-build.** The director looks at `git status` and `git diff` before anything
   else, decides deliberately what to keep and what to reset, records that, and continues or
   stops.
-- **A cap.** At the critique cap or the fix cap the run stops with a diagnosis and hands you the
+- **A cap.** At the critique cap (after the arbiter, when one may rule) or the fix cap the run stops with a diagnosis and hands you the
   decision. There is no silent extra round.
 - **The session ends.** Every worker launched outside an interactive Claude Code runs as a
   detached job that survives the director's session. `/maestro --resume` finds it, waits for it
   and carries on.
 
 Everything a run knows is in `.maestro/CHECKPOINT.md`, rewritten at every step. That is what
-`--resume` reads — on the same host, or on another after telling you what changes.
+`--resume` reads — in the same Claude Code session or a new one, interactive or headless.
 
 ## Running without you
 
-`--unattended` is for a headless run (`claude -p`, `codex exec`, `agent -p`) or an overnight one.
+`--unattended` is for a headless run (`claude -p "/maestro --unattended …"`) or an overnight one.
 Small gaps — a naming choice, a missing detail that does not affect safety — become recorded
 assumptions and the run goes on. Anything that needs your authority — permissions, money, scope,
 what to do with existing data, a budget — stops the run cleanly with `result: needs-decision`,

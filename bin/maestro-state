@@ -3,6 +3,17 @@
 #
 #   maestro-state --gen N write  <file>     replace <file> with stdin
 #   maestro-state --gen N append <file>     append stdin (one or more lines) to <file>
+#   maestro-state --gen N set <key>=<value> [<key>=<value>…]
+#       patch top-level scalars of CHECKPOINT.md's front matter in place (stage, round,
+#       next_action, tree_state, …) and stamp written_at; every other byte stays. <key> must
+#       already be there (exit 2 otherwise: the shape is the director's, a key is never added);
+#       <parent>.<key> reaches into a flow map written on one line (tree.head=…). Values are
+#       written YAML-safe; a newline or another control character is refused.
+#   maestro-state --gen N add-session <codex|agy|claude_cli|claude> '<json object>'
+#       append one `- {k: v, …}` record under sessions.<transport> of CHECKPOINT.md (an inline
+#       `[…]` list becomes a block list) and stamp written_at.
+#       Both follow docs/checkpoint.md, "Format rules", and take the same path as write: verified
+#       first, written atomically inside the fence, audited. Anything structural: write.
 #   maestro-state verify <file>             exit 0 iff <file> matches its last audit entry
 #   maestro-state --gen N delete <file>     remove it (verified first; the audit records it absent)
 #   maestro-state --gen N archive <file> --to <name>
@@ -15,9 +26,9 @@
 #       accept the file as it is now (an audit entry marked adopted, with the reason). Only on the
 #       user's explicit decision after they inspected the file — never under --unattended, never
 #       by the director's own judgment: it is how an edit made outside maestro becomes legitimate.
-#       Refused ({result: "refused"}, exit 1) when maestro-host reports a headless host (claude -p,
-#       codex exec, agent -p, agy -p): no user there could have inspected the file. An interactive
-#       host running --unattended is not detectable here; that rule stays with the director.
+#       Refused ({result: "refused"}, exit 1) unless maestro-host reports an interactive Claude Code
+#       (claude -p): no user there could have inspected the file. An interactive Claude Code
+#       running --unattended is not detectable here; that rule stays with the director.
 #
 # <file> is relative to .maestro/ and must be bookkeeping: CHECKPOINT.md, ledger.jsonl, or
 # tasks/<id>/CHECKPOINT-entry.json. Inside the fence (maestro-lock exec) it first verifies the
@@ -34,6 +45,278 @@ allowed() {
     CHECKPOINT.md|ledger.jsonl|pending-decision.md|tasks/*/entry.json) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+# --- set / add-session: patching the front matter (docs/checkpoint.md, "Format rules") ---------
+# L[] holds the file's lines and FM_A..FM_B-1 the front matter's. Everything works on bytes
+# (LC_ALL=C), so a line is cut and joined without looking inside its UTF-8.
+ST="maestro-state"   # prefix of the refusals below; patch_checkpoint appends the operation
+
+# scan_value <string> <pos> <block|flow>: the YAML value starting at <pos> → VKIND (empty, dq, sq,
+# map, seq, plain) and VEND (the index after it). Returns 1 when a quote or a bracket does not
+# close in the string. A plain value ends before " #", and in a flow collection before , } ].
+scan_value() {
+  local s="$1" i="$2" ctx="$3" n=${#1} c q="" depth=0 prev="" j
+  VEND=$i VKIND=empty
+  (( i < n )) || return 0
+  c="${s:i:1}"
+  case "$c" in
+    '"') VKIND=dq; i=$((i + 1))
+      while (( i < n )); do
+        c="${s:i:1}"
+        if [[ "$c" == "\\" ]]; then i=$((i + 2)); continue; fi
+        if [[ "$c" == '"' ]]; then VEND=$((i + 1)); return 0; fi
+        i=$((i + 1))
+      done
+      return 1 ;;
+    "'") VKIND=sq; i=$((i + 1))
+      while (( i < n )); do
+        if [[ "${s:i:2}" == "''" ]]; then i=$((i + 2)); continue; fi
+        if [[ "${s:i:1}" == "'" ]]; then VEND=$((i + 1)); return 0; fi
+        i=$((i + 1))
+      done
+      return 1 ;;
+    '{'|'[') VKIND=map; if [[ "$c" == '[' ]]; then VKIND=seq; fi
+      while (( i < n )); do
+        c="${s:i:1}"
+        if [[ -n "$q" ]]; then
+          if [[ "$q" == '"' && "$c" == "\\" ]]; then i=$((i + 2)); continue; fi
+          if [[ "$q" == "'" && "${s:i:2}" == "''" ]]; then i=$((i + 2)); continue; fi
+          if [[ "$c" == "$q" ]]; then q=""; prev="$c"; fi
+        elif [[ ( "$c" == '"' || "$c" == "'" ) && "$prev" == [\{\[,:] ]]; then q="$c"   # a quote opens only where a value starts
+        elif [[ "$c" == [\{\[] ]]; then depth=$((depth + 1)); prev="$c"
+        elif [[ "$c" == [\}\]] ]]; then
+          depth=$((depth - 1)); prev="$c"
+          if (( depth == 0 )); then VEND=$((i + 1)); return 0; fi
+        elif [[ "$c" != [[:space:]] ]]; then prev="$c"
+        fi
+        i=$((i + 1))
+      done
+      return 1 ;;
+  esac
+  VKIND=plain; j=$i
+  while (( j < n )); do
+    c="${s:j:1}"
+    if [[ "$c" == '#' ]] && { (( j == 0 )) || [[ "${s:j-1:1}" == [[:space:]] ]]; }; then break; fi
+    if [[ "$ctx" == flow && "$c" == [],\}] ]]; then break; fi
+    j=$((j + 1))
+  done
+  while (( j > i )) && [[ "${s:j-1:1}" == [[:space:]] ]]; do j=$((j - 1)); done
+  VEND=$j
+  if (( j == i )); then VKIND=empty; fi
+  return 0
+}
+
+skip_ws() {  # skip_ws <string> <pos> → POS, the first non-blank index at or after <pos>
+  POS=$2
+  while [[ "${1:POS:1}" == [[:space:]] ]]; do POS=$((POS + 1)); done
+}
+
+tail_ok() {  # what follows a value on its line: nothing, or blanks and a comment
+  [[ "$1" =~ ^[[:space:]]*$ || "$1" =~ ^[[:space:]]+# ]]
+}
+
+# The one column-0 line "<key>:" of the front matter → FOUND. Returns 1 when there is none; a key
+# that appears twice is refused. The key is compared literally, never as a pattern.
+fm_find() {
+  local key="$1" i hit=-1
+  for (( i = FM_A; i < FM_B; i++ )); do
+    if [[ "${L[i]}" == "$key:" || "${L[i]}" == "$key: "* || "${L[i]}" == "$key:"$'\t'* ]]; then
+      (( hit < 0 )) || mae_die "$ST: \"$key\" appears twice in the front matter"
+      hit=$i
+    fi
+  done
+  FOUND=$hit
+  (( hit >= 0 ))
+}
+
+# A scalar as YAML → YV. Bare when it is one plain word (so 3, true and null keep their types),
+# double-quoted otherwise, or when the value it replaces was quoted.
+yaml_scalar() {
+  local v="$1"
+  # Bare only for a plain word no YAML 1.1 reader turns into something else: not a boolean or
+  # null keyword (yes/no/on/off/y/n/true/false/null/~), no colon (10:30 is sexagesimal), not a
+  # number-like form other than a plain decimal (0x1F, 1e3, .inf).
+  local lc="${v,,}"
+  if [[ "$2" != quote && "$v" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+(Z|[-+][0-9]{2}:[0-9]{2})?$ ]]; then YV="$v"   # an ISO timestamp
+  elif [[ "$2" != quote && "$v" =~ ^-?[A-Za-z0-9_./+][A-Za-z0-9_./+@-]*$ \
+        && ! "$lc" =~ ^(y|n|yes|no|on|off|true|false|null|~)$ \
+        && ! "$lc" =~ ^[-+]?(0x[0-9a-f]+|0o?[0-7]+|[0-9.]*e[-+]?[0-9]+|\.inf|\.nan)$ ]]; then YV="$v"
+  else v="${v//\\/\\\\}"; v="${v//\"/\\\"}"; YV="\"$v\""; fi
+}
+
+# put_value <line> <index of the key's colon> <block|flow> <label> <value>: replace the scalar
+# after that colon; the rest of the line, its comment included, stays as it is.
+put_value() {
+  local i="$1" cp="$2" ctx="$3" label="$4" line="${L[$1]}" q="" vs rest
+  skip_ws "$line" $((cp + 1)); vs=$POS
+  scan_value "$line" "$vs" "$ctx" || mae_die "$ST: \"$label\": the value does not close on its line"
+  case "$VKIND" in
+    map|seq) mae_die "$ST: \"$label\" holds a map or a list, not a scalar (structural changes: write)" ;;
+    dq|sq) q=quote ;;
+    plain)
+      if [[ "${line:vs:1}" == [\|\>\&\*\!] ]]; then mae_die "$ST: \"$label\" holds a block scalar, an anchor or a tag (use write)"; fi ;;
+  esac
+  yaml_scalar "$5" "$q"
+  if [[ "$VKIND" == empty ]]; then
+    rest="${line:cp+1}"
+    if [[ "$ctx" == block && "$rest" =~ ^[[:space:]]*$ ]]; then rest=""; fi
+    L[i]="${line:0:cp+1} $YV$rest"
+  else
+    if [[ "$ctx" == block ]] && ! tail_ok "${line:VEND}"; then mae_die "$ST: \"$label\": cannot parse what follows the value"; fi
+    L[i]="${line:0:vs}$YV${line:VEND}"
+  fi
+}
+
+set_top() {  # set_top <key> <value>
+  local key="$1" i j
+  fm_find "$key" || mae_die "$ST: \"$key\" is not in the front matter (set never adds a key; structural changes: write)"
+  i=$FOUND
+  skip_ws "${L[i]}" $(( ${#key} + 1 ))
+  scan_value "${L[i]}" "$POS" block || mae_die "$ST: \"$key\": the value does not close on its line"
+  if [[ "$VKIND" == empty ]]; then      # "key:" alone is a scalar only when no block hangs under it
+    for (( j = i + 1; j < FM_B; j++ )); do
+      if [[ ! "${L[j]}" =~ ^[[:space:]]*(#.*)?$ ]]; then break; fi
+    done
+    if (( j < FM_B )) && [[ "${L[j]}" == [[:space:]]* || "${L[j]}" == "- "* || "${L[j]}" == "-" ]]; then
+      mae_die "$ST: \"$key\" holds a block, not a scalar (structural changes: write)"
+    fi
+  fi
+  put_value "$i" "${#key}" block "$key" "$2"
+}
+
+set_nested() {  # set_nested <parent> <key> <value>: only inside a flow map written on one line
+  local parent="$1" child="$2" i line p k kcp hit=-1
+  fm_find "$parent" || mae_die "$ST: \"$parent\" is not in the front matter (set never adds a key; structural changes: write)"
+  i=$FOUND; line="${L[i]}"
+  skip_ws "$line" $(( ${#parent} + 1 )); p=$POS
+  if [[ "${line:p:1}" != '{' ]]; then
+    mae_die "$ST: \"$parent\" is not a flow map on one line — a nested key is set only there (use write)"
+  fi
+  if ! scan_value "$line" "$p" block || ! tail_ok "${line:VEND}"; then
+    mae_die "$ST: \"$parent\": the flow map does not close on its line — a nested key is set only in a one-line map (use write)"
+  fi
+  p=$((p + 1))
+  while :; do
+    skip_ws "$line" "$p"; p=$POS
+    if [[ "${line:p:1}" == '}' ]]; then break; fi
+    [[ "${line:p}" =~ ^([A-Za-z_][A-Za-z0-9_-]*):([[:space:]]|[,}]) ]] || mae_die "$ST: \"$parent\": cannot parse the flow map"
+    k="${BASH_REMATCH[1]}"; kcp=$((p + ${#k}))
+    skip_ws "$line" $((kcp + 1))
+    scan_value "$line" "$POS" flow || mae_die "$ST: \"$parent\": cannot parse the flow map"
+    if [[ "$k" == "$child" ]]; then
+      (( hit < 0 )) || mae_die "$ST: \"$parent.$child\" appears twice"
+      hit=$kcp
+    fi
+    skip_ws "$line" "$VEND"; p=$POS
+    case "${line:p:1}" in
+      ,) p=$((p + 1)) ;;
+      '}') break ;;
+      *) mae_die "$ST: \"$parent\": cannot parse the flow map" ;;
+    esac
+  done
+  (( hit >= 0 )) || mae_die "$ST: \"$parent.$child\" is not in the front matter (set never adds a key; structural changes: write)"
+  put_value "$i" "$hit" flow "$parent.$child" "$3"
+}
+
+add_session() {  # add_session <transport> <record as a flow map>
+  local tr="$1" item="$2" s e i t=-1 ind=-1 line cp vs p last end itemind=-1 n body pad
+  local -a new=()
+  fm_find sessions || mae_die "$ST: \"sessions\" is not in the front matter (structural changes: write)"
+  s=$FOUND
+  [[ "${L[s]}" =~ ^sessions:[[:space:]]*(#.*)?$ ]] || mae_die "$ST: \"sessions\" is not a block map (use write)"
+  for (( e = s + 1; e < FM_B; e++ )); do      # the block ends at the next column-0 key
+    if [[ "${L[e]}" =~ ^[^[:space:]#] ]]; then break; fi
+  done
+  for (( i = s + 1; i < e; i++ )); do          # its keys: the lines indented like the first one
+    [[ "${L[i]}" =~ ^(\ +)([A-Za-z_][A-Za-z0-9_-]*):([[:space:]]|$) ]] || continue
+    if (( ind < 0 )); then ind=${#BASH_REMATCH[1]}; fi
+    if (( ${#BASH_REMATCH[1]} == ind )) && [[ "${BASH_REMATCH[2]}" == "$tr" ]]; then
+      (( t < 0 )) || mae_die "$ST: \"sessions.$tr\" appears twice"
+      t=$i
+    fi
+  done
+  (( t >= 0 )) || mae_die "$ST: \"sessions.$tr\" is not in the front matter (add-session never adds the key; use write)"
+  line="${L[t]}"; cp=$((ind + ${#tr}))
+  skip_ws "$line" $((cp + 1)); vs=$POS
+  scan_value "$line" "$vs" block \
+    || mae_die "$ST: \"sessions.$tr\": the list does not close on its line — a block list or a one-line list only (use write)"
+  printf -v pad '%*s' "$ind" ''
+  case "$VKIND" in
+    empty)                                     # block list: after the last line of its last record
+      last=$t
+      for (( i = t + 1; i < e; i++ )); do
+        if [[ "${L[i]}" =~ ^[[:space:]]*(#.*)?$ ]]; then continue; fi
+        [[ "${L[i]}" =~ ^(\ *) ]]; n=${#BASH_REMATCH[1]}; body="${L[i]:n}"
+        if (( n < ind )) || { (( n == ind )) && [[ "$body" != "- "* && "$body" != "-" ]]; }; then break; fi
+        if (( itemind < 0 )); then
+          if [[ "$body" != "- "* && "$body" != "-" ]]; then mae_die "$ST: \"sessions.$tr\" is not a list (use write)"; fi
+          itemind=$n
+        fi
+        last=$i
+      done
+      if (( itemind < 0 )); then itemind=$((ind + 2)); fi
+      printf -v pad '%*s' "$itemind" ''
+      new=("$pad- $item") ;;
+    seq)                                       # [..] on the key's line → a block list
+      end=$VEND
+      if ! tail_ok "${line:end}"; then mae_die "$ST: \"sessions.$tr\": cannot parse what follows the list"; fi
+      p=$((vs + 1))
+      while :; do
+        skip_ws "$line" "$p"; p=$POS
+        if (( p >= end - 1 )); then break; fi
+        scan_value "$line" "$p" flow || mae_die "$ST: \"sessions.$tr\": cannot parse the list"
+        if (( VEND == p )); then mae_die "$ST: \"sessions.$tr\": cannot parse the list"; fi
+        new+=("$pad  - ${line:p:VEND-p}")
+        skip_ws "$line" "$VEND"; p=$POS
+        if [[ "${line:p:1}" == , ]]; then p=$((p + 1)); fi
+      done
+      new+=("$pad  - $item")
+      body="${line:end}"
+      if [[ "$body" =~ ^[[:space:]]*$ ]]; then body=""; fi
+      L[t]="${line:0:cp+1}$body"
+      last=$t ;;
+    *) mae_die "$ST: \"sessions.$tr\" is not a list (use write)" ;;
+  esac
+  L=("${L[@]:0:last+1}" "${new[@]}" "${L[@]:last+1}")
+}
+
+# patch_checkpoint <set|add-session> <checkpoint> <arguments file>: the patched file on stdout.
+# Any refusal is exit 2 before a byte is written.
+patch_checkpoint() {
+  local op="$1" file="$2" args="$3" nl=1 i a k stamped=0
+  local LC_ALL=C
+  local -a ARGS=()
+  ST="maestro-state $op"
+  mapfile -t L < "$file"
+  (( ${#L[@]} > 0 )) || mae_die "$ST: CHECKPOINT.md is empty (the first checkpoint is created with write)"
+  if [[ "$(tail -c1 "$file" | wc -l)" -ne 1 ]]; then nl=0; fi
+  FM_A=0 FM_B=${#L[@]}                         # no "---" lines: the whole file is front matter
+  if [[ "${L[0]}" == "---" ]]; then
+    FM_A=1 FM_B=-1
+    for (( i = 1; i < ${#L[@]}; i++ )); do
+      if [[ "${L[i]}" == "---" ]]; then FM_B=$i; break; fi
+    done
+    (( FM_B > 0 )) || mae_die "$ST: the front matter does not close with a \"---\" line"
+  fi
+  mapfile -t ARGS < "$args"
+  if [[ "$op" == set ]]; then
+    for a in "${ARGS[@]}"; do
+      k="${a%%=*}"
+      if [[ "$k" == written_at ]]; then stamped=1; fi
+      if [[ "$k" == *.* ]]; then set_nested "${k%%.*}" "${k#*.}" "${a#*=}"; else set_top "$k" "${a#*=}"; fi
+    done
+  fi
+  if (( ! stamped )); then
+    if fm_find written_at; then set_top written_at "$(date +%Y-%m-%dT%H:%M:%S%:z)"
+    else mae_warn "$ST: no written_at in the front matter — not stamped"; fi
+  fi
+  if [[ "$op" == add-session ]]; then add_session "${ARGS[0]}" "${ARGS[1]}"; fi
+  if (( nl )); then printf '%s\n' "${L[@]}"
+  else
+    if (( ${#L[@]} > 1 )); then printf '%s\n' "${L[@]:0:${#L[@]}-1}"; fi
+    printf '%s' "${L[-1]}"
+  fi
 }
 
 if [[ "${1:-}" == "__rotate" ]]; then
@@ -61,6 +344,7 @@ fi
 
 if [[ "${1:-}" == "__locked" ]]; then
   op="$2" rel="$3" src="$4" gen="$5"
+  trap 'rm -f "${src:?}" "${src:?}.new"' EXIT
   if [[ "$op" != adopt ]] && ! mae_audit_verify "$SD" "$rel"; then
     rm -f "$src"
     jq -cn --arg f "$rel" '{result: "tampered", file: $f}'
@@ -75,8 +359,13 @@ if [[ "${1:-}" == "__locked" ]]; then
     jq -cn --arg f "$rel" '{result: "adopted", file: $f}'
     exit 0
   fi
+  if [[ "$op" == set || "$op" == add-session ]]; then   # the patched file, then the write below
+    [[ -f "$SD/$rel" ]] || mae_die "maestro-state $op: no $rel yet — the first checkpoint is created with write"
+    patch_checkpoint "$op" "$SD/$rel" "$src" > "$src.new"
+    mv -f "$src.new" "$src"; op="write"
+  fi
   case "$op" in
-    delete)  rm -f "$SD/$rel" ;;
+    delete) rm -f "$SD/$rel" ;;
     archive) name="$(cat "$src")"; mkdir -p "$SD/archive/$name/$(dirname "$rel")"; mv "$SD/$rel" "$SD/archive/$name/$rel" ;;
     write)  mae_atomic_write "$SD/$rel" < "$src" ;;
     append) { cat "$SD/$rel" 2>/dev/null || true; cat "$src"; } | mae_atomic_write "$SD/$rel" ;;
@@ -91,10 +380,58 @@ gen=""
 if [[ "${1:-}" == "--gen" ]]; then gen="$2"; shift 2; fi
 if [[ "${1:-}" == "rotate" ]]; then
   [[ -n "$gen" && "${2:-}" == "--to" && -n "${3:-}" ]] || mae_die "usage: maestro-state --gen N rotate --to <name>"
-  exec "$MAESTRO_BIN/maestro-lock" exec --gen "$gen" -- "$0" __rotate "$3" "$gen"
+  mae_fenced "$gen" __rotate "$3" "$gen"; exit
+fi
+if [[ "${1:-}" == "set" || "${1:-}" == "add-session" ]]; then
+  op="$1"; shift
+  [[ -n "$gen" ]] || mae_die "maestro-state $op needs --gen N"
+  if [[ "$op" == set ]]; then
+    (( $# > 0 )) || mae_die "usage: maestro-state --gen N set <key>=<value> [<key>=<value>…]"
+    for a in "$@"; do
+      [[ "$a" == *=* ]] || mae_die "maestro-state set: \"$a\" is not <key>=<value>"
+      k="${a%%=*}"
+      if [[ "$k" =~ ^[A-Za-z_][A-Za-z0-9_-]*(\.[A-Za-z_][A-Za-z0-9_-]*){2,}$ ]]; then
+        mae_die "maestro-state set: \"$k\": one level of nesting only (<parent>.<key> in a one-line flow map); use write"
+      fi
+      [[ "$k" =~ ^[A-Za-z_][A-Za-z0-9_-]*(\.[A-Za-z_][A-Za-z0-9_-]*)?$ ]] || mae_die "maestro-state set: \"$k\" is not a key name"
+      if [[ "${a#*=}" == *[[:cntrl:]]* ]]; then
+        mae_die "maestro-state set: \"$k\": a value may not hold a newline or another control character"
+      fi
+    done
+    mkdir -p "$SD/tmp"
+    src="$(mktemp "$SD/tmp/state.XXXXXX")"
+    printf '%s\n' "$@" > "$src"
+  else
+    [[ $# -eq 2 ]] || mae_die "usage: maestro-state --gen N add-session <codex|agy|claude_cli|claude> '<json object>'"
+    case "$1" in
+      codex|agy|claude_cli|claude) ;;
+      *) mae_die "maestro-state add-session: unknown transport \"$1\" (codex, agy, claude_cli, claude)" ;;
+    esac
+    # The record as a one-line flow map. A string is bare only when YAML reads it back as the same
+    # string; otherwise it is quoted in JSON's form, which YAML accepts.
+    item="$(jq -rs '
+      def bad: error("not a session record");
+      def y:
+        if type == "object" then
+          "{" + ([ to_entries[] | (if (.key | test("^[A-Za-z_][A-Za-z0-9_-]*$")) then .key else bad end) + ": " + (.value | y) ] | join(", ")) + "}"
+        elif type == "array" then "[" + (map(y) | join(", ")) + "]"
+        elif type == "string" then
+          if test("[[:cntrl:]]") then bad
+          elif test("^[A-Za-z0-9_/.][A-Za-z0-9_./+:@-]*$") and (test(":$") | not)
+               and (test("^(true|false|null|yes|no|on|off|y|n)$"; "i") | not)
+               and (test("^[-+]?(\\.?[0-9][0-9_.]*(e[-+]?[0-9]+)?|0x[0-9a-f_]+|0o[0-7_]+|\\.(inf|nan)|[0-9:]+)$"; "i") | not)
+          then . else tojson end
+        else tojson end;
+      if length == 1 and (.[0] | type == "object" and length > 0) then .[0] | y else bad end' <<<"$2" 2>/dev/null)" \
+      || mae_die "maestro-state add-session: the record must be one non-empty JSON object (plain key names; no newline or control character in a string)"
+    mkdir -p "$SD/tmp"
+    src="$(mktemp "$SD/tmp/state.XXXXXX")"
+    printf '%s\n' "$1" "$item" > "$src"
+  fi
+  mae_fenced "$gen" __locked "$op" CHECKPOINT.md "$src" "$gen"; exit
 fi
 op="${1:-}" rel="${2:-}"
-[[ -n "$op" && -n "$rel" ]] || mae_die "usage: maestro-state [--gen N] write|append|verify|adopt|delete|archive <file>, or rotate --to <name>"
+[[ -n "$op" && -n "$rel" ]] || mae_die "usage: maestro-state [--gen N] write|append|verify|adopt|delete|archive <file>, set <key>=<value>…, add-session <transport> <json>, or rotate --to <name>"
 allowed "$rel" || mae_die "maestro-state: $rel is not bookkeeping (CHECKPOINT.md, ledger.jsonl, pending-decision.md, tasks/<id>/entry.json)"
 
 case "$op" in
@@ -106,9 +443,9 @@ case "$op" in
     if [[ "$op" == adopt ]]; then
       [[ "${3:-}" == "--reason" && -n "${4:-}" ]] || mae_die "maestro-state adopt needs --reason \"<text>\""
       hj="$("$MAESTRO_BIN/maestro-host" 2>/dev/null || true)"
-      if [[ "$(jq -r '.interactive' <<<"$hj" 2>/dev/null)" == false ]]; then
-        jq -cn --arg f "$rel" --arg h "$(jq -r '.host' <<<"$hj")" \
-          '{result: "refused", file: $f, reason: ("headless host (" + $h + "): only the user can adopt a file, after inspecting it")}'
+      if [[ "$(jq -r '"\(.host) \(.interactive)"' <<<"$hj" 2>/dev/null)" != "claude-code true" ]]; then
+        jq -cn --arg f "$rel" --arg h "$(jq -r '"\(.host // "?"), interactive \(.interactive)"' <<<"$hj" 2>/dev/null || echo '?')" \
+          '{result: "refused", file: $f, reason: ("headless or not Claude Code (" + $h + "): only the user can adopt a file, after inspecting it")}'
         exit 1
       fi
     fi
@@ -124,6 +461,6 @@ case "$op" in
     else
       cat > "$src"
     fi
-    exec "$MAESTRO_BIN/maestro-lock" exec --gen "$gen" -- "$0" __locked "$op" "$rel" "$src" "$gen" ;;
+    mae_fenced "$gen" __locked "$op" "$rel" "$src" "$gen"; exit ;;
   *) mae_die "maestro-state: unknown operation $op" ;;
 esac

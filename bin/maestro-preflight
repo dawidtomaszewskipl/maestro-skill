@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+# maestro-preflight — stage 0 steps 2, 3, 3a (state, git, model reach) and 7 in one call, without
+# a model turn (SKILL.md, "Stage 0"). Run after `maestro-lock acquire`, from the repository.
+#
+#   maestro-preflight --gen N [--resume] [--interactive true|false] [--api] [--no-codex] [--no-agy]
+#                     [--worktree] [--skills]
+#
+#   --resume       a dirty tree is reported, not a stop (the resume reconciles it)
+#   --interactive  the host's interactive flag from maestro-host (native = the Agent tool when true)
+#   --api          check the api transport too (--sdk or policy api.fallback: true)
+#   --no-codex / --no-agy   families off by policy: not checked
+#   --worktree     also probe `git worktree add/remove` (a split is decided)
+#   --skills       also list agy's workspace skills (`agy -p "/skills"`, no model turn, ~10 s)
+#
+# Inside the fence it creates .maestro/, adds `.maestro/` to info/exclude (never .gitignore) and
+# copies docs/schemas/*.json into .maestro/. Everything else is read-only (probe names are unique
+# and removed by a trap). Prints one JSON line:
+#   {repo, tree: {clean, dirty: [...]}, stashes, state, git, transports: {native, api, codex, agy},
+#    codex_config: {mode, pinned_by, project_warnings}, skills, warnings: [...], stops: [...]}
+# A non-empty `stops` is a stop with the remedy named in it. Exit 0 unless the call itself failed.
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+
+if [[ "${1:-}" == "__workspace" ]]; then   # inside the fence: __workspace <state dir> <exclude file>
+  mkdir -p "$2"
+  grep -qxF '.maestro/' "$3" 2>/dev/null || printf '.maestro/\n' >> "$3"
+  cp "$MAESTRO_ROOT"/docs/schemas/*.json "$2/"
+  exit 0
+fi
+
+gen="" resume=false interactive=true api=false do_codex=true do_agy=true worktree=false skills=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --gen) gen="$2"; shift 2 ;;
+    --resume) resume=true; shift ;;
+    --interactive) interactive="$2"; shift 2 ;;
+    --api) api=true; shift ;;
+    --no-codex) do_codex=false; shift ;;
+    --no-agy) do_agy=false; shift ;;
+    --worktree) worktree=true; shift ;;
+    --skills) skills=true; shift ;;
+    *) mae_die "maestro-preflight: unknown option $1" ;;
+  esac
+done
+[[ -n "$gen" ]] || mae_die "maestro-preflight needs --gen N (take the lock first)"
+[[ "$interactive" == true || "$interactive" == false ]] || mae_die "--interactive is true or false"
+
+REPO="$(git rev-parse --show-toplevel 2>/dev/null)" || mae_die "not inside a git repository"
+cd "$REPO"
+SD="$(mae_state_dir)"
+T="$(mktemp -d)"
+warnings=() stops=()
+w() { warnings+=("$1"); }
+s() { stops+=("$1"); }
+
+# --- step 2: workspace -----------------------------------------------------------------------
+mae_fenced "$gen" __workspace "$SD" "$(git rev-parse --git-path info/exclude)" \
+  || { jq -cn '{stops: ["the fence refused the workspace setup: superseded — stop at once"]}'; exit 4; }
+# The run's own state and an untracked project install of this skill (install.sh <project>) are not
+# the user's changes.
+dirty="$(git status --porcelain=v1 --untracked-files=all | grep -vE '^.. \.maestro/|^\?\? \.claude/skills/maestro/' || true)"
+clean=true; [[ -z "$dirty" ]] || clean=false
+if [[ "$clean" == false && "$resume" == false ]]; then
+  s "the working tree is not clean: commit or stash first (maestro needs a clean tree to start)"
+fi
+stashes="$(git stash list --format='%gd %gs' | grep 'maestro-draft-' || true)"
+[[ -z "$stashes" ]] || w "leftover cascade stashes: $(tr '\n' ';' <<<"$stashes")"
+
+# --- step 3a.1-2: state and git capabilities -------------------------------------------------
+id="$$-$RANDOM"; gd="$(git rev-parse --absolute-git-dir)"
+cleanup() {
+  rm -rf "$T"; rm -f "$SD/probe-$id" "$gd/maestro-probe-$id"
+  git update-ref -d "refs/maestro/probe-$id" 2>/dev/null || true
+  git worktree remove --force "$SD/worktrees/probe-$id" 2>/dev/null || true
+}
+trap cleanup EXIT
+cap() { if "${@:2}" >/dev/null 2>&1; then printf '"%s":true' "$1"; else printf '"%s":false' "$1"; fi; }
+state_ok=false; { : > "$SD/probe-$id" && rm -f "$SD/probe-$id"; } 2>/dev/null && state_ok=true
+[[ "$state_ok" == true ]] || s "cannot write in $SD: the host's sandbox or permissions block the state directory"
+# Probes that need no commit: an empty tree object, read into a throwaway index; a throwaway ref to
+# that object. Only the worktree probe needs HEAD (an unborn HEAD skips it with a warning).
+et="$(git mktree </dev/null 2>/dev/null || true)"
+gitj="{$(cap objects test -n "$et"),$(GIT_INDEX_FILE="$gd/maestro-probe-$id" cap index_file git read-tree "${et:-none}"),$(cap refs bash -c "git update-ref refs/maestro/probe-$id ${et:-none} && git update-ref -d refs/maestro/probe-$id")"
+if [[ "$worktree" == true ]]; then
+  if git rev-parse -q --verify HEAD >/dev/null; then
+    gitj+=",$(cap worktree bash -c "mkdir -p '$SD/worktrees' && git worktree add -q --detach '$SD/worktrees/probe-$id' HEAD && git worktree remove --force '$SD/worktrees/probe-$id'")"
+  else w "no commit yet (unborn HEAD): the worktree probe was skipped — a split needs a first commit"; fi
+fi
+gitj+="}"
+for k in objects index_file refs worktree; do
+  [[ "$(jq -r --arg k "$k" 'if has($k) then .[$k] | tostring else "n/a" end' <<<"$gitj")" == false ]] && \
+    s "git $k write failed: a commit needs it (Claude Code: is the Bash sandbox on? since 2.1.323 it makes git worktree add/remove and worktree commits read-only — allow the repository's .git or run without the sandbox)"
+done
+
+# --- step 3 and 3a.3: transports, without model turns (in parallel) --------------------------
+env_() { "$MAESTRO_BIN/maestro-env" -- "$@"; }
+command -v claude >/dev/null 2>&1 && { env_ claude auth status > "$T/claude.json" 2>/dev/null & }
+if [[ "$do_codex" == true ]] && command -v codex >/dev/null 2>&1; then
+  { env_ codex login status > "$T/codex-login.txt" 2>&1; echo $? > "$T/codex-login.rc"; } &
+  { env_ codex doctor --summary > "$T/codex-doctor.txt" 2>&1 || true; } &
+  { codex --version > "$T/codex-version.txt" 2>/dev/null || true; } &
+fi
+if [[ "$do_agy" == true ]] && command -v agy >/dev/null 2>&1; then
+  { env_ agy models > "$T/agy-models.txt" 2>&1; echo $? > "$T/agy-models.rc"; } &
+  { agy --version > "$T/agy-version.txt" 2>/dev/null || true; } &
+  if [[ "$skills" == true ]]; then
+    { env_ agy --add-dir "$REPO" --mode plan --output-format json --print-timeout 2m -p "/skills" \
+        < /dev/null > "$T/agy-skills.json" 2>/dev/null || true; } &
+  fi
+fi
+if [[ "$api" == true ]]; then { "$MAESTRO_BIN/maestro-sdk" --check > "$T/api.json" 2>/dev/null || true; } & fi
+wait
+
+# native Claude
+auth='{}'; [[ -s "$T/claude.json" ]] && auth="$(jq -c . "$T/claude.json" 2>/dev/null || echo '{}')"
+if [[ "$interactive" == true ]]; then native_ok=true native_why="the Agent tool (interactive Claude Code)"
+elif [[ "$(jq -r '.loggedIn // false' <<<"$auth")" == true ]]; then native_ok=true native_why="claude -p, logged in ($(jq -r '.authMethod // "?"' <<<"$auth"))"
+else native_ok=false native_why="claude -p: not logged in (claude auth login)"; fi
+exp="$(jq -r '.loginExpiresAt // empty' <<<"$auth")"
+if [[ -n "$exp" ]]; then
+  left=$(( $(date -d "$exp" +%s 2>/dev/null || echo 0) - $(date +%s) ))
+  (( left < 86400 )) && w "the Claude login expires at $exp (in $((left / 3600)) h): a long run may lose native Claude — run claude auth login first"
+fi
+native="$(jq -cn --argjson ok "$native_ok" --arg why "$native_why" --arg exp "$exp" \
+  '{available: $ok, reason: $why, login_expires_at: (if $exp == "" then null else $exp end)}')"
+
+# api
+apij=null
+if [[ "$api" == true ]]; then apij="$(jq -c '{available: (.available // false), reasons: (.reasons // [])}' "$T/api.json" 2>/dev/null || echo '{"available":false,"reasons":["maestro-sdk --check failed"]}')"; fi
+
+# codex
+codexj='{"available":false,"reason":"off by policy"}' cfg='{"mode":null,"pinned_by":[],"project_warnings":[]}'
+if [[ "$do_codex" == true ]]; then
+  if ! command -v codex >/dev/null 2>&1; then codexj='{"available":false,"reason":"codex not installed"}'
+  else
+    lrc="$(cat "$T/codex-login.rc" 2>/dev/null || echo 1)"
+    sum="$(grep -E '[0-9]+ ok · [0-9]+ warn · [0-9]+ fail' "$T/codex-doctor.txt" | tail -1 || true)"
+    fails="$(sed -nE 's/.* ([0-9]+) fail.*/\1/p' <<<"$sum")"
+    ok=true why="logged in; doctor: ${sum:-no summary}"
+    [[ "$lrc" == 0 ]] || { ok=false; why="codex login status: $(head -c 200 "$T/codex-login.txt")"; }
+    [[ -z "$fails" || "$fails" == 0 ]] || { ok=false; why="codex doctor: $sum (run codex doctor for details)"; }
+    codexj="$(jq -cn --argjson ok "$ok" --arg why "$why" --arg v "$(awk '{print $NF}' "$T/codex-version.txt" 2>/dev/null)" \
+      '{available: $ok, reason: $why, version: (if $v == "" then null else $v end)}')"
+    # config mode: pinned when the user's config.toml decides where or how Codex connects or authenticates
+    ucfg="${CODEX_HOME:-$HOME/.codex}/config.toml" pinned=()
+    if [[ -f "$ucfg" ]]; then
+      table=""
+      while IFS= read -r line; do
+        line="${line%%#*}"
+        if [[ "$line" =~ ^[[:space:]]*\[+([^]]+)\]+ ]]; then table="${BASH_REMATCH[1]}"
+          [[ "$table" == model_providers* ]] && pinned+=("[$table]"); continue; fi
+        [[ "$line" =~ ^[[:space:]]*([A-Za-z0-9_.\"-]+)[[:space:]]*= ]] || continue
+        key="${BASH_REMATCH[1]}"
+        case "$table" in mcp_servers*|projects*|tui*|plugins*) continue ;; esac
+        if [[ "$key" =~ ^(model_provider|openai_base_url|chatgpt_base_url|cli_auth_credentials_store|forced_login_method|forced_chatgpt_workspace_id)$ \
+              || "$key" =~ (base_url|provider|login|auth|credential|proxy) ]]; then pinned+=("${table:+$table.}$key"); fi
+      done < "$ucfg"
+    fi
+    pw=()
+    if [[ -f "$REPO/.codex/config.toml" ]]; then
+      grep -qE '^[[:space:]]*default_permissions[[:space:]]*=' "$REPO/.codex/config.toml" && pw+=("project .codex/config.toml sets default_permissions: it can make a Codex worker's workspace read-only whatever -s says")
+      grep -qiE 'docker|podman|container' "$REPO/.codex/config.toml" && pw+=("project .codex/config.toml starts a container-backed MCP server: it cannot start in the sandbox (10 s penalty per run)")
+    fi
+    for x in "${pw[@]+"${pw[@]}"}"; do w "$x"; done
+    cfg="$(jq -cn --args '{mode: (if ($ARGS.positional | length) > 0 then "pinned" else "isolated" end), pinned_by: $ARGS.positional}' "${pinned[@]+"${pinned[@]}"}" \
+      | jq -c --args '. + {project_warnings: $ARGS.positional}' "${pw[@]+"${pw[@]}"}")"
+  fi
+fi
+
+# agy
+agyj='{"available":false,"reason":"off by policy"}' skillsj=null
+if [[ "$do_agy" == true ]]; then
+  if ! command -v agy >/dev/null 2>&1; then agyj='{"available":false,"reason":"agy not installed"}'
+  else
+    arc="$(cat "$T/agy-models.rc" 2>/dev/null || echo 1)"
+    n="$(grep -cE '^[a-z0-9][a-z0-9.\-]*	' "$T/agy-models.txt" 2>/dev/null || true)"
+    if [[ "$arc" == 0 && "${n:-0}" -gt 0 ]]; then agyj="$(jq -cn --arg v "$(cat "$T/agy-version.txt" 2>/dev/null)" --argjson n "$n" '{available: true, reason: "agy models lists \($n) models", version: $v}')"
+    else agyj="$(jq -cn --arg e "$(head -c 200 "$T/agy-models.txt" 2>/dev/null)" '{available: false, reason: "agy models failed: \($e)"}')"; fi
+    if [[ "$skills" == true ]]; then
+      skillsj="$(jq -c '{status, response: ((.response // "") | .[0:2000])}' "$T/agy-skills.json" 2>/dev/null || echo '{"status":"failed"}')"
+      if [[ -d "$REPO/.agents/skills" ]]; then
+        resp="$(jq -r '.response // ""' "$T/agy-skills.json" 2>/dev/null || true)" missing_sk=()
+        for sk in "$REPO"/.agents/skills/*/; do
+          [[ -d "$sk" ]] || continue
+          sk="$(basename "$sk")"; grep -qF -- "$sk" <<<"$resp" || missing_sk+=("$sk")
+        done
+        [[ ${#missing_sk[@]} -eq 0 ]] || w "agy does not list the workspace skills ${missing_sk[*]} from .agents/skills/: a trust or mount failure"
+      fi
+    fi
+  fi
+fi
+if [[ -d "$REPO/.claude/skills" ]] && [[ -n "$(ls -A "$REPO/.claude/skills" 2>/dev/null)" ]] && [[ ! -d "$REPO/.agents/skills" ]]; then
+  w "project skills only in .claude/skills: Codex and agy workers cannot see them (name them in briefs)"
+fi
+
+jq -cn --arg repo "$REPO" --argjson clean "$clean" --arg dirty "$dirty" --arg st "$stashes" \
+  --argjson state "$state_ok" --argjson git "$gitj" --argjson native "$native" --argjson api "$apij" \
+  --argjson codex "$codexj" --argjson agy "$agyj" --argjson cfg "$cfg" --argjson skills "$skillsj" \
+  --argjson w "$(printf '%s\n' "${warnings[@]+"${warnings[@]}"}" | jq -R . | jq -sc 'map(select(. != ""))')" \
+  --argjson s "$(printf '%s\n' "${stops[@]+"${stops[@]}"}" | jq -R . | jq -sc 'map(select(. != ""))')" '
+  {repo: $repo, tree: {clean: $clean, dirty: ($dirty | split("\n") | map(select(. != "")))},
+   stashes: ($st | split("\n") | map(select(. != ""))), state: $state, git: $git,
+   transports: {native: $native, api: $api, codex: $codex, agy: $agy},
+   codex_config: $cfg, skills: $skills, warnings: $w, stops: $s}'

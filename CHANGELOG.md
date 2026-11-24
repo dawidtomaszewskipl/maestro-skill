@@ -1,12 +1,331 @@
 # Changelog
 
-## Unreleased
+## 2.3.0 — 2026-11-24
 
-- **`maestro-state adopt` refuses under a headless host.** Adopting a file changed outside maestro
-  was only the director's rule ("only on the user's decision, never under `--unattended`"); the
-  script accepted any call. It now asks `maestro-host` and answers `{result: "refused"}` (exit 1)
-  when the host runs without a user (`claude -p`, `codex exec`, `agent -p`, `agy -p`). An
-  interactive host running `--unattended` cannot be told apart here and stays the director's rule.
+**`--advisor`: optional advisor checkpoints in the build, off by default.** The builder may stop
+once (`--advisor-checkpoints=<1–3>`, default 1) to ask a read-only model for short guidance; the
+director classifies the request, calls the advisor, triages the answer and resumes the builder on
+its own transport. Advice is never a gate: it approves no plan and no diff, replaces neither the
+plan critique nor the cross review, stops no run and moves no rubric row. The rubric, the critic,
+reviewer and arbiter orders, the cross-family rule and `bin/slots.json` are unchanged. The advisor
+is **unmeasured** (`docs/workers.md`, "Evidence and the rubric").
+
+### Flags and policy
+- `maestro-flags`: `--advisor[=<slot>[@<transport>]]` (bare = `"auto"`), `--advisor-checkpoints=<1–3>`;
+  `--advisor=` and `--advisor=self` are errors; illegal: `--advisor-checkpoints` without `--advisor`,
+  `--advisor` with `--plan-only`, `--cascade` or `--model=self`, `--sdk` with `--advisor=<slot>@native`.
+- `maestro-policy`: keys `advisor` (names the advisor, never enables it), `advisor_checkpoints` (1–3,
+  default 1) and `effort.advise` (default `high`). `roles-input` adds `advisor_on`, `named_advisor`,
+  `policy_advisor` and `exclude.advisor_kept`: a slot named by `--advisor` that policy denies is kept
+  for the advisor role only, never for `eligible`.
+
+### Roles, briefs, validation
+- `maestro-roles`: inputs `advisor_on`, `named_advisor`, `policy_advisor`, `advisor_eligible`,
+  `review_active`; output `advisor` (null in every stop). Named → any family, the builder's included
+  (noted), not available → stop; policy → used when eligible, else auto with a note; auto → the
+  first eligible slot of the critic order for the stakes from another family, never explicit-only,
+  avoiding the reviewer's family when review is on (`advisor and reviewer share a family`,
+  `reviewer anchored: the advisor shaped the build`); none → off, noted; builder `self` → off.
+  Critics and reviewer are computed exactly as before.
+- `maestro-brief`: role `advisor` (read-only), and `close --role builder|fix --advisor-checkpoints N`
+  prints the advisor block (`ADVICE_REQUEST` … `END_ADVICE_REQUEST`), verbatim in `docs/briefs.md`.
+- `maestro-identity codex --role advisor`: the read-only profile.
+- `maestro-validate` honours `minLength`, `maxLength`, `minItems` and `maxItems` (generic; no earlier
+  schema uses them). New `docs/schemas/advice-schema.json`; preflight copies it with the others.
+
+### Docs
+- SKILL.md: the flags, `## Advisor`, the loop and report lines; `docs/commands.md` "Advisor" (the
+  critic line of the slot with role `advisor`, effort `advise` and the advice schema); `docs/briefs.md`
+  the advisor block, the advisor brief and the triage format; `docs/checkpoint.md` "Advisor
+  checkpoints" (ids `adv-<n>`, `advisor_checkpoints: {max, used, skipped, pending}`, the snapshot and
+  advice file in the git dir, `requested` → `advised` → `resuming`, at-least-once delivery);
+  `docs/unattended.md` "Advisor" (classification first, a failure skips the checkpoint, a safety stop
+  stays row 5); `docs/setup.md` step 1b (recommended `none`; at most four calls per run);
+  `docs/ledger.md` stage `advise`; `docs/policy.md`, `docs/hosts.md`, the guide and both READMEs.
+
+### Review fixes (astra cross review, fix round 1)
+- **Resume order:** with `pending` = `adv-<n>:requested` the saved snapshot is compared right after
+  the lock, before `maestro-preflight --resume` (which copies the schemas back and would hide an edited
+  `advice-schema.json`); a `changed` result is kept through the recovery (T14 shows the two orders).
+- **Delivery:** `pending` = `adv-<n>:resuming:<job id>` names the continuation's job id (decided before
+  the dispatch; `agent:<id>` for an Agent-tool builder); recovery reconciles exactly that job.
+- **Agent-tool advisor answer:** `.maestro/tmp/answer-adv-<run_id>-<n>-a<k>.json`, its agent id, path
+  and sha256 recorded with `add-session claude`; reused on resume only when all three match.
+- **A flag never beats unavailability:** `maestro-roles` takes `available` (slots with an available
+  transport, policy ignored); a denied named advisor outside it stops; a policy advisor is used only
+  from `eligible`.
+- **Counts survive a swap:** `advisor_checkpoints.status` (`unused`, `active`, `disabled`) turns further
+  requests off; `max`, `used` (request ids consumed, not ledger rows) and `skipped` are kept.
+- **No verdict reaches the advisor:** PLAN.md keeps critique and verdict text under `## Critique
+  record`; the advisor gets `.maestro/tmp/plan-advise-r<N>.md` without it, and quoted review text is
+  removed from a fix-round request.
+- **A16a and the transport switch** name the advisor exception (quota or network → skip, never row 5;
+  a safety stop stays row 5).
+- **Setup step 1b:** with a policy `advisor`, that slot is offered by name (`--advisor=<slot>`) and
+  `auto` is not offered, since a bare `--advisor` would select the policy slot.
+- The checkpoint example no longer pairs a `--cascade` run with an advisor; an Agent-tool advisor's
+  effort is recorded as `default`. `docs/README.md` names the advice schema.
+
+### Review fixes (astra re-review, fix round 2)
+- **Resume, two moments:** step 0 only records the advisor comparison (`advisor_checkpoints.fp_at_resume`
+  `same|changed|missing`, and `ro_off` for the transport made ineligible for read-only roles); the job
+  reconciliation, blockers, decisions and the dirty-exit inspection of any advisor edit run in their
+  usual steps; step 5 consumes it (one skip, the fixed-text file, `advised` → `resuming`). Nothing is
+  dispatched before step 5. An absent `resuming:<job id>` job is `maestro-wait`'s "no job" (exit 2).
+- **Setup step 1b** resolves the policy advisor with `maestro-roles` against the setup roster first:
+  offered by name only when it survives; when it is denied or unavailable, `auto` (bare `--advisor`)
+  is offered with the reason.
+- **The advisor's inputs are protected:** the plan copy `.maestro/plan-advise-r<N>.md` and the patch
+  sit in `.maestro/`, written before the snapshot; only an Agent-tool advisor's raw answer is in `tmp/`.
+
+### Review fixes (astra, fix round 3)
+- **A recorded `changed` is authoritative:** step 0 never overwrites it, so a restart after preflight
+  restored the schema cannot turn it into `same`; step 5 settles the request once, with one skip.
+- **Setup step 1b** no longer names the slot `auto` will pick: it depends on `review_active`, which
+  step 2 decides; the resolved slot is named after step 2, in the flag line's explanation and the
+  Assign line.
+
+### Review fixes (astra, fix round 4 — authorised beyond the fix cap: simplify)
+- **The advisor-facing diff:** no mechanical filter (one cannot be complete). It is `git diff HEAD`
+  restricted to the plan's implementation files, without `CHANGELOG.md` and record files that quote
+  review text, written to `.maestro/diff-advise-r<N>.patch` before the snapshot; in a fix round the
+  director reads it and removes any hunk (or file) that quotes critic or reviewer text or a finding.
+  The brief says "CHANGELOG.md and quoted review text were withheld."
+- **A recorded `same` is re-verified:** every later resume compares the protected inputs against the
+  saved snapshot again in step 0, before preflight, before an answer is reused; `changed` still
+  stays.
+- **Setup step 1b:** avoiding the reviewer's family is a preference, applied only when another
+  eligible cross-family slot exists; otherwise one slot serves both roles with the anchoring warning,
+  kept in the Assign line.
+
+### Evidence
+- **Verified locally (2026-11-24, this machine, no model call):** the full test suite
+  (`bash tests/run.sh`) passes, with new cases for the flags, the policy keys, `maestro-roles`'
+  advisor choice (auto per family and stakes, reviewer avoidance, named, policy, explicit-only,
+  denied-but-named, one family, `self`), the advisor block in builder and fix briefs, `--role
+  advisor` in `maestro-brief` and `maestro-identity`, the advice schema with the new length and
+  cardinality checks, the `advise` ledger stage in the report, the checkpoint's
+  `advisor_checkpoints` patched with `maestro-state set`, and that `maestro-fp` does not hash the
+  snapshot and advice file kept in the git dir.
+- **Open:** no advisor call has run against a real model. Whether `codex exec --output-schema`,
+  `claude -p --json-schema` and agy `--json-schema` accept the advice schema's `boolean`,
+  `minLength`, `maxLength` and `maxItems` as written is not verified; whether builders actually
+  stop with `ADVICE_REQUEST` when told to, and whether advice saves fix rounds, is unmeasured — the
+  ledger's `advise` rows are where it will show.
+
+## 2.2.0 — 2026-11-24
+
+**New CLI versions and models, no routing change.** The docs are brought up to Codex 0.172.0,
+agy 1.5.16 and Claude Code 2.1.331 and to GPT-6.2, Gemini 4 Carbon and Neon and the Claude 5.5
+models. Every new claim carries a date, a source and a label (vendor, independent, secondhand,
+local measurement); what had no retrievable source is marked "not verified". The rubric rows,
+the critic, reviewer and arbiter orders and the degraded-mode orders are unchanged
+(`docs/workers.md`, "Evidence and the rubric").
+
+### Slots
+- **`carbon` and `neon`** (Gemini 4 Carbon and Neon, family Google, transport agy, provisional)
+  in `bin/slots.json`, the roster, the catalog lines and the policy keys. Both are
+  **`explicit_only`**: no automatic choice picks them, and an eligible but unnamed one does not
+  count as an eligible family — so, for example, Sol + Astra + Neon with Claude unavailable and
+  Argon and Gemini denied is still OpenAI-only degraded critique (Astra), not a halt. Naming one
+  is role-scoped: `--critic`/policy `critic` makes it a critic, `--reviewer`/policy `reviewer` the
+  reviewer only, `--model` the builder.
+- `maestro-catalog`'s agy classifier maps Hydrogen and Flash to `gemini` and Argon, Carbon and
+  Neon each to its own slot. The orchestrator slugs (`gemini-pro-orchestrator`, `-neon`, `-argon`)
+  stay unmatched.
+- `maestro-roles` takes `named_reviewer` (`--reviewer`): it beats the policy reviewer, and an
+  unavailable one or one of the builder's or drafter's family is a stop, as for a named critic.
+  A `carbon`/`neon` critic named for critique only is never reused as the reviewer: the reviewer
+  then comes from the usual order with the explicit-only slots left out (degraded same-family
+  review when only one family is left; none eligible → no reviewer, said in the notes).
+  `maestro-policy roles-input` adds `explicit_only`.
+
+### Evidence
+- Sources were read for each published figure: OpenAI's GPT-6.2 page (prices incl. Sol's $0.10
+  cached input; Sol within 0.5 points of Astra on FrontierCode 2.0 at a fifth of the cost),
+  Artificial Analysis (Coding Agent Index: Astra flat, Sol −3; Intelligence Index per effort; Gemini
+  dates and prices), Google's Gemini 4 Neon model card and methodology (Neon's Terminal-Bench 4.1
+  65.2 % is an independent Artificial Analysis run on the Antigravity CLI 1.5.9 harness), Google's
+  Hydrogen announcement (2026-11-12 — it was not unannounced, as 2.1 said), Google's Argon
+  (2026-10-13) and Carbon (2026-11-10) launch posts ($2 / $10 until 2026-11-30, $4 / $20 after),
+  Cognition's FrontierCode 2.0 data (scores and mean cost per rollout per effort), Anthropic's
+  Haiku price. Claims without a retrievable source were dropped.
+- `maestro-roles`: the reviewer fallback first takes a selected critic that is not explicit-only
+  (a high-stakes second critic such as Fable), then the critic order for the run's stakes.
+- `docs/troubleshooting.md`: the "resume runs in the shell's directory" incident is dated to
+  its observation on 0.159.2; on 0.172 the thread restores its saved cwd.
+
+### Codex 0.170–0.172
+- GPT-6.2 Sol and Astra are the first candidates of `sol` and `astra` (the resolver is generic)
+  until the account probe succeeds; pin `sol = "6.1"` to keep 6.1. Evidence is mixed: recorded,
+  not a routing change.
+- `codex exec resume` restores the saved cwd and sandbox unless overridden (0.172). **Observed:**
+  a resume from another directory ran in the thread's original directory; the role's
+  `-c sandbox_mode` still wins. The recipe is unchanged. `--remote` (0.171) is not used.
+
+### agy 1.5.10–1.5.16
+- The Gemini 4 line-up table; `-r`/`--resume` aliases (maestro keeps `--conversation`); the
+  1.5.13 fix of `ERROR` after a successful retry; the 4-minute rate-limit wait (watchdog threshold
+  unchanged); swarms and the Orchestrator are not used; `~/.agents/skills` discovery.
+
+### Claude Code 2.1.326–2.1.331
+- Recorded, no change to maestro: the Agent tool's `effort` parameter (honored for named teammates
+  since 2.1.329; maestro passes none), the 10 s model-settings grace of `-p`, exit 1 on an output
+  failure, the 10-minute background-subagent wait, resumed subagents keeping their model, the
+  `Agent(model:*)` follow-up fix, the startup warning for malformed `--tools`/`--allowedTools`
+  entries, `sandbox.failIfUnavailable`.
+
+### Tests
+- Fixture `tests/fixtures/catalogs/machine-2026-11-24`; T2 checks it (GPT-6.2, Carbon, Neon,
+  Hydrogen, the three orchestrator slugs unmatched, full-slug picks); T7 the explicit-only rule
+  and the named reviewer; T18 the exclusion lists with Carbon and Neon.
+
+## 2.1.0 — 2026-11-14
+
+**The 2.0 review's thirteen items: the plan critique converges, and more of the director's hand
+work moved into helpers.** Fable 5.2 built the plan-critique, policy, checkpoint-patch and
+interactive-job parts as a builder; every diff was read, tested and merged by the director.
+
+### Plan critique converges
+- **Severity rubric** in every critique brief (`docs/briefs.md`, "Plan critique"): `blocking` = the
+  plan cannot meet the spec or would cause damage; `major` = a defect reachable with an input or
+  state the spec allows; the rest are notes. Blocking and major findings carry a required
+  `trigger`.
+- **Delta rounds.** From round 2 a critic gets its open findings with the director's resolutions,
+  answers each in the new required `prior_findings` (`resolved` | `not_resolved`) and reports new
+  findings only when the revision introduced them, they are blocking, or they are a major missed
+  earlier with a trigger inside the spec. Approval also needs every
+  prior finding resolved.
+- **Arbiter at the cap.** Only majors left, not high stakes, a third family eligible
+  (`maestro-roles --arbiter`) → one call with `docs/schemas/arbiter-schema.json`; every finding
+  downgraded approves the plan (the report says so), anything else is the stop as before. Also
+  under `--unattended` (A13).
+- `maestro-validate --decide critique|arbiter [--ids …]` prints the mechanical decision; an
+  `approve` that still lists findings is invalid.
+
+  Live: Argon as arbiter downgraded the int64 finding that stopped the 2.0 canary at the cap
+  ("a state the system cannot reach").
+
+### Policy is TOML and has a reader
+- `maestro.policy.toml` and `~/.config/maestro/policy.toml` (stdlib `tomllib`). `maestro-policy
+  resolve` merges flags > repo > user > defaults per key, validates against `bin/slots.json`, and
+  returns `{effective, sources, warnings, stops}`; `roles-input` feeds `maestro-roles`. A
+  `maestro.policy.yml` left over stops with "convert to TOML". The removed 1.x keys stop.
+- Bare `--cascade` now leaves the drafter to policy (`cascade: "default"` in `maestro-flags`).
+
+### One job model in both modes
+- Interactive Claude Code also launches every external worker and test run through `maestro-run`;
+  one background Bash call runs `maestro-wait <job> --until-done` and its notification wakes the
+  director. Interactive jobs now have `meta.json`, an exit code and `maestro-kill`; the
+  hand-rolled `kill -0` watchdog is gone. `--until-done` keeps waiting on `running` and on
+  `uncertain` with a live leader, and returns on every other state (lingering and orphaned need
+  `maestro-kill`, so waiting on them would hang).
+- `maestro-run` takes host and session from the lock when the environment has none, so ledger rows
+  keep their host.
+
+### Checkpoint patches
+- `maestro-state --gen N set key=value…` and `add-session <transport> '<json>'` patch the front
+  matter in place through the same audit as `write`; the first checkpoint and structural changes
+  still use `write` (`docs/checkpoint.md`, "Format rules").
+
+### Helpers
+- `maestro-brief open|close|rubric`: the fixed brief text, checked word for word against
+  `docs/briefs.md` (T12).
+- `maestro-status`: stage, round, next action, open decision, live jobs, ledger, lock.
+- `maestro-limits`: Claude's `rate_limit_event` and Codex's rollout `rate_limits`, no model turn;
+  a pool at ≥ 90 % is a warning in the Assign line and steers rubric rows 3–5.
+- `maestro-ledger report --run <id>`: the report's cost table; Codex rows now carry `duration_s`.
+- `maestro-flags`: a lone `--` ends the flags; a near-miss flag gets "did you mean".
+- `maestro-wait` defaults to `--max 100` (the Bash default cap is 120 s); with `timeout: 600000`
+  the director passes `--max 540` — about 20× fewer turns on a long build than with 25 s.
+
+### Loop
+- Two high-stakes critics run at once under one fingerprint snapshot/compare.
+- A re-review after a fix round gets only the diff since the last reviewed state plus the open
+  findings (the review stage was the costliest in the ledger).
+- `docs/unattended.md` 52 → 28 KB: the inventory reproduction and the scenario test moved to
+  `docs/unattended-reference.md`.
+
+## 2.0.0 — 2026-11-14
+
+**Claude Code only; Cursor and Grok out; Gemini 4 Hydrogen and Fable 5.2; the director's hand
+checks became helpers.** Breaking: read "Migration" before upgrading.
+
+### Breaking
+- **Claude Code is the only director host**, interactive or headless (`claude -p --unattended`).
+  Codex and agy stay as worker transports. `maestro-host` now answers `claude-code`, `unsupported`
+  (another agent CLI is directing) or `unknown`; the `--host` flag, `$maestro` (Codex) and the
+  agy and Cursor directors are gone, and so are the director identity from a Codex rollout and the
+  per-host adapters.
+- **Cursor's `agent` transport, the `grok` slot and the xAI family are removed.** Three families
+  remain: Claude, OpenAI, Google. Transport orders: opus and sonnet native → agy → api, **fable
+  native → api** (no subscription fallback: a native quota hit is a swap unless `api` is
+  eligible), haiku native → api, argon agy only. Second-critic orders: Claude → google, openai;
+  OpenAI → google, claude; Google → openai, claude. Rubric row 5 is `sol` or `gemini`, row 6's
+  fallback `sonnet`, `sol`, `gemini`. `maestro-ledger --cli cursor-agent` and
+  `maestro-validate --envelope cursor` are gone.
+- **Install location:** a real copy in `~/.claude/skills/maestro` (was a symlink to
+  `~/.agents/skills/maestro`, also linked for agy). `install.sh --hosts` is gone.
+
+### Models
+- **Gemini 4 Hydrogen** (`gemini-4-hydrogen-{low,medium,high,xhigh}`, reported as Gemini 4 Flash;
+  Google has not confirmed it) is now the line of slot `gemini`; Flash (3.8) stays as the older
+  candidate, and at one version Hydrogen wins. agy slugs up to `max` are parsed; effort is clamped
+  to the suffixes a model lists (Hydrogen up to `xhigh`, Argon to `high`).
+- **Fable 5.2**: `claude -p --model fable` serves `claude-fable-5-2` (probed); $8/$40 per MTok.
+- New fixture `tests/fixtures/catalogs/machine-2026-11-14` (Codex 0.169.0, agy 1.5.9);
+  `gemini-pro-orchestrator-g1-pro` and `gpt-oss-120b-medium` stay unmatched.
+
+### CLI catch-up (Claude Code 2.1.325, Codex 0.169.0, agy 1.5.9)
+- agy: a print timeout exits 3 with `finished_reason: print_timeout` — `maestro-validate` rejects
+  any `finished_reason`; Auto is the default mode since 1.5.7, so every agy line passes `--mode`
+  (the `/skills` probe now `--mode plan`). `--disable-slash-commands` was measured and **not**
+  adopted: it makes `--mode plan` ineffective.
+- Claude Code: the init check fails closed on `plugin_errors`; `maestro-preflight` warns when the
+  login expires within a day (`loginExpiresAt`); since 2.1.323 the Bash sandbox makes `git
+  worktree` read-only — preflight names the remedy. `--restricted` was measured and not adopted
+  (no gain over the read-only lines' own flags).
+- Codex: `--trust` is never used; `cyber_access_program` must be `standard`; the effective-config
+  check was verified on a 0.169.0 rollout; the coming rollout migration is a known risk.
+- Agent SDK 0.3.312 → 0.3.325 (bundles Claude Code 2.1.325); one paid probe on Fable 5.2 cost
+  $0.0036 (the SDK's estimate).
+
+### Refactor
+- `bin/slots.json`: one slot table (family, transport order, pin pattern, provisional) read by
+  `maestro-roles` and `maestro-catalog`; T12 checks SKILL.md's roster against it.
+- New helpers: `maestro-preflight` (stage 0 steps 2, 3, 3a, 6, 7 in one call, about 2 s),
+  `maestro-identity` (the Codex effective-config check that was a script copied by hand from
+  commands.md, and the `claude -p`/`api` init check), `maestro-flags` (syntax, unknown values and
+  every illegal combination).
+- `maestro-wait`: meta.json read once, members matched in one pass, the unowned scan by one
+  `find` — a snapshot went from about 870 to 210 ms here.
+- `_lib.sh`: shared fencing, job-dir, rollout and event readers. **Fix:** `maestro-wait`,
+  `maestro-kill` and `maestro-ledger` accepted a job id with `..`; every helper now refuses it.
+- SKILL.md 46 → 35 KB and `docs/hosts.md` 28 → 16 KB; the fixed brief text moved to
+  `docs/briefs.md`, splits to `docs/worktrees.md`, measurement history to `docs/evidence.md`.
+- Tests: T12 (docs consistency, ban on the removed names), T13 identity, T14 preflight, T15 flags;
+  378 pass. A /code-review pass found ten defects in the branch before release; all fixed.
+- `maestro-state adopt` refuses unless `maestro-host` reports an interactive Claude Code (headless
+  `claude -p`, or another agent CLI): no user there could have inspected the file. An interactive
+  Claude Code running `--unattended` cannot be told apart and stays the director's rule.
+- Interactive check: an Agent-tool Sonnet builder, an agy Argon critic with `--json-schema`, the
+  `claude-agent` ledger row and a fenced commit (`docs/evidence.md`). The Agent tool's completion
+  names no model, so `maestro-ledger --cli claude-agent --served` is optional (null when absent).
+- `maestro-lock` refuses unknown options; `maestro-preflight` does not count an untracked project
+  install of the skill (`.claude/skills/maestro/`) as a dirty tree; `tests/run.sh` prints the time
+  of each group.
+- Live canary (`tests/canary/build-interrupt-resume.sh`, headless Sonnet director, `--critic=sol`):
+  the first run stopped correctly at the critique cap (`needs-decision`, row 3); resumed with the
+  build option, the director was killed while the build job ran, and `--resume --unattended`
+  reconciled the finished job, checked its identity, ran the tests and committed.
+
+### Migration from 1.x
+- Run `./install.sh` (add `--sdk` for the api transport). It replaces the 1.x symlink and names
+  the leftovers: delete `~/.agents/skills/maestro` and `~/.gemini/config/skills/maestro` yourself.
+- A policy that names `grok`, `xai`, `cursor_fast` or a `<slot>@cursor` pair halts until the
+  entry is removed.
+- A checkpoint from 1.x that recorded another host, a `cursor` transport or a `grok` slot stops on
+  `--resume`: finish or discard that run with 1.4.0, or start again.
 
 ## 1.4.0 — 2026-10-28
 

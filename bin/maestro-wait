@@ -2,6 +2,7 @@
 # maestro-wait — report or wait for a job's state (docs/hosts.md, "Jobs").
 #
 #   maestro-wait <job-id> [--max S] [--peek] [--also FILE]
+#   maestro-wait <job-id> --until-done [--max S] [--also FILE]
 #
 # Prints one JSON line: {job_id, state, code, leader_alive, elapsed, last_progress_at, progress_source,
 # live_members, unowned}. state:
@@ -12,26 +13,38 @@
 #   lost       leader gone, no exit, no member left — terminated, outcome unknown
 #   uncertain  /proc, the leader or a member unreadable (the leader may still be alive: see
 #              leader_alive) — never counted as terminated; blocks like running while the leader lives
-# Blocks up to --max seconds (default $MAESTRO_WAIT_MAX or 25) while running; --peek never blocks
+# Blocks up to --max seconds (default $MAESTRO_WAIT_MAX or 100: the Bash tool's default cap is 120 s;
+# with `timeout: 600000` pass --max 540) while running; --peek never blocks
 # and never updates the progress record. --also FILE counts FILE's growth as progress too (agy's
 # CLI log). Progress = new bytes on stdout, or on stderr/--also with a last line different from
 # the previous one (a repeated identical error line is not progress).
+#
+# --until-done blocks with no cap (MAESTRO_WAIT_MAX does not apply) until the job needs the
+# director: it keeps waiting on `running` and on `uncertain` with leader_alive, and returns on
+# everything else — exited and lost (terminated), lingering and orphaned (they need maestro-kill,
+# waiting would never end), uncertain without a live leader. Prints that one snapshot, exit 0. An
+# explicit --max caps it: still waiting at the deadline → the snapshot and exit 3. An interactive
+# director runs it as the one background Bash task whose completion notification wakes it; it
+# keeps the progress record current, so pass the job's --also here.
 set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/_lib.sh"
 
 SD="$(mae_state_dir)"
 job="${1:-}"; shift || true
-max="${MAESTRO_WAIT_MAX:-25}" peek=0 also=""
+max="${MAESTRO_WAIT_MAX:-100}" peek=0 also="" until=0 max_set=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --max) max="$2"; shift 2 ;;
+    --max) max="$2"; max_set=1; shift 2 ;;
     --peek) peek=1; shift ;;
+    --until-done) until=1; shift ;;
     --also) also="$2"; shift 2 ;;
     *) mae_die "maestro-wait: unknown option $1" ;;
   esac
 done
-[[ -n "$job" ]] || mae_die "usage: maestro-wait <job-id> [--max S] [--peek] [--also FILE]"
-J="$SD/jobs/$job"
+[[ -n "$job" ]] || mae_die "usage: maestro-wait <job-id> [--max S] [--peek | --until-done] [--also FILE]"
+[[ $until -eq 0 || $peek -eq 0 ]] || mae_die "maestro-wait: --until-done and --peek exclude each other"
+[[ $peek -eq 1 || "$max" =~ ^[0-9]+$ ]] || mae_die "maestro-wait: --max takes whole seconds"
+J="$(mae_job_dir "$SD" "$job")"
 [[ -d "$J" ]] || mae_die "maestro-wait: no job $job"
 
 snapshot() {
@@ -48,9 +61,11 @@ snapshot() {
     fi
     return
   fi
-  local pid st wpid
-  pid="$(jq -r '.pid // empty' "$J/meta.json")"; st="$(jq -r '.pid_starttime // empty' "$J/meta.json")"
-  wpid="$(jq -r '.wrapper_pid // empty' "$J/meta.json")"
+  # meta.json is immutable after launch: one read per snapshot.
+  local pid st wpid pg cwd want started
+  IFS=$'\x1f' read -r pid st wpid pg cwd started want < <(jq -r '[(.pid // ""), (.pid_starttime // ""), (.wrapper_pid // ""),
+      (.pgid // ""), (.cwd // ""), ((.started_at // "") | (try fromdateiso8601 catch "")),
+      ([(.cmd | join(" ")), (.leader_argv // empty)] + (.test_cmds // []) | tojson)] | map(tostring) | join("\u001f")' "$J/meta.json")
   local leader_unreadable=0
   if [[ -n "$pid" ]]; then
     if mae_pid_same "$pid" "$st"; then leader_alive=true
@@ -63,18 +78,17 @@ snapshot() {
   # process still in the job's process group that the recorder never saw (the wrapper may have
   # died between polls). A recorded pid whose /proc entry exists but cannot be read makes the
   # state uncertain: it is never counted as gone.
-  local unreadable=0 pg
+  local unreadable=0 alive=() p s
   if [[ -f "$J/members.jsonl" ]]; then
-    live="$(jq -c --arg leader "${pid:-0}" 'select((.pid|tostring) != $leader)' "$J/members.jsonl" \
-      | while IFS= read -r m; do
-          p="$(jq -r .pid <<<"$m")"; s="$(jq -r .starttime <<<"$m")"
-          if mae_pid_same "$p" "$s"; then printf '%s\n' "$m"
-          elif [[ -d "$(mae_proc)/$p" && ! -r "$(mae_proc)/$p/stat" ]]; then printf '{"unreadable":%s}\n' "$p"; fi
-        done | jq -sc 'unique_by(.pid // .unreadable)')"
+    while IFS=$'\x1f' read -r p s; do
+      [[ -n "$p" && "$p" != "${pid:-0}" ]] || continue
+      if mae_pid_same "$p" "$s"; then alive+=("$p:$s")
+      elif [[ -d "$(mae_proc)/$p" && ! -r "$(mae_proc)/$p/stat" ]]; then unreadable=1; fi
+    done < <(jq -r '[(.pid|tostring), (.starttime // "" | tostring)] | join("\u001f")' "$J/members.jsonl" 2>/dev/null || true)
+    if [[ ${#alive[@]} -gt 0 ]]; then
+      live="$(jq -sc --arg keys " ${alive[*]} " 'map(. as $m | select($keys | contains(" \($m.pid):\($m.starttime) "))) | unique_by(.pid)' "$J/members.jsonl")"
+    fi
   fi
-  if jq -e 'any(.[]; has("unreadable"))' <<<"$live" >/dev/null 2>&1; then unreadable=1; fi
-  live="$(jq -c 'map(select(has("unreadable") | not))' <<<"$live")"
-  pg="$(jq -r '.pgid // empty' "$J/meta.json")"
   if [[ -n "$pg" ]]; then
     # One pass over /proc/*/stat: pids whose process group is the job's.
     # shellcheck disable=SC2013  # awk prints one pid per line; word splitting is what we want
@@ -116,12 +130,8 @@ snapshot() {
 
   # Unowned: processes in the job's cwd whose FULL command line equals one this job recorded,
   # that were never members. Reported, never signalled.
-  local cwd want
-  cwd="$(jq -r .cwd "$J/meta.json")"
-  want="$(jq -c '[(.cmd | join(" ")), (.leader_argv // empty)] + (.test_cmds // [])' "$J/meta.json")"
-  unowned="$(for p in $(mae_own_pids); do
+  unowned="$(for p in $(mae_own_pids_in "$cwd"); do
       [[ "$p" == "$$" || "$p" == "$PPID" ]] && continue
-      c="$(mae_pid_cwd "$p")"; [[ "$c" == "$cwd" || "$c" == "$cwd"/* ]] || continue
       cl="$(mae_pid_cmdline "$p")"
       jq -e --arg cl "$cl" 'index($cl) != null' <<<"$want" >/dev/null || continue
       grep -q "\"pid\":$p," "$J/members.jsonl" 2>/dev/null && continue
@@ -136,10 +146,9 @@ snapshot() {
   lastline="$( { tail -n1 "$J/err" 2>/dev/null || true
                   if [[ -n "$also" ]]; then tail -n1 "$also" 2>/dev/null || true; fi; } | sha256sum | cut -c1-16)"
   prev="$(cat "$J/progress" 2>/dev/null || echo '{}')"
-  pb="$(jq -r '.out_bytes // 0' <<<"$prev")"; pe="$(jq -r '.err_bytes // 0' <<<"$prev")"
-  pa="$(jq -r '.also_bytes // 0' <<<"$prev")"; pl="$(jq -r '.last_line // ""' <<<"$prev")"
-  lp="$(jq -r '.last_progress_at // empty' <<<"$prev")"
-  [[ -n "$lp" ]] || lp="$(date -d "$(jq -r .started_at "$J/meta.json")" +%s 2>/dev/null || echo "$now")"
+  IFS=$'\x1f' read -r pb pe pa pl lp < <(jq -r '[(.out_bytes // 0), (.err_bytes // 0), (.also_bytes // 0), (.last_line // ""),
+      (.last_progress_at // "")] | map(tostring) | join("\u001f")' <<<"$prev" 2>/dev/null || printf '0\x1f0\x1f0\x1f\x1f\n')
+  [[ -n "$lp" ]] || lp="${started:-$now}"
   if (( ob > pb )); then lp="$now"; src="stdout"
   elif (( eb > pe || ab > pa )) && [[ "$lastline" != "$pl" ]]; then lp="$now"; src="stderr/log"
   fi
@@ -148,9 +157,8 @@ snapshot() {
       '{out_bytes: $ob, err_bytes: $eb, also_bytes: $ab, last_line: $ll, last_progress_at: $lp}' \
       | mae_atomic_write "$J/progress"
   fi
-  local started elapsed
-  started="$(date -d "$(jq -r .started_at "$J/meta.json")" +%s 2>/dev/null || echo "$now")"
-  elapsed=$(( now - started ))
+  local elapsed
+  elapsed=$(( now - ${started:-$now} ))
   jq -cn --arg j "$job" --arg state "$state" --arg code "$code" --argjson el "$elapsed" \
     --argjson lp "$lp" --arg src "$src" --argjson live "$live" --argjson un "$unowned" \
     --argjson la "$leader_alive" \
@@ -162,11 +170,18 @@ snapshot() {
 
 if [[ $peek -eq 1 ]]; then snapshot; exit 0; fi
 deadline=$(( $(date +%s) + max ))
+# --until-done: no deadline unless --max was given.
+[[ $until -eq 1 && $max_set -eq 0 ]] && deadline=""
 while :; do
   out="$(snapshot)"
   st="$(jq -r .state <<<"$out")"
   # Keep blocking while the leader lives, even when the state is uncertain (it is not terminated).
   if [[ "$st" == uncertain && "$(jq -r '.leader_alive // false' <<<"$out")" == true ]]; then st=running; fi
-  if [[ "$st" != running || $(date +%s) -ge $deadline ]]; then printf '%s\n' "$out"; exit 0; fi
+  if [[ "$st" != running ]]; then printf '%s\n' "$out"; exit 0; fi
+  if [[ -n "$deadline" && $(date +%s) -ge $deadline ]]; then
+    printf '%s\n' "$out"
+    if [[ $until -eq 1 ]]; then exit 3; fi   # still waiting: not a final state
+    exit 0
+  fi
   sleep 2
 done

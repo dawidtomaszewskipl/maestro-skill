@@ -144,7 +144,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ -n "$job" && -n "$gen" ]] || mae_die "usage: maestro-kill <job-id> --gen F [--grace S]"
-J="$SD/jobs/$job"
+J="$(mae_job_dir "$SD" "$job")"
 [[ -f "$J/meta.json" ]] || mae_die "maestro-kill: no job $job"
 if [[ "$(jq -r .kind "$J/meta.json")" == test ]]; then
   jq -cn --arg j "$job" '{job_id: $j, result: "refused", reason: "test jobs are never killed"}'; exit 0
@@ -164,11 +164,11 @@ ks="$(cat "$J/kill.state" 2>/dev/null || echo '{}')"
 term_at="$(jq -r '.term_at // empty' <<<"$ks")"
 now="$(date +%s)"
 if [[ -z "$term_at" ]]; then
-  "$MAESTRO_BIN/maestro-lock" exec --gen "$gen" -- "$0" __step "$J" TERM || exit 4
+  mae_fenced "$gen" __step "$J" TERM || exit 4
 elif (( now - term_at < grace )); then
   jq -cn --arg j "$job" --argjson left "$(( grace - (now - term_at) ))" '{job_id: $j, result: "signalled", grace_left_s: $left}'
 elif [[ -z "$(jq -r '.kill_at // empty' <<<"$ks")" ]]; then
-  "$MAESTRO_BIN/maestro-lock" exec --gen "$gen" -- "$0" __step "$J" KILL || exit 4
+  mae_fenced "$gen" __step "$J" KILL || exit 4
 else
   jq -cn --arg j "$job" --argjson c "$c" '{job_id: $j, result: "blocked", reason: "members survived SIGKILL", members: $c}'
 fi

@@ -38,11 +38,19 @@ workers".
 
 ## A resumed worktree worker ran in the checkout
 
-`codex exec resume` has no `-C` and runs in the shell's current directory — the thread does not
-remember its worktree. Started from the checkout, a resume works on the checkout (observed with a
-read-only probe turn on 2026-09-30, before any edit). Start every resume of a worktree worker from
-its worktree (`cd <worktree> && codex exec resume …`), and let the effective-config check confirm
-the write root.
+`codex exec resume` has no `-C`. **On Codex 0.159.2** it ran in the shell's current directory —
+the thread did not remember its worktree: started from the checkout, a resume worked on the
+checkout (observed with a read-only probe turn on 2026-09-30, before any edit; 0.165–0.171 were
+not re-checked). **On 0.172.0** the thread restores its saved cwd (vendor: 0.172.0 release notes, #62194; observed on
+2026-11-24: a thread started in directory A and resumed from directory B ran in A —
+`docs/workers.md`, "`codex exec resume`"). Either way: launch every resume of a worktree worker
+through `maestro-run --cwd <worktree>` (the launcher's directory still decides on an older
+client), and before accepting anything it wrote, confirm where the resumed turn ran. Record the
+rollout's line count before the resume and pass it as `--offset`, so the check reads the resumed
+turn's `turn_context`, not the first one. On rungs 1 and 3, `maestro-identity codex … --rung 1|3
+--root <worktree> --offset <N>` fails on any writable root other than the worktree (`/tmp` and
+`$TMPDIR` are the permitted extras). On rung 4 (`danger-full-access`) it checks no roots: read
+that turn's `turn_context.cwd` yourself and compare it with the intended worktree.
 
 ## `No prompt provided via stdin` right after attaching a screenshot
 
@@ -60,10 +68,10 @@ could not arrive. Across two sessions this was 34 of 36 launches — idle gaps o
 every one ended by the user typing. The same runs launched with `run_in_background: true` were
 resumed by the director 6–10 s after the worker exited, with no human in between.
 
-Fix: the Bash tool's background mode is the *only* background mechanism — no `&`, `nohup`,
-`setsid`, `disown` in the command. If a process must outlive the shell, the same background
-command waits for its PID so the task ends when the worker does. Never end a turn with a live
-worker and no task for it. The Codex plugin's `--background` rescue does the same detach
+Fix (2.1): every external worker is a `maestro-run` job, and its wait is one Bash call with
+`run_in_background: true` running `maestro-wait <job> --until-done`: that task ends when the job
+does, so its notification always arrives. Never `&`, `nohup`, `setsid` or `disown` in a command of
+your own, and never end a turn with a live job and no waiter for it. The Codex plugin's `--background` rescue does the same detach
 (`spawn(detached) + unref()`) and is polled through `/codex:status`, so it does not fix this.
 
 ## The director's own `timeout 900` was cut at 10 minutes
@@ -136,12 +144,15 @@ denial, `.maestro/` in `info/exclude` included); commands, MCP and paths outside
 forbidden, because each of those is auto-denied and empties the answer. A denial still means a new
 conversation, now with the inline variant (`docs/workers.md`).
 
-## agy: exit 1, `status:"ERROR"`, `error:"timeout waiting for response"`
+## agy: exit 3, `AGY_ERROR`, `finished_reason: "print_timeout"`
 
-`--print-timeout` expired (5 minutes by default up to agy 1.1.x; 1.2.8 defaults to no limit, so a
-missing value hangs instead — maestro always sets it). There is no `TIMEOUT` status. Start a new
-conversation with a larger timeout and the current `git diff` embedded; do not `--conversation`
-into the expired one.
+`--print-timeout` expired. Since agy 1.5.0 that exits **3**, prints an `AGY_ERROR` line and `[agy]
+print timeout after …` on stderr, and since 1.4.11 the JSON result carries `finished_reason:
+"print_timeout"` (older versions: exit 1, `status:"ERROR"`, `error:"timeout waiting for
+response"`). A missing `--print-timeout` waits for background tasks since 1.5.0, so maestro always
+sets it. `maestro-validate --envelope agy` rejects any non-empty `finished_reason` (`print_timeout`,
+`interrupted`, `error`). Start a new conversation with a larger timeout and the current `git diff`
+embedded; do not `--conversation` into the expired one.
 
 ## agy: `flag needs an argument: -p` / `Argument list too long`
 
@@ -236,23 +247,14 @@ it is the kind of thing a browser check surfaces and a test suite does not.
 for hours. The checkpoint's `sessions` and the harness task ids are the inventory to clean up after
 any interruption; `git stash list` shows leftover `maestro-draft-*` stashes from escalated cascades.
 
-## a Cursor worker wrote outside the workspace and reached the network
+## `maestro-host` said `claude-code` inside another CLI's sandbox
 
-`agent -p --force --sandbox enabled` (2026-10-11): the worker wrote into another directory under
-`$HOME`, into `$HOME` itself, and fetched `https://example.com` — **`--force` turns Cursor's sandbox
-off**, whatever `--sandbox` says. Without `--force` the same commands were denied (`Brak dostępu` /
-`Permission denied`) and the network got `CONNECT tunnel failed, response 403`. maestro's Cursor lines
-never carry `--force`; rung 4 is a per-run user approval (`docs/sandbox-and-preflight.md`).
-
-## `maestro-host` said `claude-code` inside a Cursor run
-
-A director check run by `agent -p --sandbox enabled` launched from a Claude Code session reported
-`claude-code`: Cursor's sandbox hid the Cursor process, and the nearest visible host was the Claude
-Code daemon that had launched Cursor (`CLAUDECODE=1` inherited). Fixed in `maestro-host`: when a
-host's marker is present but that host is not in the visible ancestry, the ancestry is not trusted
-and the markers-only rule decides — two hosts' markers → `unknown`. Launch nested hosts through
-`maestro-env` (it strips the outer markers), and expect `unknown` from a `codex exec` read-only
-sandbox started inside another host: Codex hides the whole ancestry there.
+A director check run inside a worker CLI's sandbox, launched from a Claude Code session, reported
+`claude-code`. The sandbox hid that CLI's own process, and the nearest visible process was the
+Claude Code daemon that had launched it (`CLAUDECODE=1` inherited). Fixed in `maestro-host`: when
+another CLI's marker is set but that CLI is not in the visible ancestry, the ancestry is not
+trusted and the answer is `unknown`. Codex's read-only sandbox hides the whole ancestry, so expect
+`unknown` from inside it.
 
 ## a "read-only" `claude -p` critic loaded a plugin with hooks
 
@@ -268,19 +270,12 @@ would override `--effort`), and the `init` check kills a session whose `plugins`
 `~/.claude/jobs/…`: Claude Code treats everything under `~/.claude/` as sensitive, in any permission
 mode. Scratch repositories for tests and canaries live outside `~/.claude`.
 
-## a Grok verdict "would not parse"
+## a verdict "would not parse"
 
-Grok opened two of seven critiques with a sentence before the JSON (`Porównam plan … {"verdict":…`),
-in the user's language although the brief was English. `maestro-validate` allows leading prose and
-still requires exactly one top-level object with nothing after it; briefs to Cursor say *"Answer in
-English"* and *"Your final message must be the JSON object only."*
-
-## agy cannot be the director in print mode
-
-`agy -p` auto-denies every shell command (`docs/workers.md`), so a print-mode agy cannot run
-`maestro-host`, the lock, git or the tests. agy directs only interactively, approving the commands
-or with `permissions.allow` rules. `maestro-host` reports `interactive: false` for `agy -p` and stage 0
-stops there.
+A critic opened two of seven critiques with a sentence before the JSON, in the user's language
+although the brief was English. `maestro-validate` allows leading prose and still requires exactly
+one top-level object with nothing after it; briefs that carry no schema flag quote the schema and
+end with *"Your final message must be the JSON object only."*
 
 ## my own `pkill -f` killed my shell (exit 144)
 
@@ -317,3 +312,31 @@ but each request must then name a workspace in an `anthropic-workspace-id` heade
 maestro nor Claude Code sends. Create the key inside a Console workspace instead. That also lets
 you set the workspace's spend limit, maestro's hard stop beside `api.max_usd_per_run`.
 
+## Codex rollouts move into a database
+
+Codex 0.169 ships `codex migrate-rollouts` and a `thread_history` database, behind the
+`background_paginated_rollout_migration` feature, which is off. Every rollout reader in maestro
+depends on the `.jsonl` files: `maestro-identity codex`, the served model in `maestro-ledger`. If a
+Codex update turns the migration on, the identity check answers `MISSING` for every worker, and the
+worker stops — fail closed, as intended. Re-check the rollout location (`find ~/.codex/sessions
+-name 'rollout-*'`) after every Codex update before blaming the worker.
+
+## `git worktree add` fails only inside the director's shell
+
+Since Claude Code 2.1.323 a Bash sandbox makes `git worktree add/remove`, and commits in a worktree
+the session was not given, read-only. `maestro-preflight --worktree` reports it as a stop before a
+split is launched: allow the repository's `.git` in the sandbox settings, or run without the
+sandbox, or do not split.
+
+## a `claude -p` worker's init lists `plugin_errors`
+
+Claude Code 2.1.323 added `plugin_errors` to the `init` event. A worker started with
+`--setting-sources ""` should load no plugin at all, so any entry means something reached it from
+the environment. `maestro-identity claude` fails closed on it, the same as on a non-builtin plugin.
+
+## agy: `--mode plan has no effect while slash command expansion is disabled`
+
+agy 1.5.9 offers `--disable-slash-commands`, so a prompt that starts with `/` is not expanded as a
+skill. Measured on 2026-11-14: with it, agy prints `warning: --mode plan has no effect while slash
+command expansion is disabled.` That would silently drop plan mode, which keeps an agy critic
+read-only. Not adopted: maestro's agy lines never carry the flag, and briefs never start with `/`.

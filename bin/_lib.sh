@@ -83,15 +83,10 @@ mae_pid_cmdline() {
 mae_pid_exe() { readlink "$(mae_proc)/$1/exe" 2>/dev/null || true; }
 mae_pid_cwd() { readlink "$(mae_proc)/$1/cwd" 2>/dev/null || true; }
 
-# PIDs owned by the current user (own UID only; other users' entries are skipped quietly).
-mae_own_pids() {
-  local uid p d
-  uid="$(id -u)"
-  for d in "$(mae_proc)"/[0-9]*; do
-    p="${d##*/}"
-    [[ -O "$d" || "$(stat -c %u "$d" 2>/dev/null)" == "$uid" ]] || continue
-    printf '%s\n' "$p"
-  done
+# Own PIDs whose working directory is <dir> or below it — one find over /proc, no fork per process.
+mae_own_pids_in() {
+  find "$(mae_proc)" -mindepth 2 -maxdepth 2 -name cwd -uid "$(id -u)" -printf '%h\t%l\n' 2>/dev/null \
+    | awk -F'\t' -v d="$1" '$2 == d || index($2, d "/") == 1 { n = split($1, a, "/"); if (a[n] ~ /^[0-9]+$/) print a[n] }'
 }
 
 # --- fence ------------------------------------------------------------------------------------
@@ -149,3 +144,30 @@ mae_pid_identity() {
   elif [[ -e "$(mae_proc)/$1" ]]; then echo unreadable
   else echo gone; fi
 }
+
+# --- shared lookups ---------------------------------------------------------------------------
+# Re-run this script inside the fence: mae_fenced <fence> <args…> (the script's __… entry point).
+mae_fenced() {
+  local gen="$1"; shift
+  "$MAESTRO_BIN/maestro-lock" exec --gen "$gen" -- "$0" "$@"
+}
+
+# A job id names one directory under .maestro/jobs: [A-Za-z0-9._:-], no "..". Prints the path.
+mae_job_dir() {  # mae_job_dir <state dir> <job id>
+  [[ "$2" =~ ^[A-Za-z0-9._:-]+$ && "$2" != *..* ]] || mae_die "job id may hold only [A-Za-z0-9._:-] and no '..': $2"
+  printf '%s/jobs/%s\n' "$1" "$2"
+}
+
+# The rollout file of a Codex thread ("" when none or not exactly one).
+mae_codex_rollout() {
+  local r
+  r="$(find "${CODEX_HOME:-$HOME/.codex}/sessions" -name "rollout-*-$1.jsonl" 2>/dev/null || true)"
+  [[ -n "$r" && "$(grep -c . <<<"$r")" == 1 ]] && printf '%s\n' "$r"
+  return 0
+}
+
+# The init / last result event of a claude -p or maestro-sdk stream-json transcript ("" if none).
+# Both shapes: one event per line (stream-json) or one JSON array of events (--output-format json).
+mae_events() { jq -c 'if type == "array" then .[] else . end | select(type == "object")' "$1" 2>/dev/null || true; }
+mae_init_event() { mae_events "$1" | jq -c 'select(.type == "system" and .subtype == "init")' | head -1; }
+mae_result_event() { mae_events "$1" | jq -c 'select(.type == "result")' | tail -1; }

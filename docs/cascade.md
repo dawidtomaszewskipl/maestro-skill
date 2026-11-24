@@ -24,15 +24,15 @@ mechanical half.
 
 ## Drafters
 
-maestro keeps the drafters `luna`, `haiku` and `gemini`; **Grok is not a drafter** (it is
-provisional, and a cascade's value rests on a measured cheap drafter). `haiku` drafts through the
-native transport only; on a host without the Agent tool that is `claude -p` with the edits-only tool
-set, so the director runs the drafter's tests as it does for a Gemini drafter.
+maestro keeps the drafters `luna`, `haiku` and `gemini` (a cascade's value rests on a measured
+cheap drafter, so the provisional `argon` is not one, nor are the explicit-only `carbon` and `neon`). `haiku` drafts through the native transport
+(or `api`); in a headless Claude Code that is `claude -p` with the edits-only tool set, so the
+director runs the drafter's tests as it does for a Gemini drafter.
 
 | Value | Model | Use when |
 | --- | --- | --- |
 | `luna` (default) | GPT-6 Luna via Codex, effort `medium` | the ChatGPT pool is open |
-| `gemini` | Gemini 3.8 Flash Medium via agy | the ChatGPT pool is walled; edits-only, director runs tests |
+| `gemini` | the `gemini` slot via agy at `medium` — Gemini 4 Hydrogen on 2026-11-14 (Flash 3.8 before it) | the ChatGPT pool is walled; edits-only, director runs tests |
 | `haiku` | Haiku subagent | both external pools are walled; also the Claude-only default for a bare `--cascade` |
 
 Illegal: `--cascade` with `--model=luna|haiku`, a drafter equal to the implementer, or
@@ -40,9 +40,10 @@ Illegal: `--cascade` with `--model=luna|haiku`, a drafter equal to the implement
 
 **Critic family.** Either the implementer or the drafter may end up the builder, and no plan critic
 may share the committed builder's family. So every plan critic comes from a family other than both
-(Opus implements, Luna drafts → `gemini` critiques the plan; Claude only: a Claude model different
-from both; with four families this is satisfiable more often — `maestro-roles` removes the drafter's
-family from every critic order first). When the eligible families cannot give that (implementer and
+(Opus implements, Luna drafts → `argon` critiques the plan; Claude only: a Claude model different
+from both — `maestro-roles` removes the drafter's family from every critic order first). With three
+families a cascade whose implementer and drafter come from two of them leaves exactly one family for
+the critics, so a high-stakes change can have no second critic there (the Assign line says so). When the eligible families cannot give that (implementer and
 drafter from two families and no other one eligible), `--cascade` halts with a question at the assignment step: drop
 the cascade or change the drafter. On a high-stakes change it halts with one remedy only: drop the
 cascade.
