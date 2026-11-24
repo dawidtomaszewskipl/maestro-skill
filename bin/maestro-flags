@@ -92,8 +92,8 @@ jq -cn --slurpfile slots "$MAESTRO_BIN/slots.json" --argjson w "$wj" '
              else .flags[$f.n | gsub("-"; "_")] = true end)
           elif $f.n == "cascade" then
             (if $f.v == null then .flags.cascade = "default"
-             elif ($f.v | IN("luna","haiku","gemini")) then .flags.cascade = $f.v
-             else .errors += ["--cascade drafter is luna, haiku or gemini, not \($f.v)"] end)
+             elif ($f.v | IN("luna","haiku","hydrogen")) then .flags.cascade = $f.v
+             else .errors += ["--cascade drafter is luna, haiku or hydrogen, not \($f.v)"] end)
           elif $f.n == "host" then .errors += ["--host was removed in 2.0.0: maestro runs only in Claude Code"]
           else
             ([ $known[] | {k: ., d: lev(.; $f.n)} | select(.d <= 2) ] | sort_by(.d) | first // null) as $near

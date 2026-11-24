@@ -1,3 +1,15 @@
+## 2.4.0 — 2026-11-25
+
+**Slot `gemini` is now `hydrogen`; Gemini Flash is dropped.** Every Google model line now has a slot
+named after it (`argon`, `carbon`, `neon`, `hydrogen`), like the OpenAI ones. This is a breaking
+rename: `--model=gemini`, `--critic=gemini`, `--cascade=gemini` and `gemini` in a policy file
+(`critic`, `reviewer`, `advisor`, `cascade_drafter`, `deny`) are now an unknown slot and fail loudly
+— write `hydrogen`. The slot resolves to `gemini-<v>-hydrogen` only; `gemini-3.8-flash` and every
+other Flash slug stay unmatched in the catalog, so a machine whose agy lists no Hydrogen has no
+`hydrogen` slot (it is not replaced by Flash). Orders, rubric rows and the cross-family rule are
+unchanged. The measurements recorded for Flash in `docs/workers.md` and `docs/evidence.md` stay as
+history. Tests: 788 passed.
+
 # Changelog
 
 ## 2.3.0 — 2026-11-24
@@ -130,7 +142,7 @@ the critic, reviewer and arbiter orders and the degraded-mode orders are unchang
   Argon and Gemini denied is still OpenAI-only degraded critique (Astra), not a halt. Naming one
   is role-scoped: `--critic`/policy `critic` makes it a critic, `--reviewer`/policy `reviewer` the
   reviewer only, `--model` the builder.
-- `maestro-catalog`'s agy classifier maps Hydrogen and Flash to `gemini` and Argon, Carbon and
+- `maestro-catalog`'s agy classifier maps Hydrogen and Flash to `hydrogen` and Argon, Carbon and
   Neon each to its own slot. The orchestrator slugs (`gemini-pro-orchestrator`, `-neon`, `-argon`)
   stay unmatched.
 - `maestro-roles` takes `named_reviewer` (`--reviewer`): it beats the policy reviewer, and an
@@ -261,15 +273,15 @@ checks became helpers.** Breaking: read "Migration" before upgrading.
   remain: Claude, OpenAI, Google. Transport orders: opus and sonnet native → agy → api, **fable
   native → api** (no subscription fallback: a native quota hit is a swap unless `api` is
   eligible), haiku native → api, argon agy only. Second-critic orders: Claude → google, openai;
-  OpenAI → google, claude; Google → openai, claude. Rubric row 5 is `sol` or `gemini`, row 6's
-  fallback `sonnet`, `sol`, `gemini`. `maestro-ledger --cli cursor-agent` and
+  OpenAI → google, claude; Google → openai, claude. Rubric row 5 is `sol` or `hydrogen`, row 6's
+  fallback `sonnet`, `sol`, `hydrogen`. `maestro-ledger --cli cursor-agent` and
   `maestro-validate --envelope cursor` are gone.
 - **Install location:** a real copy in `~/.claude/skills/maestro` (was a symlink to
   `~/.agents/skills/maestro`, also linked for agy). `install.sh --hosts` is gone.
 
 ### Models
 - **Gemini 4 Hydrogen** (`gemini-4-hydrogen-{low,medium,high,xhigh}`, reported as Gemini 4 Flash;
-  Google has not confirmed it) is now the line of slot `gemini`; Flash (3.8) stays as the older
+  Google has not confirmed it) is now the line of slot `hydrogen`; Flash (3.8) stays as the older
   candidate, and at one version Hydrogen wins. agy slugs up to `max` are parsed; effort is clamped
   to the suffixes a model lists (Hydrogen up to `xhigh`, Argon to `high`).
 - **Fable 5.2**: `claude -p --model fable` serves `claude-fable-5-2` (probed); $8/$40 per MTok.
@@ -391,8 +403,8 @@ now it landed in `unmatched` and was never used. It is now its own slot, family 
 agy → cursor.
 
 - **Critic and reviewer first.** In every critic order Argon stands before Flash, and a high-stakes
-  second critic from Google is Argon when eligible. Flash (`gemini`) keeps its rubric rows, row 6
-  and `--cascade=gemini`. Argon builds only when named.
+  second critic from Google is Argon when eligible. Flash (`hydrogen`) keeps its rubric rows, row 6
+  and `--cascade=hydrogen`. Argon builds only when named.
 - **Google-only degraded mode** now exists: Argon critiques a Flash build and the other way round.
 - **Provisional**, like Grok, until the ledger has measured it.
 

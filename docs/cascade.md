@@ -24,7 +24,7 @@ mechanical half.
 
 ## Drafters
 
-maestro keeps the drafters `luna`, `haiku` and `gemini` (a cascade's value rests on a measured
+maestro keeps the drafters `luna`, `haiku` and `hydrogen` (a cascade's value rests on a measured
 cheap drafter, so the provisional `argon` is not one, nor are the explicit-only `carbon` and `neon`). `haiku` drafts through the native transport
 (or `api`); in a headless Claude Code that is `claude -p` with the edits-only tool set, so the
 director runs the drafter's tests as it does for a Gemini drafter.
@@ -32,7 +32,7 @@ director runs the drafter's tests as it does for a Gemini drafter.
 | Value | Model | Use when |
 | --- | --- | --- |
 | `luna` (default) | GPT-6 Luna via Codex, effort `medium` | the ChatGPT pool is open |
-| `gemini` | the `gemini` slot via agy at `medium` — Gemini 4 Hydrogen on 2026-11-14 (Flash 3.8 before it) | the ChatGPT pool is walled; edits-only, director runs tests |
+| `hydrogen` | the `hydrogen` slot via agy at `medium` — Gemini 4 Hydrogen | the ChatGPT pool is walled; edits-only, director runs tests |
 | `haiku` | Haiku subagent | both external pools are walled; also the Claude-only default for a bare `--cascade` |
 
 Illegal: `--cascade` with `--model=luna|haiku`, a drafter equal to the implementer, or

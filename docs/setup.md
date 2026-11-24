@@ -24,7 +24,7 @@ it, so `--setup --unattended` is an illegal combination — a validation stop be
 | User-facing UI | views, components, layout, styles | `opus`, visual check, `browser` |
 | Rubric row | SKILL.md "Roster", evaluated in order — stakes first | implementer |
 | Test footprint | which suites cover the touched code; browser tests present? shared reach? | `--tests` |
-| Size | files and subsystems touched | `sol`/`gemini` for large self-contained work, `self` for tiny |
+| Size | files and subsystems touched | `sol`/`hydrogen` for large self-contained work, `self` for tiny |
 | Plan maturity | settled plan vs. an idea | rounds, `--plan-only` |
 
 ## Questions
@@ -55,7 +55,7 @@ given.
 
 | Question (header) | Options, recommended first | Recommended when |
 | --- | --- | --- |
-| Mode and implementer (`Wykonawca`) | up to four valid pairs, e.g. "full run · opus", "full run · sol", "full run · gemini", "cascade · luna drafts, sonnet escalates", "plan only · opus later"; a transport other than the first eligible one as `opus@agy` | the rubric row for the run; cascade only for large mechanical work that is not high-stakes and whose family rule can be met; plan-only when the prompt asks for a plan or the task is an idea |
+| Mode and implementer (`Wykonawca`) | up to four valid pairs, e.g. "full run · opus", "full run · sol", "full run · hydrogen", "cascade · luna drafts, sonnet escalates", "plan only · opus later"; a transport other than the first eligible one as `opus@agy` | the rubric row for the run; cascade only for large mechanical work that is not high-stakes and whose family rule can be met; plan-only when the prompt asks for a plan or the task is an idea |
 
 **Step 1b — per run, the advisor (its own call, after step 1 is answered)**
 
@@ -108,7 +108,7 @@ selects:
 
 | Question (header) | Options, recommended first | Recommended when |
 | --- | --- | --- |
-| Critic (`Krytyk`) | cross-family default · `astra` · `argon` · `gemini` · two critics | only families other than the builder's (both possible builders' under cascade; `maestro-roles` gives the default); `astra` + the third family for high stakes; argon is offered marked provisional. `carbon` and `neon` are never offered as a recommendation (explicit-only, unmeasured); a user who types one into "Other" gets it, marked provisional |
+| Critic (`Krytyk`) | cross-family default · `astra` · `argon` · `hydrogen` · two critics | only families other than the builder's (both possible builders' under cascade; `maestro-roles` gives the default); `astra` + the third family for high stakes; argon is offered marked provisional. `carbon` and `neon` are never offered as a recommendation (explicit-only, unmeasured); a user who types one into "Other" gets it, marked provisional |
 | Rounds (`Rundy`) | 2 · 1 · 4 | 1 for a settled plan; 4 for a design-heavy or high-stakes plan |
 | Review (`Review`) — not asked under plan-only | none · `cross` · `full` · `self` | `cross` or `full` for high stakes; none for mechanical work |
 | Tests (`Testy`) | `covering` · `covering,browser` · `full` · `full,browser` | `browser` when the run changes a flow a browser suite covers; `full` for shared reach (SKILL.md "Test scope"); skipping tests is not an option — the user can still type it into "Other", and it is illegal under cascade |

@@ -89,7 +89,7 @@ dni, o ile wersja CLI i konto się nie zmieniły. Szczegóły: [setup and runnin
 | `/maestro --setup <zadanie>` | konfiguracja przebiegu przez kilka pytań zamiast flag; kończy się linią flag do ponownego użycia |
 | `/maestro --plan-only <zadanie>` | tylko wywiad, plan i krytyka — bez kodu i bez commita |
 | `/maestro --model=sol <zadanie>` | wybór wykonawcy (nazwa slotu z tabeli poniżej; `opus@agy` wymusza też drogę do niego) |
-| `/maestro --critic=astra,gemini <zadanie>` | wybór krytyków |
+| `/maestro --critic=astra,hydrogen <zadanie>` | wybór krytyków |
 | `/maestro --review=cross <zadanie>` | dodatkowa recenzja gotowego kodu przez model z innej rodziny niż wykonawca, domyślnie przez krytyka planu (`full` dołącza własne czytanie dyrygenta; `self` to tylko czytanie dyrygenta, bez recenzenta) |
 | `/maestro --unattended <zadanie>` | nikogo nie ma przy klawiaturze: drobne luki stają się zapisanymi założeniami, prawdziwe decyzje czysto zatrzymują przebieg |
 | `/maestro --sdk <zadanie>` | Claude-workerzy pracują na kredycie API planu Max zamiast na subskrypcji (patrz [Kredyt API](#kredyt-api)) |
@@ -119,7 +119,7 @@ końca przebiegu. Nowy Opus albo nowy Sol nie wymaga aktualizacji maestro.
 | | `terra` | starsza linia, używana tylko gdy ją wskażesz |
 | Google | `argon` | krytyk i recenzent od Google; buduje tylko gdy go wskażesz |
 | | `carbon`, `neon` | Gemini 4 Carbon i Neon — tu jeszcze niezmierzone: używane tylko gdy wskażesz je jako wykonawcę, krytyka albo recenzenta (nigdy jako szkicującego w kaskadzie, nigdy wybierane na arbitra) |
-| | `gemini` | szybka i tania praca mechaniczna, gdy chcesz oszczędzić pulę Claude — dziś Gemini 4 Hydrogen (następca Gemini 3.8 Flash według zapowiedzi Google z 2026-11-12), wcześniej Gemini Flash |
+| | `hydrogen` | szybka i tania praca mechaniczna, gdy chcesz oszczędzić pulę Claude — Gemini 4 Hydrogen (następca Gemini 3.8 Flash według zapowiedzi Google z 2026-11-12; Flash nie jest już używany) |
 
 Do slotu może prowadzić więcej niż jedna droga (**transport**): `opus` działa natywnie w Claude
 Code, albo przez agy, albo na kredycie API (`fable` i `haiku`: natywnie albo na kredycie API). Gdy jedna droga wyczerpie limit

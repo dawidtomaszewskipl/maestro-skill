@@ -189,7 +189,7 @@ J="$REPO/.maestro/jobs/<job>"      # the job directory
 agy --model gemini-<v>-argon-medium --mode plan --effort medium --add-dir "$REPO" --output-format json \
   --json-schema .maestro/critique-schema.json --log-file "$J/agy.log" --print-timeout 30m \
   -p "$(cat .maestro/brief-critique.md)"
-#   slot gemini: --model gemini-<v>-hydrogen-medium (or -flash- when only Flash is listed);
+#   slot hydrogen: --model gemini-<v>-hydrogen-medium;
 #   the explicit-only carbon / neon, when named: gemini-<v>-carbon-medium / gemini-<v>-neon-medium;
 #   Claude on agy: --model claude-opus-<v>-medium (or claude-sonnet-…); everything else identical
 

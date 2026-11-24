@@ -359,9 +359,9 @@ The Gemini 4 line-up as agy 1.5.16 lists it (local measurement 2026-11-24, `agy 
 | --- | --- | --- | --- |
 | Gemini 4 Argon | `gemini-4-argon-{low,medium,high}` | `argon` | the Google critic, reviewer and arbiter; provisional |
 | Gemini 4 Carbon | `gemini-4-carbon-{low,medium,high}` | `carbon` — explicit-only, provisional | the Orchestrator's planner on Enterprise and ADC sign-ins (vendor: agy 1.5.10 notes) |
-| Gemini 4 Hydrogen | `gemini-4-hydrogen-{low,medium,high,xhigh}` | `gemini` | the Orchestrator's executor (same notes) |
+| Gemini 4 Hydrogen | `gemini-4-hydrogen-{low,medium,high,xhigh}` | `hydrogen` | the Orchestrator's executor (same notes) |
 | Gemini 4 Neon | `gemini-4-neon-{low,medium,high,xhigh}` | `neon` — explicit-only, provisional | added to agy in 1.5.12 (`GEMINI_API_KEY`) and 1.5.13 (ADC sign-ins) (vendor: `agy changelog`) |
-| Gemini 3.8 Flash | `gemini-3.8-flash-{low,medium,high}` | `gemini` (older version) | |
+| Gemini 3.8 Flash | `gemini-3.8-flash-{low,medium,high}` | no slot since 2.4 (dropped; the slug stays unmatched) | |
 | Orchestrator | `gemini-pro-orchestrator-neon`, `gemini-pro-orchestrator` ("Orchestrator (Carbon)"), `gemini-pro-orchestrator-argon` | none — `unmatched` | an Antigravity feature, not a model: a planner (Argon, Carbon or Neon) hands the plan's execution to an executor (Hydrogen). Not a maestro mechanism: one slug would be two models, so the family and the served model of each step could not be recorded |
 
 `carbon` and `neon` are slots so that a user can name them; they are in no rubric row and in no
@@ -395,7 +395,7 @@ carrying the current diff (SKILL.md, "Launching workers"; "Payload check" below)
 | Flag | Why it matters |
 | --- | --- |
 | `--model <slug>` | Mandatory on every call (family). The slug embeds the effort (`gemini-4-hydrogen-high`). |
-| `--effort low\|medium\|high\|xhigh\|max` | Session effort (the range grew to `max` by 1.5.9). Must agree with the slug — `…-high` with `--effort medium` contradicts itself — so maestro clamps to the efforts the model's slugs list: Hydrogen and Neon `low…xhigh`, Argon, Carbon, Flash and agy's Claude models `low…high` (2026-11-24). |
+| `--effort low\|medium\|high\|xhigh\|max` | Session effort (the range grew to `max` by 1.5.9). Must agree with the slug — `…-high` with `--effort medium` contradicts itself — so maestro clamps to the efforts the model's slugs list: Hydrogen and Neon `low…xhigh`, Argon, Carbon and agy's Claude models `low…high` (2026-11-24). |
 | `--mode plan` | Read-only planning mode — the critic setting. |
 | `--mode accept-edits` | Auto-approves edits, keeps other prompts — the build setting. |
 | `--add-dir <repo>` | **Required for project skills and rules.** Print mode does not treat cwd as the workspace: without `--add-dir` the worker sees only the 5 built-in skills. |
@@ -429,7 +429,7 @@ prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in 
 
 Consequences:
 
-Everything below holds for every Google slot on agy — `gemini` (Hydrogen, else Flash), `argon`,
+Everything below holds for every Google slot on agy — `hydrogen`, `argon`,
 and the explicit-only `carbon` and `neon` (not yet run as workers here).
 The measurements in the table are Flash's; Argon has since run as a plan critic (2026-10-16, 2026-10-28:
 reads the repository itself, no denial, a valid verdict first time) and stays provisional until the

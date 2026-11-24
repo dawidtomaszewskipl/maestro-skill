@@ -11,5 +11,5 @@
   "argon":  {"family": "google", "transports": ["agy"], "line_re": "^gemini-[0-9.]+-argon(-|$)", "provisional": true},
   "carbon": {"family": "google", "transports": ["agy"], "line_re": "^gemini-[0-9.]+-carbon(-|$)", "provisional": true, "explicit_only": true},
   "neon":   {"family": "google", "transports": ["agy"], "line_re": "^gemini-[0-9.]+-neon(-|$)", "provisional": true, "explicit_only": true},
-  "gemini": {"family": "google", "transports": ["agy"], "line_re": "^gemini-[0-9.]+-(hydrogen|flash)(-|$)"}
+  "hydrogen": {"family": "google", "transports": ["agy"], "line_re": "^gemini-[0-9.]+-hydrogen(-|$)"}
 }

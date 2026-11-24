@@ -72,7 +72,7 @@ STAGES = {"critique": "medium", "high_stakes_critique": "high", "build": "medium
           "advise": "high"}
 LEVELS = ["low", "medium", "high", "xhigh", "max"]
 RANGE = {"claude": LEVELS, "openai": LEVELS + ["ultra"], "google": LEVELS[:4]}   # the family's widest model
-DRAFTERS = ["luna", "haiku", "gemini"]
+DRAFTERS = ["luna", "haiku", "hydrogen"]
 REMOVED = {"slot": "grok", "family": "xai", "key": "cursor_fast", "transport": "cursor"}  # Removed in 2.0.0
 GONE = "was removed in 2.0.0: delete the entry"
 DEFAULTS = {"deny": [], "implementer": None, "critic": None, "reviewer": None, "cascade_drafter": "luna",

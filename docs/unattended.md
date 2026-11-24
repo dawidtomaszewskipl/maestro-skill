@@ -133,11 +133,11 @@ names its entry here.
 | A25 | SKILL.md "Stage 0" step 3a; docs/hosts.md "Capability checks" | a capability the run needs is missing (`maestro-preflight` `stops`: state, git metadata, model reach; tests, visual); a Bash permission prompt denied | stop, row 2 (changing Claude Code's configuration is the user's authority) |
 | A26 | SKILL.md "Stage 0" step 0; docs/hosts.md "Lock" | the checkout's lock is held by a live director, or another run's jobs are still alive | stop, row 2 |
 | A27 | SKILL.md "Launching workers"; docs/hosts.md "Jobs" | a job ends `blocked` (members that cannot be classified or killed) | not a decision: the run ends with `result: blocked`, the lock kept and the members listed; the same with or without `--unattended` |
-| A28 | SKILL.md "The cross-family rule", degraded modes | one eligible family with a single eligible line (Google with only one of `argon`, `gemini`; the explicit-only `carbon` and `neon` never count as a line here unless named) | stop, row 2 (extends A7) |
+| A28 | SKILL.md "The cross-family rule", degraded modes | one eligible family with a single eligible line (Google with only one of `argon`, `hydrogen`; the explicit-only `carbon` and `neon` never count as a line here unless named) | stop, row 2 (extends A7) |
 | A29 | SKILL.md "Stage 0" step 5; docs/catalog.md "Resolution" | the newest candidate is denied and an older one passes; a renamed line kept on its previous slug | recorded assumption, row 1 (announced in the Assign line and the report); no candidate passing → row 2 (A5) |
 | A30 | SKILL.md "Launching workers"; docs/commands.md "Validating a verdict" | a named critic's verdict invalid after the re-ask | stop, row 2 (the named critic cannot be replaced silently); an unnamed critic moves to the next eligible one |
 | A31 | SKILL.md "Stage 0" step 4a; docs/catalog.md "Sources", "Pins" | a transport's catalog cannot be acquired; a pinned version or slug missing from the catalog | the transport is ineligible; a flag or pin that needs it → row 2 (as A8, A9) |
-| A32 | SKILL.md "Roster", rubric row 6 | `self` ineligible (director model unknown) and none of `sonnet`, `sol`, `gemini` eligible | stop, row 2 |
+| A32 | SKILL.md "Roster", rubric row 6 | `self` ineligible (director model unknown) and none of `sonnet`, `sol`, `hydrogen` eligible | stop, row 2 |
 
 Reproducing this inventory, and the scenario test that checks it: `docs/unattended-reference.md`.
 

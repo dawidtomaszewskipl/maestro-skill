@@ -32,8 +32,8 @@
 # negative (denied): fresh < 24 hours.
 #
 # Slots and their lines: opus fable sonnet haiku (Claude: agy; native has no list),
-# astra sol luna terra (codex), gemini = gemini-<v>-hydrogen or gemini-<v>-flash (agy; at one
-# version Hydrogen wins), argon, carbon, neon (agy; each its own line). The orchestrator slugs
+# astra sol luna terra (codex), hydrogen, argon, carbon, neon (agy; each its own line, so one
+# candidate never mixes two lines; Flash is no longer a line and stays unmatched). The orchestrator slugs
 # (gemini-pro-orchestrator, -neon, -argon) carry no version and stay unmatched.
 set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/_lib.sh"
@@ -49,17 +49,16 @@ def vcmp($a; $b):
   | (map(select(. != 0)) | first) // 0;
 def efforts_re: "(low|medium|high|xhigh|max)";
 # One catalog entry → {slot, version, effort, rank} or null. Anything else is "unmatched".
-# rank orders two lines of one slot at the same version (gemini: hydrogen 1 over flash 0): only the
-# top-ranked line of a version gives slugs, so one candidate never mixes two lines.
+# rank orders two lines of one slot at the same version (none today: every slot has one line); only
+# the top-ranked line of a version gives slugs.
 def classify($transport):
   . as $s
   | if $transport == "codex" then
       (capture("^gpt-(?<v>[0-9]+(\\.[0-9]+)*)-(?<line>astra|sol|luna|terra)$") // null)
       | if . then {slot: .line, version: (.v | vparse), effort: null, rank: 0} else null end
     elif $transport == "agy" then
-      ( (capture("^gemini-(?<v>[0-9]+(\\.[0-9]+)*)-(?<line>hydrogen|flash|argon|carbon|neon)(-(?<e>low|medium|high|xhigh|max))?$")
-          | {slot: (if .line | IN("hydrogen", "flash") then "gemini" else .line end), version: (.v | vparse), effort: .e,
-             rank: (if .line == "hydrogen" then 1 else 0 end)})
+      ( (capture("^gemini-(?<v>[0-9]+(\\.[0-9]+)*)-(?<line>hydrogen|argon|carbon|neon)(-(?<e>low|medium|high|xhigh|max))?$")
+          | {slot: .line, version: (.v | vparse), effort: .e, rank: 0})
         // (capture("^claude-(?<line>opus|sonnet|fable|haiku)-(?<v>[0-9]+(-[0-9]+)*)-(?<e>low|medium|high|xhigh|max)$")
           | {slot: .line, version: (.v | vparse), effort: .e, rank: 0})
         // null )

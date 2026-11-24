@@ -89,7 +89,7 @@ version and account are the same. Details: [setup and running](docs/guide/setup-
 | `/maestro --setup <task>` | configure the run by a few questions instead of flags; ends with a reusable flag line |
 | `/maestro --plan-only <task>` | interview, plan and critique only — no code, no commit |
 | `/maestro --model=sol <task>` | choose the builder (a slot name from the table below; `opus@agy` also forces the road to it) |
-| `/maestro --critic=astra,gemini <task>` | choose the critics |
+| `/maestro --critic=astra,hydrogen <task>` | choose the critics |
 | `/maestro --review=cross <task>` | add a review of the finished code by a model from a family other than the builder's, by default the plan critic (`full` adds the director's own read; `self` is the director's read only, no reviewer) |
 | `/maestro --unattended <task>` | nobody is there to answer: small gaps become recorded assumptions, real decisions stop the run cleanly |
 | `/maestro --sdk <task>` | run the Claude workers on the Max plan's API credit instead of the subscription (see [API credit](#api-credit)) |
@@ -119,7 +119,7 @@ a new Sol needs no update of maestro.
 | | `terra` | an older line, used only when you name it |
 | Google | `argon` | the Google critic and reviewer; builds only when you name it |
 | | `carbon`, `neon` | Gemini 4 Carbon and Neon — unmeasured here: used only when you name them as builder, critic or cross reviewer (never a cascade drafter, never chosen as arbiter) |
-| | `gemini` | fast and cheap mechanical work, when you want to spare the Claude pool — Gemini 4 Hydrogen today (Google's upgrade from Gemini 3.8 Flash, announced 2026-11-12), Gemini Flash before it |
+| | `hydrogen` | fast and cheap mechanical work, when you want to spare the Claude pool — Gemini 4 Hydrogen (Google's upgrade from Gemini 3.8 Flash, announced 2026-11-12; Flash is no longer used) |
 
 A slot can be reached by more than one road (**transport**): `opus` runs natively in Claude Code,
 or through agy, or on the API credit (`fable` and `haiku`: natively or on the API credit). If one road hits its usage limit mid-run,

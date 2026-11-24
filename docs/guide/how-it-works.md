@@ -87,7 +87,7 @@ advisor, recommended "none") and ends with a flag line you can paste next time.
 
 ## Cheaper drafts: the cascade
 
-`--cascade` lets a cheap model (`luna` by default; `haiku` or `gemini` on request) write a first
+`--cascade` lets a cheap model (`luna` by default; `haiku` or `hydrogen` on request) write a first
 draft. A **gate** then decides: first a mechanical check (did the draft stay in bounds, do the
 tests pass), then a critic from another family reads the draft against the plan. Accept means the
 draft is the build; revise means one round of fixes by the same drafter; escalate means the

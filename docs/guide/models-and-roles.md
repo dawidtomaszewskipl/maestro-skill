@@ -3,14 +3,14 @@
 ## Families and slots
 
 A **family** is the company behind a model: Claude (Anthropic), OpenAI (GPT), Google (Gemini).
-A **slot** is a short name for a model *line* within a family — `opus`, `sol`, `gemini`. It is not a fixed version: `sol` means "the newest GPT Sol your account can
+A **slot** is a short name for a model *line* within a family — `opus`, `sol`, `hydrogen`. It is not a fixed version: `sol` means "the newest GPT Sol your account can
 use", found afresh at the start of each run and then kept for the whole run.
 
 | Family | Slots | Character |
 | --- | --- | --- |
 | Claude | `opus`, `fable`, `sonnet`, `haiku` | `fable` (Fable 5.2 today) the strongest and most expensive, `opus` the all-rounder, `sonnet` for mechanical builds, `haiku` for bulk edits |
 | OpenAI | `astra`, `sol`, `luna`, `terra` | `astra` the strongest, `sol` the workhorse, `luna` fast and cheap, `terra` an older line used only when named |
-| Google | `argon`, `carbon`, `neon`, `gemini` | `argon` the Google critic and reviewer; `carbon` and `neon` (Gemini 4 Carbon and Neon, in agy's catalog since November 2026) only when you name them; `gemini` fast and cheap — Gemini 4 Hydrogen today (announced by Google on 2026-11-12 as the upgrade from Gemini 3.8 Flash), Gemini Flash before it |
+| Google | `argon`, `carbon`, `neon`, `hydrogen` | `argon` the Google critic and reviewer; `carbon` and `neon` (Gemini 4 Carbon and Neon, in agy's catalog since November 2026) only when you name them; `hydrogen` fast and cheap — Gemini 4 Hydrogen (announced by Google on 2026-11-12 as the upgrade from Gemini 3.8 Flash; Flash itself is no longer used) |
 
 There is also `self`: the director itself (a Claude model in Claude Code), for a change smaller
 than the handoff.
@@ -36,7 +36,7 @@ than the handoff.
 Models of one family share blind spots, so **no critic and no reviewer may share the family of
 the builder whose code gets committed.** The director applies a fixed order and names it:
 
-- Claude builds → `sol` critiques; on a risky change `astra`, with `argon` (else `gemini`) as the
+- Claude builds → `sol` critiques; on a risky change `astra`, with `argon` (else `hydrogen`) as the
   second critic.
 - OpenAI builds → `opus` critiques (`fable` on a risky change when the budget allows), with `argon`
   as the second critic on a risky change.

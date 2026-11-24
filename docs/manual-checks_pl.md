@@ -78,18 +78,18 @@ z pytaniem, to też jest wynik.
 
 ### 3. Gemini 4 Hydrogen jako wykonawca
 
-**Cel:** Hydrogen (slot `gemini` od 2.0.0) przeszedł tylko próbę „OK”. Trzeba sprawdzić, czy umie
+**Cel:** Hydrogen (slot `hydrogen` od 2.0.0) przeszedł tylko próbę „OK”. Trzeba sprawdzić, czy umie
 zbudować zmianę jako worker, który tylko edytuje pliki (testy uruchamia dyrygent).
 
 **Gdzie:** interaktywny Claude Code w nowym repozytorium testowym.
 
 **Kroki:**
 ```text
-/maestro --model=gemini --critic=sol --rounds=1 --review=cross <zadanie>
+/maestro --model=hydrogen --critic=sol --rounds=1 --review=cross <zadanie>
 ```
 
 **Oczekuję:**
-- przy wykonawcy pojawia się `gemini=gemini-4-hydrogen-… (agy)`;
+- przy wykonawcy pojawia się `hydrogen=gemini-4-hydrogen-… (agy)`;
 - worker tylko edytuje pliki, testy uruchamia dyrygent;
 - recenzja z innej rodziny niż Google, commit i raport.
 

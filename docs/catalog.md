@@ -2,7 +2,7 @@
 
 > **What this page is for.** How maestro finds the newest model of each line in the CLIs' model lists, checks it with a cheap probe and freezes it for the run. The plain overview is in [the guide](guide/models-and-roles.md).
 
-A slot is a **model line**, not a fixed slug (`gpt-6.1-sol`, `gemini-3.8-flash`): maestro resolves
+A slot is a **model line**, not a fixed slug (`gpt-6.1-sol`, `gemini-4-hydrogen`): maestro resolves
 it at stage 0 from the catalogs the CLIs publish, then freezes what it found for the run. A new Sol
 or Opus therefore needs no edit of the skill.
 
@@ -32,25 +32,20 @@ different from a line that simply has no candidates.
 | Slot | Pattern (jq/Oniguruma, `[0-9]` only) | Transports |
 | --- | --- | --- |
 | `astra` `sol` `luna` `terra` | `^gpt-<v>-(astra\|sol\|luna\|terra)$`, `<v>` = `[0-9]+(\.[0-9]+)*` | codex |
-| `gemini` | `^gemini-<v>-(hydrogen\|flash)(-<effort>)?$` | agy |
+| `hydrogen` | `^gemini-<v>-hydrogen(-<effort>)?$` | agy |
 | `argon` | `^gemini-<v>-argon(-<effort>)?$` | agy |
 | `carbon` | `^gemini-<v>-carbon(-<effort>)?$` — explicit-only (2.2) | agy |
 | `neon` | `^gemini-<v>-neon(-<effort>)?$` — explicit-only (2.2) | agy |
 | `opus` `sonnet` | `^claude-(opus\|fable\|sonnet\|haiku)-<v>-<effort>$`, `<v>` = `[0-9]+(-[0-9]+)*` | agy (`low…high` listed) |
 
 `<effort>` is `low|medium|high|xhigh|max`; a slot's efforts are those its slugs list (Hydrogen
-and Neon `low…xhigh`, Argon, Carbon and Flash `low…high`, measured 2026-11-24), and a requested
+and Neon `low…xhigh`, Argon and Carbon `low…high`, measured 2026-11-24), and a requested
 effort above them is clamped. Argon, Carbon and Neon are each their own line and slot — never
-mixed into `gemini` and never into each other (the classifier in `bin/maestro-catalog` maps
-Hydrogen and Flash to `gemini`, every other matched Gemini line to the slot of its name).
+mixed into each other (the classifier in `bin/maestro-catalog` maps every matched Gemini line to the
+slot of its name). Gemini Flash (3.8, 4) is no line any more: its slugs stay unmatched.
 `carbon` and `neon` are `explicit_only` in `bin/slots.json`: the catalog resolves them like any
-slot, but `maestro-roles` never chooses one unless it is named (SKILL.md, "Roster"). Two lines
-feed `gemini`: **Hydrogen** (Gemini 4 Hydrogen — announced by Google on 2026-11-12 as the upgrade
-from Gemini 3.8 Flash) and **Flash**. Versions decide as for any slot (Hydrogen 4 before Flash 3.8
-on 2026-11-14). At the same version the preference is for the whole version: when Hydrogen lists
-that version, only Hydrogen's slugs make the candidate and Flash's slugs of that version are
-dropped — an effort Hydrogen does not list is clamped, never filled from Flash (one candidate never
-mixes two lines; T2). The
+slot, but `maestro-roles` never chooses one unless it is named (SKILL.md, "Roster"). `hydrogen` is Gemini 4 Hydrogen (announced by Google on 2026-11-12 as the upgrade
+from Gemini 3.8 Flash); Flash was its fallback until 2.4 and is dropped. Versions decide as for any slot. The
 patterns that decide which slug may be pinned to a slot are in `bin/slots.json` (`line_re`), the
 one table of slots that `maestro-catalog` and `maestro-roles` both read.
 

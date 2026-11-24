@@ -63,7 +63,7 @@ review, or to another worker (`--unattended`: a validation stop, A1).
 - `--plan-only` — interview, plan, critique, then stop: hand over PLAN.md, the
   unresolved findings and the decisions left. `--model` and `--tests` are
   recorded for the later build.
-- `--cascade[=luna|haiku|gemini]` — a cheap drafter first, a gate accepts or
+- `--cascade[=luna|haiku|hydrogen]` — a cheap drafter first, a gate accepts or
   escalates (`docs/cascade.md`). Default `luna`.
 - `--resume` — continue the run in `.maestro/CHECKPOINT.md` with its recorded
   configuration; the task text is the answer to a recorded decision.
@@ -94,7 +94,7 @@ without `--advisor`; `--resume` with any flag but `--unattended` (to change the
 configuration, start again or answer a recorded decision whose option changes
 it).
 
-**Plain words are flags too.** "Krytykuj astrą", "review gemini", "bez fable",
+**Plain words are flags too.** "Krytykuj astrą", "review hydrogen", "bez fable",
 "astra implementuje", "opus przez agy", "więcej rund krytyki", "bez testów
 przeglądarkowych", "zbuduj tylko plan", "zapytaj o konfigurację", "na kredycie
 API", "z doradcą" map to `--critic`, `--reviewer`, a per-run deny, `--model[@t]`,
@@ -142,7 +142,7 @@ the run. **Family is decided by the model, never by the CLI.**
 | `argon` | `gemini-<v>-argon` — frontier, provisional | Google | agy |
 | `carbon` | `gemini-<v>-carbon` — provisional, explicit only | Google | agy |
 | `neon` | `gemini-<v>-neon` — provisional, explicit only | Google | agy |
-| `gemini` | `gemini-<v>-hydrogen`, else `gemini-<v>-flash` — fast, cheap | Google | agy |
+| `hydrogen` | `gemini-<v>-hydrogen` — fast, cheap | Google | agy |
 | `self` | you, directly | Claude | Edit/Write |
 
 **Transports.** `native` = the `Agent` tool in an interactive Claude Code,
@@ -174,13 +174,13 @@ slot's identity. `maestro-roles --transports` decides it.
    carried until the tests pass → `opus`; `sol` when the Claude pool is the
    constraint.
 4. Mechanical build from a settled plan (migration, factory, resource, CRUD
-   scaffolding) → `sonnet`; `gemini` only when the user picks it to spare the
+   scaffolding) → `sonnet`; `hydrogen` only when the user picks it to spare the
    Claude pool. `haiku` for bulk edits with no judgment in them.
-5. Large self-contained chunk → `sol` or `gemini` (the idle pools); `luna`
+5. Large self-contained chunk → `sol` or `hydrogen` (the idle pools); `luna`
    when it is large but not hard.
 6. Change smaller than the handoff → `self` when you know your model line;
    otherwise `maestro-roles --row6` (first eligible of `sonnet`, `sol`,
-   `gemini`), named in the Assign line; none → halt.
+   `hydrogen`), named in the Assign line; none → halt.
 
 `argon` is in no row: it is the Google critic and reviewer and builds only when
 named. `carbon` and `neon` (Gemini 4 Carbon and Neon, in agy's catalog since 2026-11) are in no row and
@@ -216,7 +216,7 @@ decided**.
 ## The cross-family rule
 
 Three families: **Claude** (`opus`/`fable`/`sonnet`/`haiku` and `self`),
-**OpenAI** (`astra`/`sol`/`luna`/`terra`), **Google** (`argon`/`carbon`/`neon`/`gemini`).
+**OpenAI** (`astra`/`sol`/`luna`/`terra`), **Google** (`argon`/`carbon`/`neon`/`hydrogen`).
 Same-family models share blind spots, so **no plan critic and no cross reviewer
 shares the family of the builder whose code is committed**. Roles resolve over
 the (model, transport) pairs stage 0 found eligible; `"$MAESTRO/bin/maestro-roles"`
@@ -225,8 +225,8 @@ line.
 
 | Builder | Critic, first eligible | High stakes, first eligible | Second critic (high stakes): first family not yet used |
 | --- | --- | --- | --- |
-| Claude | sol, astra, argon, gemini | astra, sol, argon, gemini | google, openai |
-| OpenAI | opus, argon, gemini, sonnet | fable (budget allowing), opus, argon, gemini | google, claude |
+| Claude | sol, astra, argon, hydrogen | astra, sol, argon, hydrogen | google, openai |
+| OpenAI | opus, argon, hydrogen, sonnet | fable (budget allowing), opus, argon, hydrogen | google, claude |
 | Google | sol, opus | astra, fable, opus | openai, claude |
 
 - **Astra never critiques an OpenAI build — except in OpenAI-only degraded

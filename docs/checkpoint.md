@@ -23,7 +23,7 @@ lock: {token: 9c0e…, generation: 3}   # the token is what --resume presents; t
 catalog:                   # frozen at stage 0 step 5 — sticky for the run; --resume re-probes these exact slugs
   sol:    {version: "6.1", transport: codex, slug: gpt-6.1-sol, source: live}
   opus:   {version: "5.5", transport: native, slug: claude-opus-5-5, order: [native, agy, api]}
-  gemini: {version: "4", transport: agy, slug: gemini-4-hydrogen-medium}
+  hydrogen: {version: "4", transport: agy, slug: gemini-4-hydrogen-medium}
   argon:  {version: "4", transport: agy, slug: gemini-4-argon-high, provisional: true}
 written_at: 2026-09-06T11:02:14+02:00
 task: "CRUD screens for the tags dictionary"

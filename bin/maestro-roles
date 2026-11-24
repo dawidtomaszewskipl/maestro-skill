@@ -21,7 +21,7 @@
 #
 #   maestro-roles --row6 < {eligible: [slot…], director_family, director_line}
 #       rubric row 6 (a change smaller than the handoff): self when the director's family and line
-#       are known and self is eligible, else the first eligible of sonnet, sol, gemini, else halt.
+#       are known and self is eligible, else the first eligible of sonnet, sol, hydrogen, else halt.
 #
 #   maestro-roles --transports < input.json
 # Input:  {slot, order: [transport…] (default: the slot's order in bin/slots.json), available: {transport: bool}, denied: [transport…],
@@ -45,7 +45,7 @@
 #                              critics_with_findings: [slot…], director_family}
 #       the arbiter at the critique cap (docs/briefs.md, "Arbiter at the cap"): the first eligible
 #       slot of a family that is neither the builder's, nor the drafter's, nor that of any critic
-#       still holding a finding. Per family: openai sol, astra; google argon, gemini; claude opus,
+#       still holding a finding. Per family: openai sol, astra; google argon, hydrogen; claude opus,
 #       fable, sonnet (carbon and neon, explicit_only, are deliberately in no order). High stakes,
 #       or no such family → no arbiter: today's stop.
 # Output: {arbiter: slot|null, reason, stop: null | {reason}}
@@ -59,10 +59,10 @@ if [[ "${1:-}" == "--row6" ]]; then
     (.eligible // []) as $el
     | if .director_family and .director_line and (($el | index("self")) != null)
       then {implementer: "self", reason: "rubric row 6"}
-      else ([ "sonnet", "sol", "gemini" ][] | . as $x | select(($el | index($x)) != null)) as $f
+      else ([ "sonnet", "sol", "hydrogen" ][] | . as $x | select(($el | index($x)) != null)) as $f
            | {implementer: $f, reason: "rubric row 6: self not eligible (director family or line unknown)"}
       end' | { read -r l || true; if [[ -n "${l:-}" ]]; then printf '%s\n' "$l"; else
-      echo '{"implementer":null,"reason":"rubric row 6: self not eligible and none of sonnet, sol, gemini eligible","stop":{"row":2}}'; fi; }
+      echo '{"implementer":null,"reason":"rubric row 6: self not eligible and none of sonnet, sol, hydrogen eligible","stop":{"row":2}}'; fi; }
   exit 0
 fi
 
@@ -124,7 +124,7 @@ if [[ "${1:-}" == "--arbiter" ]]; then
     elif ($cw | length) == 0 then none("no critic holds a finding: nothing to arbitrate")
     elif ($excl | index("unknown")) != null then none("the family of the builder, the drafter or a critic is unknown")
     else
-      ([ (["openai", ["sol", "astra"]], ["google", ["argon", "gemini"]], ["claude", ["opus", "fable", "sonnet"]])
+      ([ (["openai", ["sol", "astra"]], ["google", ["argon", "hydrogen"]], ["claude", ["opus", "fable", "sonnet"]])
          | .[0] as $f | select(($excl | index($f)) == null)
          | .[1][] | . as $x | select(($el | index($x)) != null and fam($x) == $f) ] | first // null) as $a
       | "builder \($bf)\(if $df then ", drafter \($df)" else "" end), findings held by \($cf | join(", "))" as $who
@@ -156,21 +156,21 @@ exec jq -c --slurpfile slots "$SLOTS" '
 | ($el_c | map(fam(.)) | unique | map(select(. != "unknown"))) as $fams
 | ($in.named_reviewer // null) as $nr
 # the default orders: carbon and neon (explicit_only) are deliberately in none of them
-| { claude: {critic: ["sol","astra","argon","gemini"], hs: ["astra","sol","argon","gemini"], second: ["google","openai"]},
-    openai: {critic: ["opus","argon","gemini","sonnet"],
-             hs: ((if $in.fable_budget then ["fable"] else [] end) + ["opus","argon","gemini"]),
+| { claude: {critic: ["sol","astra","argon","hydrogen"], hs: ["astra","sol","argon","hydrogen"], second: ["google","openai"]},
+    openai: {critic: ["opus","argon","hydrogen","sonnet"],
+             hs: ((if $in.fable_budget then ["fable"] else [] end) + ["opus","argon","hydrogen"]),
              second: ["google","claude"]},
     google: {critic: ["sol","opus"], hs: ["astra","fable","opus"], second: ["openai","claude"]} } as $T
 | def ok($s): ($el | index($s)) != null and (($excl | index(fam($s))) == null);
   def first_of($l): [ $l[] | select(ok(.)) ] | first // null;
   def slot_of_family($f): {openai: ["sol","astra","luna"], claude: ["opus","fable","sonnet"],
-                           google: ["argon","gemini"]}[$f] // [] | first_of(.);
+                           google: ["argon","hydrogen"]}[$f] // [] | first_of(.);
   def prov($s): if ($s | type) == "string" and ($S[$s].provisional // false) then ["\($s) is provisional (unmeasured)"] else [] end;
   def dorder($f): if $f == "claude" then
        (if (line($in.builder) // "" | IN("sonnet","opus")) then ["fable","opus","sonnet"] else ["opus","fable","sonnet"] end)
      elif $f == "openai" then
        (if line($in.builder) == "astra" then ["sol","luna"] else ["astra","sol","luna"] end)
-     else ["argon","gemini"] end;
+     else ["argon","hydrogen"] end;
   ([ $in.builder, $in.drafter ] | map(select(. != null)) | map(line(.)) | map(select(. != null))) as $used
   # the automatic reviewer, for when the default (the critic) is explicit-only and was named for
   # critique only: the same rules with every explicit-only slot left out that is not the builder or

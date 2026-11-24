@@ -65,21 +65,21 @@ if group T2 "catalog"; then
   out="$(MAESTRO_STATE="$WORK/c1" "$B/maestro-catalog" refresh --fixtures "$M" --out "$WORK/c1/catalog.json")"
   jqt "machine: sol newest 6.1" "$out" '.slots.codex.sol[0] == "6.1"'
   jqt "machine: astra 6" "$out" '.slots.codex.astra == ["6"]'
-  jqt "machine: gemini 4 (Hydrogen) before 3.8 (Flash)" "$out" '.slots.agy.gemini == ["4","3.8"]'
+  jqt "machine: hydrogen is Gemini 4 Hydrogen only (3.8 Flash is no line)" "$out" '.slots.agy.hydrogen == ["4"]'
   jqt "machine: argon 4, agy opus and sonnet 5.5" "$out" '.slots.agy.argon == ["4"] and .slots.agy.opus == ["5.5"] and .slots.agy.sonnet == ["5.5"]'
   jqt "machine: only codex and agy are sources" "$out" '(.sources | keys) == ["agy","codex"] and (.slots | keys) == ["agy","codex"]'
   cat_="$WORK/c1/catalog.json"
   jqt "machine: hydrogen slugs up to xhigh" "$(cat "$cat_")" \
-    '.transports.agy.slots.gemini[0].slugs == {"high":"gemini-4-hydrogen-high","xhigh":"gemini-4-hydrogen-xhigh","medium":"gemini-4-hydrogen-medium","low":"gemini-4-hydrogen-low"}'
+    '.transports.agy.slots.hydrogen[0].slugs == {"high":"gemini-4-hydrogen-high","xhigh":"gemini-4-hydrogen-xhigh","medium":"gemini-4-hydrogen-medium","low":"gemini-4-hydrogen-low"}'
   jqt "machine: orchestrator and gpt-oss unmatched" "$(cat "$cat_")" \
     '(.transports.agy.unmatched | index("gemini-pro-orchestrator-g1-pro") != null) and (.transports.agy.unmatched | index("gpt-oss-120b-medium") != null)'
   jqt "machine: codex identity from the cache" "$(cat "$cat_")" '.sources.codex.identity == "fixture-identity"'
   pickm() { MAESTRO_STATE="$WORK/c1" "$B/maestro-catalog" pick "$@" --catalog "$cat_"; }
-  jqt "machine: pick gemini xhigh → hydrogen" "$(pickm gemini agy --effort xhigh)" '.slug == "gemini-4-hydrogen-xhigh" and .version == "4"'
+  jqt "machine: pick hydrogen xhigh → hydrogen" "$(pickm hydrogen agy --effort xhigh)" '.slug == "gemini-4-hydrogen-xhigh" and .version == "4"'
   jqt "machine: argon has no xhigh" "$(pickm argon agy --effort xhigh)" '.action == "none"'
-  jqt "machine: flash 3.8 by pin" "$(pickm gemini agy --pin 3.8 --effort high)" '.slug == "gemini-3.8-flash-high"'
-  jqt "machine: hydrogen by exact slug" "$(pickm gemini agy --pin-slug gemini-4-hydrogen-low)" '.slug == "gemini-4-hydrogen-low"'
-  jqt "machine: orchestrator cannot be pinned to gemini" "$(pickm gemini agy --pin-slug gemini-pro-orchestrator-g1-pro)" '.action == "none" and (.reason | test("not a gemini model"))'
+  jqt "machine: a pin to the old Flash 3.8 finds nothing" "$(pickm hydrogen agy --pin 3.8 --effort high)" '.action == "none"'
+  jqt "machine: hydrogen by exact slug" "$(pickm hydrogen agy --pin-slug gemini-4-hydrogen-low)" '.slug == "gemini-4-hydrogen-low"'
+  jqt "machine: orchestrator cannot be pinned to hydrogen" "$(pickm hydrogen agy --pin-slug gemini-pro-orchestrator-g1-pro)" '.action == "none" and (.reason | test("not a hydrogen model"))'
 
   # This machine's catalogs (2026-11-24: Codex 0.172.0, agy 1.5.16): GPT-6.2, Gemini 4 Carbon and Neon.
   M2="$FX/catalogs/machine-2026-11-24"
@@ -93,12 +93,11 @@ if group T2 "catalog"; then
     '.[0].version == [4] and .[0].slugs == {"medium":"gemini-4-carbon-medium","high":"gemini-4-carbon-high","low":"gemini-4-carbon-low"} and length == 1'
   jqt "machine 11-24: neon → gemini-4-neon, low…xhigh" "$(cand2 neon agy)" \
     '.[0].version == [4] and length == 1 and .[0].slugs == {"high":"gemini-4-neon-high","xhigh":"gemini-4-neon-xhigh","medium":"gemini-4-neon-medium","low":"gemini-4-neon-low"}'
-  jqt "machine 11-24: gemini → hydrogen 4 (Carbon and Neon are not mixed in), then flash 3.8" "$(cand2 gemini agy)" \
-    '(map(.version)) == [[4],[3,8]] and .[0].slugs == {"high":"gemini-4-hydrogen-high","xhigh":"gemini-4-hydrogen-xhigh","medium":"gemini-4-hydrogen-medium","low":"gemini-4-hydrogen-low"}
-     and .[1].slugs == {"high":"gemini-3.8-flash-high","medium":"gemini-3.8-flash-medium","low":"gemini-3.8-flash-low"}'
+  jqt "machine 11-24: hydrogen → hydrogen 4 only (Carbon and Neon are not mixed in, Flash 3.8 is no line)" "$(cand2 hydrogen agy)" \
+    '(map(.version)) == [[4]] and .[0].slugs == {"high":"gemini-4-hydrogen-high","xhigh":"gemini-4-hydrogen-xhigh","medium":"gemini-4-hydrogen-medium","low":"gemini-4-hydrogen-low"}'
   jqt "machine 11-24: argon unchanged" "$(cand2 argon agy)" '.[0].slugs.high == "gemini-4-argon-high"'
-  jqt "machine 11-24: all three orchestrator slugs (the unsuffixed Carbon one too) and gpt-oss unmatched" "$(cat "$cat2")" \
-    '(.transports.agy.unmatched | sort) == ["gemini-pro-orchestrator","gemini-pro-orchestrator-argon","gemini-pro-orchestrator-neon","gpt-oss-120b-medium"] and .transports.codex.unmatched == []'
+  jqt "machine 11-24: Flash 3.8, all three orchestrator slugs (the unsuffixed Carbon one too) and gpt-oss unmatched" "$(cat "$cat2")" \
+    '(.transports.agy.unmatched | sort) == ["gemini-3.8-flash-high","gemini-3.8-flash-low","gemini-3.8-flash-medium","gemini-pro-orchestrator","gemini-pro-orchestrator-argon","gemini-pro-orchestrator-neon","gpt-oss-120b-medium"] and .transports.codex.unmatched == []'
   jqt "machine 11-24: codex client 0.172.0, identity from the cache" "$out" '.sources.codex.client_version == "0.172.0" and .sources.codex.identity == "fixture-identity"'
   pickm2() { MAESTRO_STATE="$WORK/c7" "$B/maestro-catalog" pick "$@" --catalog "$cat2"; }
   jqt "machine 11-24: pick neon xhigh → the full slug" "$(pickm2 neon agy --effort xhigh)" '.action == "probe" and .slug == "gemini-4-neon-xhigh" and .version == "4"'
@@ -107,7 +106,7 @@ if group T2 "catalog"; then
   jqt "machine 11-24: pick sol → gpt-6.2-sol until the account probe says otherwise" "$(pickm2 sol codex --effort medium)" '.action == "probe" and .slug == "gpt-6.2-sol"'
   jqt "machine 11-24: pin 6.1 keeps gpt-6.1-sol" "$(pickm2 sol codex --pin 6.1)" '.slug == "gpt-6.1-sol"'
   jqt "machine 11-24: an orchestrator slug cannot be pinned to neon" "$(pickm2 neon agy --pin-slug gemini-pro-orchestrator-neon)" '.action == "none" and (.reason | test("not a neon model"))'
-  jqt "machine 11-24: a neon slug cannot be pinned to gemini" "$(pickm2 gemini agy --pin-slug gemini-4-neon-high)" '.action == "none"'
+  jqt "machine 11-24: a neon slug cannot be pinned to hydrogen" "$(pickm2 hydrogen agy --pin-slug gemini-4-neon-high)" '.action == "none"'
 
   # Synthetic catalogs: integer generations, multi-digit components, excluded suffixes.
   S="$WORK/syn"; mkdir -p "$S"
@@ -116,10 +115,10 @@ if group T2 "catalog"; then
   printf 'Fetching available models...\ngemini-3.8-flash-high\tG\ngemini-4-flash-high\tG4\ngemini-4-hydrogen-high\tH4\ngemini-4-flash-low\tG4l\ngemini-4-flash-preview-high\tP\ngemini-4-argon-low\tA\ngemini-4-argon-high\tA\ngemini-4-argon-preview-high\tAP\nclaude-opus-5-10-high\tO\nclaude-opus-5-5-high\tO\n' > "$S/agy-models.txt"
   out="$(MAESTRO_STATE="$WORK/c2" "$B/maestro-catalog" refresh --fixtures "$S" --out "$WORK/c2/catalog.json")"
   jqt "synthetic: sol order 7, 6.10, 6.9, 6.1" "$out" '.slots.codex.sol == ["7","6.10","6.9","6.1"]'
-  jqt "synthetic: gemini 4 before 3.8" "$out" '.slots.agy.gemini == ["4","3.8"]'
-  jqt "synthetic: argon is its own line, not gemini" "$out" '.slots.agy.argon == ["4"]'
-  jqt "synthetic: at one version Hydrogen wins and Flash slugs of that version are not mixed in" "$(cat "$WORK/c2/catalog.json")" \
-    '.transports.agy.slots.gemini[0].slugs == {"high":"gemini-4-hydrogen-high"}'
+  jqt "synthetic: hydrogen 4 only, Flash lines are unmatched" "$(jq -c '. + {slots: ($o.slots)}' --argjson o "$out" "$WORK/c2/catalog.json")" '.slots.agy.hydrogen == ["4"] and (.transports.agy.unmatched | index("gemini-3.8-flash-high") != null) and (.transports.agy.unmatched | index("gemini-4-flash-high") != null)'
+  jqt "synthetic: argon is its own line, not hydrogen" "$out" '.slots.agy.argon == ["4"]'
+  jqt "synthetic: Flash slugs of the same version are not mixed into Hydrogen" "$(cat "$WORK/c2/catalog.json")" \
+    '.transports.agy.slots.hydrogen[0].slugs == {"high":"gemini-4-hydrogen-high"}'
   jqt "synthetic: opus 5.10 before 5.5" "$out" '.slots.agy.opus == ["5.10","5.5"]'
   jqt "synthetic: preview and dated slugs unmatched" "$(cat "$WORK/c2/catalog.json")" \
     '(.transports.codex.unmatched | index("gpt-6.2-sol-preview") != null) and (.transports.agy.unmatched | index("gemini-4-flash-preview-high") != null) and (.transports.agy.unmatched | index("gemini-4-argon-preview-high") != null)'
@@ -162,12 +161,12 @@ if group T2 "catalog"; then
     '.slug == "gpt-6.2-sol-preview" and .excluded == true and .identity.tag == "gpt-6.2-sol-preview"'
   jqt "pick: exact pin of a slug the catalog does not list → none" "$(pick sol codex --pin-slug gpt-9-sol-preview)" '.action == "none"'
   jq '.transports.agy.unmatched += ["kimi-k3-high"]' "$P/catalog.json" > "$P/ck.json"
-  jqt "pick: an excluded slug of another model cannot be pinned to gemini" \
-    "$(MAESTRO_STATE="$P" "$B/maestro-catalog" pick gemini agy --pin-slug kimi-k3-high --catalog "$P/ck.json")" '.action == "none" and (.reason | test("not a gemini model"))'
-  jqt "pick: effort with no slug → none" "$(pick gemini agy --effort max)" '.action == "none"'
+  jqt "pick: an excluded slug of another model cannot be pinned to hydrogen" \
+    "$(MAESTRO_STATE="$P" "$B/maestro-catalog" pick hydrogen agy --pin-slug kimi-k3-high --catalog "$P/ck.json")" '.action == "none" and (.reason | test("not a hydrogen model"))'
+  jqt "pick: effort with no slug → none" "$(pick hydrogen agy --effort max)" '.action == "none"'
   jqt "pick: argon high on agy" "$(pick argon agy --effort high)" '.action == "probe" and .slug == "gemini-4-argon-high"'
   jqt "pick: an argon preview can be pinned to argon" "$(pick argon agy --pin-slug gemini-4-argon-preview-high)" '.excluded == true and .slug == "gemini-4-argon-preview-high"'
-  jqt "pick: an argon slug cannot be pinned to gemini" "$(pick gemini agy --pin-slug gemini-4-argon-preview-high)" '.action == "none" and (.reason | test("not a gemini model"))'
+  jqt "pick: an argon slug cannot be pinned to hydrogen" "$(pick hydrogen agy --pin-slug gemini-4-argon-preview-high)" '.action == "none" and (.reason | test("not a hydrogen model"))'
   jqt "pick: line without candidates → none + previous" \
     "$(jq '.previous = {luna: {codex: "6"}}' "$P/catalog.json" > "$P/cp.json"; MAESTRO_STATE="$P" "$B/maestro-catalog" pick luna codex --catalog "$P/cp.json")" \
     '.action == "none" and .previous == "6"'
@@ -579,23 +578,23 @@ fi
 
 # =============================================================================================
 if group T7 "role resolution"; then
-  ALL='["opus","fable","sonnet","haiku","astra","sol","luna","terra","argon","gemini","self"]'
-  NOARGON='["opus","fable","sonnet","haiku","astra","sol","luna","terra","gemini","self"]'
+  ALL='["opus","fable","sonnet","haiku","astra","sol","luna","terra","argon","hydrogen","self"]'
+  NOARGON='["opus","fable","sonnet","haiku","astra","sol","luna","terra","hydrogen","self"]'
   roles() { "$B/maestro-roles" <<<"$1"; }
   jqt "claude build → sol" "$(roles '{"builder":"opus","eligible":'"$ALL"'}')" '.critics == ["sol"] and .reviewer == "sol"'
   jqt "claude build, high stakes → astra + argon" "$(roles '{"builder":"opus","high_stakes":true,"eligible":'"$ALL"'}')" '.critics == ["astra","argon"]'
-  jqt "claude build, high stakes, argon not eligible → astra + gemini" "$(roles '{"builder":"opus","high_stakes":true,"eligible":'"$NOARGON"'}')" '.critics == ["astra","gemini"]'
+  jqt "claude build, high stakes, argon not eligible → astra + hydrogen" "$(roles '{"builder":"opus","high_stakes":true,"eligible":'"$NOARGON"'}')" '.critics == ["astra","hydrogen"]'
   jqt "openai build → opus" "$(roles '{"builder":"sol","eligible":'"$ALL"'}')" '.critics == ["opus"]'
   jqt "openai build, hs, fable budget → fable + argon" "$(roles '{"builder":"sol","high_stakes":true,"fable_budget":true,"eligible":'"$ALL"'}')" '.critics == ["fable","argon"]'
   jqt "openai build, hs, no fable budget → opus + argon" "$(roles '{"builder":"sol","high_stakes":true,"eligible":'"$ALL"'}')" '.critics == ["opus","argon"]'
-  jqt "google build → sol" "$(roles '{"builder":"gemini","eligible":'"$ALL"'}')" '.critics == ["sol"]'
-  jqt "argon build is google: argon and gemini never critique it" "$(roles '{"builder":"argon","high_stakes":true,"eligible":'"$ALL"'}')" '.critics == ["astra","opus"]'
+  jqt "google build → sol" "$(roles '{"builder":"hydrogen","eligible":'"$ALL"'}')" '.critics == ["sol"]'
+  jqt "argon build is google: argon and hydrogen never critique it" "$(roles '{"builder":"argon","high_stakes":true,"eligible":'"$ALL"'}')" '.critics == ["astra","opus"]'
   jqt "three families: cascade (luna) + high stakes → one google critic, no second, said" "$(roles '{"builder":"opus","drafter":"luna","high_stakes":true,"eligible":'"$ALL"'}')" \
     '.critics == ["argon"] and (.notes | any(test("no second critic")))'
-  jqt "three families: google build, hs → openai then claude" "$(roles '{"builder":"gemini","high_stakes":true,"eligible":'"$ALL"'}')" '.critics == ["astra","opus"]'
+  jqt "three families: google build, hs → openai then claude" "$(roles '{"builder":"hydrogen","high_stakes":true,"eligible":'"$ALL"'}')" '.critics == ["astra","opus"]'
   jqt "three families: openai build, hs, google out → one claude critic" "$(roles '{"builder":"sol","high_stakes":true,"eligible":["opus","sol","astra"]}')" '.critics == ["opus"] and (.notes | any(test("no second critic")))'
   jqt "cascade removes the drafter family" "$(roles '{"builder":"opus","drafter":"luna","eligible":'"$ALL"'}')" '.critics == ["argon"]'
-  jqt "gemini drafter removes argon too" "$(roles '{"builder":"opus","drafter":"gemini","eligible":'"$ALL"'}')" '.critics == ["sol"]'
+  jqt "hydrogen drafter removes argon too" "$(roles '{"builder":"opus","drafter":"hydrogen","eligible":'"$ALL"'}')" '.critics == ["sol"]'
   jqt "cascade unsatisfiable → stop" "$(roles '{"builder":"opus","drafter":"luna","eligible":["opus","luna","sonnet"]}')" '.stop.remedy == "drop the cascade or change the drafter"'
   jqt "cascade unsatisfiable, high stakes → drop the cascade" "$(roles '{"builder":"opus","drafter":"luna","high_stakes":true,"eligible":["opus","luna","sonnet"]}')" '.stop.remedy == "drop the cascade"'
   jqt "two families, high stakes → no second critic, said" "$(roles '{"builder":"opus","high_stakes":true,"eligible":["opus","sol","astra"]}')" '.critics == ["astra"] and (.notes | any(test("no second critic")))'
@@ -604,27 +603,27 @@ if group T7 "role resolution"; then
   jqt "claude only: fable build → opus" "$(roles '{"builder":"fable","eligible":["opus","fable"]}')" '.critics == ["opus"]'
   jqt "openai only: sol build → astra (the exception, noted)" "$(roles '{"builder":"sol","eligible":["astra","sol","luna"]}')" '.critics == ["astra"] and (.notes | any(test("Astra critiques")))'
   jqt "openai only: astra build → sol" "$(roles '{"builder":"astra","eligible":["astra","sol"]}')" '.critics == ["sol"]'
-  jqt "google only, one line → stop" "$(roles '{"builder":"gemini","eligible":["gemini"]}')" '.stop != null'
-  jqt "google only: gemini build → argon (degraded)" "$(roles '{"builder":"gemini","eligible":["argon","gemini"]}')" '.critics == ["argon"] and .degraded == "google"'
-  jqt "google only: argon build → gemini (degraded)" "$(roles '{"builder":"argon","eligible":["argon","gemini"]}')" '.critics == ["gemini"] and .degraded == "google"'
+  jqt "google only, one line → stop" "$(roles '{"builder":"hydrogen","eligible":["hydrogen"]}')" '.stop != null'
+  jqt "google only: hydrogen build → argon (degraded)" "$(roles '{"builder":"hydrogen","eligible":["argon","hydrogen"]}')" '.critics == ["argon"] and .degraded == "google"'
+  jqt "google only: argon build → hydrogen (degraded)" "$(roles '{"builder":"argon","eligible":["argon","hydrogen"]}')" '.critics == ["hydrogen"] and .degraded == "google"'
   jqt "named critic from the builder family → stop" "$(roles '{"builder":"opus","named_critics":["sonnet"],"eligible":'"$ALL"'}')" '.stop != null'
   jqt "two named critics, one family, high stakes → stop" "$(roles '{"builder":"opus","high_stakes":true,"named_critics":["sol","astra"],"eligible":'"$ALL"'}')" '.stop != null'
-  jqt "named critics win over policy" "$(roles '{"builder":"opus","named_critics":["argon"],"policy_critic":"gemini","eligible":'"$ALL"'}')" '.critics == ["argon"]'
-  jqt "policy critic used when legal" "$(roles '{"builder":"opus","policy_critic":"gemini","eligible":'"$ALL"'}')" '.critics == ["gemini"]'
+  jqt "named critics win over policy" "$(roles '{"builder":"opus","named_critics":["argon"],"policy_critic":"hydrogen","eligible":'"$ALL"'}')" '.critics == ["argon"]'
+  jqt "policy critic used when legal" "$(roles '{"builder":"opus","policy_critic":"hydrogen","eligible":'"$ALL"'}')" '.critics == ["hydrogen"]'
   jqt "policy critic from the builder family is dropped" "$(roles '{"builder":"opus","policy_critic":"sonnet","eligible":'"$ALL"'}')" '.critics == ["sol"]'
   jqt "self with unknown director family → stop" "$(roles '{"builder":"self","director_family":null,"eligible":["sol"]}')" '.stop != null'
   jqt "self as a known claude director (family and line) → sol" "$(roles '{"builder":"self","director_family":"claude","director_line":"opus","eligible":["self","sol"]}')" '.critics == ["sol"]'
   jqt "self with known family but unknown line → stop" "$(roles '{"builder":"self","director_family":"claude","eligible":["self","sol"]}')" '.stop != null'
   jqt "named critic not available → stop" "$(roles '{"builder":"opus","named_critics":["argon"],"eligible":["opus","sol"]}')" '.stop.reason | test("not available")'
-  jqt "high stakes, one named critic → a second family added" "$(roles '{"builder":"opus","high_stakes":true,"named_critics":["sol"],"eligible":["opus","sol","gemini"]}')" '.critics == ["sol","gemini"]'
+  jqt "high stakes, one named critic → a second family added" "$(roles '{"builder":"opus","high_stakes":true,"named_critics":["sol"],"eligible":["opus","sol","hydrogen"]}')" '.critics == ["sol","hydrogen"]'
   jqt "named argon critic of a claude build" "$(roles '{"builder":"opus","named_critics":["argon"],"eligible":'"$ALL"'}')" '.critics == ["argon"] and .reviewer == "argon" and (.notes | any(test("argon is provisional")))'
   jqt "no builder → a structured stop, not a jq error" "$(roles '{"eligible":["sol"]}')" '.stop.reason | test("unknown")'
   # carbon and neon are explicit-only: eligible changes no automatic choice, naming them does
-  ALLX='["opus","fable","sonnet","haiku","astra","sol","luna","terra","argon","carbon","neon","gemini","self"]'
+  ALLX='["opus","fable","sonnet","haiku","astra","sol","luna","terra","argon","carbon","neon","hydrogen","self"]'
   jqt "explicit-only eligible: claude build still → sol" "$(roles '{"builder":"opus","eligible":'"$ALLX"'}')" '.critics == ["sol"] and .reviewer == "sol"'
   jqt "explicit-only eligible: claude build, hs still → astra + argon" "$(roles '{"builder":"opus","high_stakes":true,"eligible":'"$ALLX"'}')" '.critics == ["astra","argon"]'
   jqt "explicit-only eligible: openai build, hs still → opus + argon" "$(roles '{"builder":"sol","high_stakes":true,"eligible":'"$ALLX"'}')" '.critics == ["opus","argon"]'
-  jqt "explicit-only eligible: argon out, hs → astra + gemini (never neon)" "$(roles '{"builder":"opus","high_stakes":true,"eligible":["opus","astra","sol","carbon","neon","gemini"]}')" '.critics == ["astra","gemini"]'
+  jqt "explicit-only eligible: argon out, hs → astra + hydrogen (never neon)" "$(roles '{"builder":"opus","high_stakes":true,"eligible":["opus","astra","sol","carbon","neon","hydrogen"]}')" '.critics == ["astra","hydrogen"]'
   jqt "explicit-only eligible: only carbon/neon of google → google not counted, no second critic" "$(roles '{"builder":"opus","high_stakes":true,"eligible":["opus","astra","sol","carbon","neon"]}')" \
     '.critics == ["astra"] and (.notes | any(test("no second critic"))) and (.notes | any(test("explicit-only")))'
   jqt "explicit-only: sol build, eligible sol/astra/neon, no names → Astra critic, degraded, no stop" "$(roles '{"builder":"sol","eligible":["sol","astra","neon"]}')" \
@@ -655,36 +654,36 @@ if group T7 "role resolution"; then
   jqt "explicit-only: --critic=carbon of a claude build" "$(roles '{"builder":"opus","named_critics":["carbon"],"eligible":'"$ALLX"'}')" '.critics == ["carbon"] and .stop == null'
   jqt "explicit-only: a neon build counts as google (named by --model) → sol" "$(roles '{"builder":"neon","eligible":["neon","sol","astra"]}')" '.critics == ["sol"] and .degraded == null'
   jqt "explicit-only: neon build, google only → argon (degraded)" "$(roles '{"builder":"neon","eligible":["neon","argon"]}')" '.critics == ["argon"] and .degraded == "google"'
-  jqt "explicit-only: --critic=neon of a google build → stop (family rule)" "$(roles '{"builder":"gemini","named_critics":["neon"],"eligible":'"$ALLX"'}')" '.stop.reason | test("shares the builder")'
+  jqt "explicit-only: --critic=neon of a google build → stop (family rule)" "$(roles '{"builder":"hydrogen","named_critics":["neon"],"eligible":'"$ALLX"'}')" '.stop.reason | test("shares the builder")'
   jqt "named reviewer from the builder family → stop" "$(roles '{"builder":"sol","named_reviewer":"astra","eligible":'"$ALLX"'}')" '.stop.reason | test("named reviewer astra shares")'
   jqt "named reviewer not available → stop" "$(roles '{"builder":"sol","named_reviewer":"carbon","eligible":["sol","opus"]}')" '.stop.reason | test("not available")'
-  jqt "named reviewer beats the policy reviewer" "$(roles '{"builder":"opus","named_reviewer":"argon","policy_reviewer":"gemini","eligible":'"$ALLX"'}')" '.critics == ["sol"] and .reviewer == "argon"'
+  jqt "named reviewer beats the policy reviewer" "$(roles '{"builder":"opus","named_reviewer":"argon","policy_reviewer":"hydrogen","eligible":'"$ALLX"'}')" '.critics == ["sol"] and .reviewer == "argon"'
   jqt "arbiter: carbon/neon eligible change nothing → argon" "$("$B/maestro-roles" --arbiter <<<'{"builder":"opus","critics_with_findings":["sol"],"eligible":'"$ALLX"'}')" '.arbiter == "argon"'
-  jqt "arbiter: argon and gemini out, only neon left in google → no google arbiter" "$("$B/maestro-roles" --arbiter <<<'{"builder":"opus","critics_with_findings":["sol"],"eligible":["opus","sol","neon","carbon"]}')" '.arbiter == null and .stop != null'
+  jqt "arbiter: argon and hydrogen out, only neon left in google → no google arbiter" "$("$B/maestro-roles" --arbiter <<<'{"builder":"opus","critics_with_findings":["sol"],"eligible":["opus","sol","neon","carbon"]}')" '.arbiter == null and .stop != null'
   jqt "row 6: carbon/neon never chosen" "$("$B/maestro-roles" --row6 <<<'{"eligible":["neon","carbon"]}')" 'has("implementer") and .implementer == null and .stop.row == 2'
   # the arbiter at the critique cap (docs/briefs.md, "Arbiter at the cap")
   arb() { "$B/maestro-roles" --arbiter <<<"$1"; }
   jqt "arbiter: claude builder, openai critic → argon" "$(arb '{"builder":"opus","drafter":null,"high_stakes":false,"critics_with_findings":["sol"],"eligible":'"$ALL"'}')" \
     '.arbiter == "argon" and .stop == null and (.reason | test("third family google")) and (.reason | test("provisional"))'
-  jqt "arbiter: argon not eligible → gemini" "$(arb '{"builder":"opus","critics_with_findings":["sol"],"eligible":'"$NOARGON"'}')" '.arbiter == "gemini" and .stop == null'
+  jqt "arbiter: argon not eligible → hydrogen" "$(arb '{"builder":"opus","critics_with_findings":["sol"],"eligible":'"$NOARGON"'}')" '.arbiter == "hydrogen" and .stop == null'
   jqt "arbiter: google out → null + stop" "$(arb '{"builder":"opus","critics_with_findings":["sol"],"eligible":["opus","fable","sonnet","haiku","astra","sol","luna","terra","self"]}')" \
     '.arbiter == null and (.stop.reason | test("no eligible third family")) and .reason == .stop.reason'
-  jqt "arbiter: cascade drafter family excluded → null + stop" "$(arb '{"builder":"opus","drafter":"gemini","critics_with_findings":["sol"],"eligible":'"$ALL"'}')" \
+  jqt "arbiter: cascade drafter family excluded → null + stop" "$(arb '{"builder":"opus","drafter":"hydrogen","critics_with_findings":["sol"],"eligible":'"$ALL"'}')" \
     '.arbiter == null and (.stop.reason | test("drafter google"))'
   jqt "arbiter: drafter of the builder family changes nothing" "$(arb '{"builder":"sol","drafter":"luna","critics_with_findings":["argon"],"eligible":'"$ALL"'}')" '.arbiter == "opus"'
   jqt "arbiter: high stakes → stop" "$(arb '{"builder":"opus","high_stakes":true,"critics_with_findings":["sol"],"eligible":'"$ALL"'}')" '.arbiter == null and (.stop.reason | test("high stakes"))'
   jqt "arbiter: two critic families with findings, both cross-family → no third, stop" "$(arb '{"builder":"opus","critics_with_findings":["sol","argon"],"eligible":'"$ALL"'}')" '.arbiter == null and .stop != null'
   jqt "arbiter: two critic families with findings (one the builder family) → the third" "$(arb '{"builder":"sonnet","critics_with_findings":["fable","sol"],"eligible":'"$ALL"'}')" '.arbiter == "argon"'
   jqt "arbiter: two critics of one family → the third" "$(arb '{"builder":"opus","critics_with_findings":["sol","astra"],"eligible":'"$ALL"'}')" '.arbiter == "argon"'
-  jqt "arbiter: openai builder, google critic → opus" "$(arb '{"builder":"sol","critics_with_findings":["gemini"],"eligible":'"$ALL"'}')" '.arbiter == "opus"'
-  jqt "arbiter: google builder, openai critic, opus not eligible → fable" "$(arb '{"builder":"gemini","critics_with_findings":["sol"],"eligible":["gemini","sol","fable","sonnet","haiku"]}')" '.arbiter == "fable"'
+  jqt "arbiter: openai builder, google critic → opus" "$(arb '{"builder":"sol","critics_with_findings":["hydrogen"],"eligible":'"$ALL"'}')" '.arbiter == "opus"'
+  jqt "arbiter: google builder, openai critic, opus not eligible → fable" "$(arb '{"builder":"hydrogen","critics_with_findings":["sol"],"eligible":["hydrogen","sol","fable","sonnet","haiku"]}')" '.arbiter == "fable"'
   jqt "arbiter: claude builder, google critic, sol not eligible → astra" "$(arb '{"builder":"opus","critics_with_findings":["argon"],"eligible":["opus","argon","astra","luna"]}')" '.arbiter == "astra"'
   jqt "arbiter: only luna, terra, haiku left → null (not in the order)" "$(arb '{"builder":"opus","critics_with_findings":["argon"],"eligible":["opus","argon","luna","terra"]}')" '.arbiter == null and .stop != null'
   jqt "arbiter: self builder uses the director family" "$(arb '{"builder":"self","director_family":"claude","critics_with_findings":["argon"],"eligible":'"$ALL"'}')" '.arbiter == "sol"'
   jqt "arbiter: self with unknown family → stop, not a jq error" "$(arb '{"builder":"self","critics_with_findings":["argon"],"eligible":'"$ALL"'}')" '.arbiter == null and (.stop.reason | test("unknown"))'
   jqt "arbiter: no critic with findings → stop" "$(arb '{"builder":"opus","critics_with_findings":[],"eligible":'"$ALL"'}')" '.arbiter == null and .stop != null'
   jqt "arbiter: every slot in the order belongs to its family in slots.json" \
-    "$(jq -c '[.sol.family, .astra.family, .argon.family, .gemini.family, .opus.family, .fable.family, .sonnet.family]' "$B/slots.json")" \
+    "$(jq -c '[.sol.family, .astra.family, .argon.family, .hydrogen.family, .opus.family, .fable.family, .sonnet.family]' "$B/slots.json")" \
     '. == ["openai","openai","google","google","claude","claude","claude"]'
   jqt "slots.json: carbon and neon are google, agy-only, provisional and explicit-only; nothing else is explicit-only" \
     "$(jq -c 'del(._comment) | [to_entries[] | select(.value.explicit_only) | {k: .key, f: .value.family, t: .value.transports, p: .value.provisional}]' "$B/slots.json")" \
@@ -694,7 +693,7 @@ if group T7 "role resolution"; then
   r6() { "$B/maestro-roles" --row6 <<<"$1"; }
   jqt "row 6: self when the director is known" "$(r6 '{"eligible":["self","sonnet"],"director_family":"claude","director_line":"opus"}')" '.implementer == "self"'
   jqt "row 6: director line unknown → sonnet" "$(r6 '{"eligible":["self","sonnet","sol"],"director_family":"claude"}')" '.implementer == "sonnet"'
-  jqt "row 6: only gemini eligible → gemini" "$(r6 '{"eligible":["gemini"]}')" '.implementer == "gemini"'
+  jqt "row 6: only hydrogen eligible → hydrogen" "$(r6 '{"eligible":["hydrogen"]}')" '.implementer == "hydrogen"'
   jqt "row 6: nothing eligible → halt" "$(r6 '{"eligible":["haiku"]}')" 'has("implementer") and .implementer == null and .stop.row == 2'
   eq "native canonical pin older than the alias: opus 5 → claude-opus-5" claude-opus-5 "$("$B/maestro-catalog" native-id opus 5)"
   eq "native canonical pin opus 5.5 → claude-opus-5-5" claude-opus-5-5 "$("$B/maestro-catalog" native-id opus 5.5)"
@@ -728,7 +727,7 @@ if group T7 "role resolution"; then
   jqt "advisor: auto, claude build → sol (the critic order)" "$(roles '{"builder":"opus","eligible":'"$ALL"',"advisor_on":true}')" '.advisor == "sol" and .critics == ["sol"] and .reviewer == "sol" and .notes == []'
   jqt "advisor: auto, claude build, high stakes → astra" "$(roles '{"builder":"opus","high_stakes":true,"eligible":'"$ALL"',"advisor_on":true}')" '.advisor == "astra" and .critics == ["astra","argon"]'
   jqt "advisor: auto, openai build → opus" "$(roles '{"builder":"sol","eligible":'"$ALL"',"advisor_on":true}')" '.advisor == "opus"'
-  jqt "advisor: auto, google build, high stakes → astra" "$(roles '{"builder":"gemini","high_stakes":true,"eligible":'"$ALL"',"advisor_on":true}')" '.advisor == "astra"'
+  jqt "advisor: auto, google build, high stakes → astra" "$(roles '{"builder":"hydrogen","high_stakes":true,"eligible":'"$ALL"',"advisor_on":true}')" '.advisor == "astra"'
   jqt "advisor: review on → avoids the reviewer family when it can (claude build: argon, reviewer sol)" \
     "$(roles '{"builder":"opus","eligible":'"$ALL"',"advisor_on":true,"review_active":true}')" '.advisor == "argon" and .reviewer == "sol" and .critics == ["sol"] and (.notes | any(test("argon is provisional")))'
   jqt "advisor: review on, high stakes → argon (reviewer astra)" "$(roles '{"builder":"opus","high_stakes":true,"eligible":'"$ALL"',"advisor_on":true,"review_active":true}')" '.advisor == "argon" and .reviewer == "astra"'
@@ -758,13 +757,13 @@ if group T7 "role resolution"; then
   jqt "advisor: named, not available → stop, advisor null" "$(roles '{"builder":"opus","eligible":["opus","sol"],"advisor_on":true,"named_advisor":"argon"}')" \
     '.advisor == null and (.stop.reason | test("named advisor argon is not available"))'
   jqt "advisor: every stop carries advisor null" "$(roles '{"builder":"opus","named_critics":["sonnet"],"eligible":'"$ALL"',"advisor_on":true}')" '.stop != null and has("advisor") and .advisor == null'
-  jqt "advisor: a policy advisor, eligible → used, marked (policy)" "$(roles '{"builder":"opus","eligible":'"$ALL"',"advisor_on":true,"policy_advisor":"gemini"}')" \
-    '.advisor == "gemini" and (.notes | index("advisor=gemini (policy)") != null) and .critics == ["sol"]'
+  jqt "advisor: a policy advisor, eligible → used, marked (policy)" "$(roles '{"builder":"opus","eligible":'"$ALL"',"advisor_on":true,"policy_advisor":"hydrogen"}')" \
+    '.advisor == "hydrogen" and (.notes | index("advisor=hydrogen (policy)") != null) and .critics == ["sol"]'
   jqt "advisor: a policy advisor of the builder's family → allowed, noted" "$(roles '{"builder":"opus","eligible":'"$ALL"',"advisor_on":true,"policy_advisor":"fable"}')" \
     '.advisor == "fable" and (.notes | any(test("advisor shares the builder.s family \\(policy\\)")))'
   jqt "advisor: a policy advisor not available → auto, with a note" "$(roles '{"builder":"opus","eligible":["opus","sol"],"advisor_on":true,"policy_advisor":"argon"}')" \
     '.advisor == "sol" and .stop == null and (.notes | index("policy advisor argon is not available: auto") != null)'
-  jqt "advisor: the named advisor beats the policy one" "$(roles '{"builder":"opus","eligible":'"$ALL"',"advisor_on":true,"policy_advisor":"gemini","named_advisor":"astra"}')" '.advisor == "astra"'
+  jqt "advisor: the named advisor beats the policy one" "$(roles '{"builder":"opus","eligible":'"$ALL"',"advisor_on":true,"policy_advisor":"hydrogen","named_advisor":"astra"}')" '.advisor == "astra"'
   jqt "advisor: builder self → off, noted" "$(roles '{"builder":"self","director_family":"claude","director_line":"opus","eligible":["self","sol"],"advisor_on":true,"named_advisor":"sol"}')" \
     '.advisor == null and .critics == ["sol"] and (.notes | index("advisor off: the director builds") != null)'
   jqt "advisor: reviewer and critics are the same with and without it" \
@@ -1207,7 +1206,7 @@ if group T10 "ledger rows from job output"; then
   jqt "effective_config text fallback keeps the text" \
     "$("$B/maestro-ledger" --dry-run --job j2 --stage build --cli codex --transport codex --family openai --model m --effective-config 'OK read-only')" '.effective_config == "OK read-only"'
   mkdir -p .maestro/jobs/j4; cp "$FX/verdicts/agy-denied.json" .maestro/jobs/j4/out
-  row="$("$B/maestro-ledger" --dry-run --job j4 --stage critique --cli agy --transport agy --family google --model gemini-3.8-flash-medium)"
+  row="$("$B/maestro-ledger" --dry-run --job j4 --stage critique --cli agy --transport agy --family google --model gemini-4-hydrogen-medium)"
   jqt "agy row: status and denied actions recorded" "$row" '.status == "SUCCESS" and .denied_actions == ["mcp"]'
   mkdir -p .maestro/jobs/k1 .maestro/jobs/k2
   cp "$FX/verdicts/sdk-structured.jsonl" .maestro/jobs/k1/out; cp "$FX/verdicts/sdk-budget.jsonl" .maestro/jobs/k2/out
@@ -1552,7 +1551,7 @@ if group T15 "flags"; then
   for c in "--plan-only --cascade:--plan-only with --cascade" "--plan-only --review:--plan-only with --review" \
            "--plan-only --reviewer=sol:--plan-only with --review" "--reviewer=sol --review=self:--reviewer with --review=self" \
            "--tests=full --skip-tests:--tests with --skip-tests" "--cascade --model=luna:--cascade with --model=luna" \
-           "--cascade=haiku --model=haiku:--cascade with --model=haiku" "--cascade=gemini --model=gemini:--cascade: the drafter is the implementer" \
+           "--cascade=haiku --model=haiku:--cascade with --model=haiku" "--cascade=hydrogen --model=hydrogen:--cascade: the drafter is the implementer" \
            "--cascade --skip-tests:--cascade with --skip-tests" "--setup --unattended:--setup with --unattended" \
            "--sdk --model=opus@native:--sdk with a forced @native" "--sdk --critic=sonnet@native:--sdk with a forced @native" \
            "--resume --rounds=2:--resume with --rounds"; do
@@ -1716,7 +1715,7 @@ if group T18 "policy"; then
   stop1 "stop: an unknown effort family" "effort.review.mistral: unknown family" '[effort]' 'review = { mistral = "low" }'
   stop1 "stop: critique_rounds 9" "critique_rounds: 9 is outside 1–8" 'critique_rounds = 9'
   stop1 "stop: critique_rounds true" "critique_rounds: true is outside" 'critique_rounds = true'
-  stop1 "stop: cascade_drafter sol" "cascade_drafter: must be one of luna, haiku, gemini" 'cascade_drafter = "sol"'
+  stop1 "stop: cascade_drafter sol" "cascade_drafter: must be one of luna, haiku, hydrogen" 'cascade_drafter = "sol"'
   stop1 "stop: an unknown family" "families.mistral: unknown family" '[families]' 'mistral = "off"'
   stop1 "stop: a family value that is not on or off" "families.google: must be" '[families]' 'google = "maybe"'
   stop1 "stop: self as critic" "critic: self only builds" 'critic = "self"'
@@ -1732,15 +1731,15 @@ if group T18 "policy"; then
   stop1 "stop: a table key given a scalar" "effort must be a table" 'effort = "high"'
   stop1 "stop: a policy implementer that is denied" "implementer fable .repo policy. is not eligible: denied" 'implementer = "fable"' 'deny = ["fable"]'
   stop1 "stop: a policy implementer of a family switched off" "implementer sol .* families.openai is off" 'implementer = "sol"' '[families]' 'openai = "off"'
-  stop1 "stop: a policy drafter of a family switched off" "cascade_drafter gemini .* families.google is off" 'cascade_drafter = "gemini"' '[families]' 'google = "off"'
+  stop1 "stop: a policy drafter of a family switched off" "cascade_drafter hydrogen .* families.google is off" 'cascade_drafter = "hydrogen"' '[families]' 'google = "off"'
   prepo 'deny = ["luna"]' 'implementer = "self"' '[families]' 'claude = false'
   jqt "policy: a denied default drafter is no stop; self survives families.claude off; false reads as off" "$(pol)" \
     '.stops == [] and .effective.families.claude == "off" and .effective.implementer == "self"'
   prepo 'critic = "argon"' '[families]' 'google = "off"'
   jqt "policy: an ineligible critic preference is dropped with a warning" "$(pol)" '.stops == [] and (.warnings | any(test("policy critic argon dropped: families.google is off")))'
   jqt "policy: --model and --critic beat a family switch, with a warning" \
-    "$(pol --flags '{"model":{"slot":"gemini","transport":null},"critics":[{"slot":"argon","transport":null}]}')" \
-    '(.warnings | any(test("^--model=gemini: families.google is off"))) and (.warnings | any(test("^--critic=argon: families.google is off"))) and .stops == []'
+    "$(pol --flags '{"model":{"slot":"hydrogen","transport":null},"critics":[{"slot":"argon","transport":null}]}')" \
+    '(.warnings | any(test("^--model=hydrogen: families.google is off"))) and (.warnings | any(test("^--critic=argon: families.google is off"))) and .stops == []'
   puser 'implementer = "gpt-5"' 'critique_rounds = 12'
   prepo 'implementer = "sol"' 'critique_rounds = 3'
   jqt "policy: precedence first — a losing value is not validated" "$(pol)" '.stops == [] and .effective.implementer == "sol"'
@@ -1794,16 +1793,16 @@ if group T18 "policy"; then
   out="$(ri)"
   jqt "roles-input: critic, reviewer (an ineligible one dropped), the exclusion filter" "$out" \
     '.policy_critic == "opus" and .policy_reviewer == null and .named_critics == [] and .named_reviewer == null
-     and .exclude == {slots: ["fable","haiku","argon","carbon","neon","gemini"], denied: ["fable","haiku"], families_off: ["google"], kept_by_flag: [], advisor_kept: []}
+     and .exclude == {slots: ["fable","haiku","argon","carbon","neon","hydrogen"], denied: ["fable","haiku"], families_off: ["google"], kept_by_flag: [], advisor_kept: []}
      and .explicit_only == []
      and .transports_denied == {opus: ["agy"], sonnet: ["api","agy"]} and .fable_budget == false and .stops == []
      and (.warnings | any(test("policy reviewer argon dropped"))) and (.unmapped | any(test("^fable_budget")))'
   out="$(ri --flags '{"model":{"slot":"fable","transport":null},"critics":[{"slot":"sol","transport":null},{"slot":"haiku","transport":null}],"reviewer":{"slot":"sol","transport":null}}')"
   jqt "roles-input: flag-named slots stay eligible; named critics replace the policy critic" "$out" \
     '.policy_critic == null and .named_critics == ["sol","haiku"] and .named_reviewer == "sol"
-     and .exclude.slots == ["argon","carbon","neon","gemini"] and .exclude.kept_by_flag == ["fable","haiku"] and (has("fable_budget") | not)'
+     and .exclude.slots == ["argon","carbon","neon","hydrogen"] and .exclude.kept_by_flag == ["fable","haiku"] and (has("fable_budget") | not)'
   # …and maestro-roles takes it: the policy critic wins over the table's first choice
-  rin="$(jq -c '{builder: "sol", eligible: (["opus","sonnet","fable","sol","astra","argon","gemini"] - .exclude.slots), policy_critic, policy_reviewer, named_critics}' <<<"$(ri)")"
+  rin="$(jq -c '{builder: "sol", eligible: (["opus","sonnet","fable","sol","astra","argon","hydrogen"] - .exclude.slots), policy_critic, policy_reviewer, named_critics}' <<<"$(ri)")"
   jqt "roles-input → maestro-roles" "$("$B/maestro-roles" <<<"$rin")" '.critics == ["opus"] and .stop == null and (.notes | index("critic=opus (policy)") != null)'
   prepo 'reviewer = "neon"'
   out="$(ri)"
@@ -1814,9 +1813,9 @@ if group T18 "policy"; then
   out="$(ri --flags "$("$B/maestro-flags" "--critic=neon --reviewer=carbon t")")"
   jqt "roles-input: --critic=neon and --reviewer=carbon are accepted names" "$out" '.named_critics == ["neon"] and .named_reviewer == "carbon" and .stops == []'
   cd "$ROOT" || exit 2
-  prepo 'cascade_drafter = "gemini"'; puser
+  prepo 'cascade_drafter = "hydrogen"'; puser
   jqt "policy: bare --cascade with the policy drafter as implementer → stop" \
-    "$(pol --flags "$("$B/maestro-flags" "--cascade --model=gemini t")")" '.stops | any(test("drafter gemini .* is the implementer"))'
+    "$(pol --flags "$("$B/maestro-flags" "--cascade --model=hydrogen t")")" '.stops | any(test("drafter hydrogen .* is the implementer"))'
   prepo 'deny = ["haiku"]'
   jqt "policy: --cascade=<denied slot> is kept with an explicit-wins warning" \
     "$("$B/maestro-policy" roles-input --repo "$PD/repo.toml" --user "$PD/user.toml" --flags "$("$B/maestro-flags" "--cascade=haiku t")")" \
@@ -1857,7 +1856,7 @@ if group T18 "policy"; then
     '.advisor == "sol" and .stop == null and .critics == ["astra"] and .reviewer == "astra" and .critics == '"$(jq -c .critics <<<"$noadv")"
   jqt "roles-input → maestro-roles: denied AND unavailable sol (Codex down, no openai slot available) → stop" "$(pipe '["opus","argon"]')" \
     '.advisor == null and (.stop.reason | test("named advisor sol is not available"))'
-  jqt "roles-input → maestro-roles: denied sol, Codex unavailable, astra gone too → stop, not advisor sol" "$(pipe '["opus","gemini"]')" '.advisor == null and .stop != null'
+  jqt "roles-input → maestro-roles: denied sol, Codex unavailable, astra gone too → stop, not advisor sol" "$(pipe '["opus","hydrogen"]')" '.advisor == null and .stop != null'
   # setup step 1b: the policy advisor is offered by name only when maestro-roles keeps it
   puser 'advisor = "sol"'
   out="$(ri --flags "$("$B/maestro-flags" "--advisor t")")"

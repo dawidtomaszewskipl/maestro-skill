@@ -97,7 +97,7 @@ On Claude Code 2.1.325, Codex 0.169.0 and agy 1.5.9:
   read-only lines already name no command tool and pass `--setting-sources ""`, so `--restricted`
   adds nothing measurable: not adopted.
 - Live `maestro-catalog refresh`: codex sol 6.1/6/5.6, astra 6, luna 6/5.6, terra 6.1/5.6; agy argon 4,
-  gemini 4 (Hydrogen) and 3.8 (Flash), opus 5.5, sonnet 5.5; `pick gemini agy --effort xhigh` →
+  hydrogen 4 (Hydrogen; 3.8 Flash was still a line then), opus 5.5, sonnet 5.5; `pick hydrogen agy --effort xhigh` →
   `gemini-4-hydrogen-xhigh`. `maestro-preflight` ran in about 2 s.
 - Interactive Claude Code (this session): `maestro-host` → `claude-code`, `interactive: true`. A
   Sonnet builder through the `Agent` tool (explicit `model: sonnet`) stayed inside its two files;
@@ -127,8 +127,8 @@ On Claude Code 2.1.331, Codex 0.172.0 and agy 1.5.16 (local measurement unless a
 - Director's probes for this update (maestro run upd-20261124-1248): `codex exec` with
   `gpt-6.2-astra` at `low` → `OK`; `claude -p --model opus` → `init.model` `claude-opus-5-5`.
 - `maestro-catalog refresh --fixtures tests/fixtures/catalogs/machine-2026-11-24`: codex sol
-  6.2/6.1/6/5.6, astra 6.2/6, luna 6/5.6, terra 6.1/5.6; agy argon 4, carbon 4, neon 4, gemini 4
-  (Hydrogen) and 3.8 (Flash), opus 5.5, sonnet 5.5; the three `gemini-pro-orchestrator*` slugs and
+  6.2/6.1/6/5.6, astra 6.2/6, luna 6/5.6, terra 6.1/5.6; agy argon 4, carbon 4, neon 4, hydrogen 4,
+  opus 5.5, sonnet 5.5; Flash 3.8, the three `gemini-pro-orchestrator*` slugs and
   `gpt-oss-120b-medium` unmatched (T2).
 - `agy --help`: `-r` "Short alias for --conversation", `--resume` "Alias for --conversation";
   `codex exec --help` and `codex exec resume --help`: `--remote <ADDR>` on both, resume still

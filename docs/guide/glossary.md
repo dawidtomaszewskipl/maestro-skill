@@ -42,7 +42,7 @@ test, commit, report.
 `git diff` first, keep or reset each change deliberately, record the decision.
 
 **Drafter** — the cheap model that writes the first draft in a cascade (`luna`, `haiku` or
-`gemini`).
+`hydrogen`).
 
 **Edits-only** — a worker that can change files but not run commands: anything through agy,
 `claude -p` or the API, and a Codex builder whose reach check failed. The director runs its
@@ -96,7 +96,7 @@ ledger rows.
 **Sandbox rung** — the permission level a Codex worker runs at, from "repository
 writable, no network" up to "no sandbox", climbed only after a failed check and announced.
 
-**Slot** — a short name for a model line: `opus`, `sol`, `gemini`, … Resolved to a concrete model
+**Slot** — a short name for a model line: `opus`, `sol`, `hydrogen`, … Resolved to a concrete model
 at the start of each run.
 
 **Swap** — replacing a worker with a different model mid-run (limits with no road left, a crash,

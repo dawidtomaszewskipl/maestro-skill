@@ -54,7 +54,7 @@ All optional. Slot names are the `--model` values (strings); effort values are t
 | `critique_rounds = n` | Plan-critique cap, 1–8 (default 2). `--rounds` beats it. |
 | `advisor = slot` | The advisor slot when `--advisor` is given bare (SKILL.md, "Advisor"). It **names the advisor, never enables it**, exactly like `reviewer` names a reviewer without `--review`: without `--advisor` nothing is asked. `--advisor=<slot>` beats it. It may name a slot of the builder's family (noted in the Assign line) or an explicit-only `carbon`/`neon`; one that is denied, switched off or unavailable is dropped with a warning and the advisor is chosen automatically. `self` is not allowed. |
 | `advisor_checkpoints = n` | How many times the builder may ask the advisor, 1–3 (default 1). `--advisor-checkpoints` beats it. |
-| `[effort]` `critique`, `high_stakes_critique`, `build`, `review`, `draft`, `advise` | Per-stage effort (defaults `medium`, `high`, `medium`, `high`, `medium`, `high`), one vocabulary `low\|medium\|high\|xhigh\|max`. Each stage takes one value, or a table of per-family values (`review = { openai = "xhigh", google = "high" }`) when the families need different levels. A value above a model's range is clamped to the highest effort its slugs list (agy: Hydrogen and Neon `xhigh`, Argon, Carbon, Flash and Claude-on-agy `high`) and marked `(clamped)`. maestro passes no effort on native Agent calls (the tool's own `effort` parameter is not used, `docs/workers.md`); `claude -p`, `maestro-sdk` and agy slugs take it. |
+| `[effort]` `critique`, `high_stakes_critique`, `build`, `review`, `draft`, `advise` | Per-stage effort (defaults `medium`, `high`, `medium`, `high`, `medium`, `high`), one vocabulary `low\|medium\|high\|xhigh\|max`. Each stage takes one value, or a table of per-family values (`review = { openai = "xhigh", google = "high" }`) when the families need different levels. A value above a model's range is clamped to the highest effort its slugs list (agy: Hydrogen and Neon `xhigh`, Argon, Carbon and Claude-on-agy `high`) and marked `(clamped)`. maestro passes no effort on native Agent calls (the tool's own `effort` parameter is not used, `docs/workers.md`); `claude -p`, `maestro-sdk` and agy slugs take it. |
 | `[families]` `claude\|openai\|google = "on"\|"off"` | Switch a family off even if its CLIs are installed and signed in, or `"on"` to lift a lower-level `"off"` (`true`/`false` are read the same). Claude can be switched off for workers too; the director itself is always Claude Code, and `self` stays available. |
 | `[transports]` `deny = ["<slot>@<transport>", …]` | Transports the director never picks on its own, e.g. `opus@agy`, `sonnet@api`. A denied transport is skipped in the slot's order and never switched onto; an explicit `@transport` naming it still wins, with a warning. |
 | `[pin]` `<slot> = "<version>" \| { <transport> = "<slug>" }` | Fix a line instead of following the newest model (`docs/catalog.md`, "Pins"): `sol = "6.1"` (every transport must serve 6.1), `sol = { codex = "gpt-6.1-sol" }` (that slug, other transports off), `opus = { native = "claude-opus-5" }`. The version is a quoted string (unquoted, 6.10 would be the number 6.1). A pin missing from the catalog halts. |
@@ -70,7 +70,7 @@ marked `(policy)` in the
 assignment line, so a run always shows where a choice came from:
 
 ```
-Assign: implementer=sol (policy: repo default) · critic=fable (cross-family; policy critic gemini
+Assign: implementer=sol (policy: repo default) · critic=fable (cross-family; policy critic hydrogen
 unavailable: families.google off) · …
 ```
 
@@ -103,15 +103,15 @@ director checks it then):
 - a slot name that is not in the roster (`gemini-pro`, `gpt-5`), or a transport a slot does not have
   (`haiku@agy`, `fable@agy`, `argon@codex`, `neon@codex`) — the slots and their transports are `bin/slots.json`;
 - a `pin` whose version or slug is not in that transport's catalog;
-- a `cascade_drafter` other than `luna`, `haiku` or `gemini`;
+- a `cascade_drafter` other than `luna`, `haiku` or `hydrogen`;
 - a `critique_rounds` outside 1–8, an `advisor_checkpoints` outside 1–3, an `advisor` that is not a
   slot (or is `self`);
 - a file that is not valid TOML (the parser's message is quoted), or a value of the wrong type;
 - a `maestro.policy.yml` or `~/.config/maestro/policy.yml` left from before the format changed:
   "convert to TOML", with both paths — it is not read;
 - an effort that is not a level at all (`hgih`), or a per-family value outside that family's range
-  — a Google model the efforts its agy slugs list (Hydrogen and Neon `low…xhigh`, Argon, Carbon
-  and Flash `low…high`), an OpenAI model its own catalog list (up to `ultra` for Astra/Sol/Terra, `max` for
+  — a Google model the efforts its agy slugs list (Hydrogen and Neon `low…xhigh`, Argon and Carbon
+  `low…high`), an OpenAI model its own catalog list (up to `ultra` for Astra/Sol/Terra, `max` for
   Luna), native Claude `low…max`; a single shared value is clamped instead (see `effort` above).
   `maestro-policy` knows the family ranges (`google` up to `xhigh`, `claude` up to `max`, `openai`
   up to `ultra`); `ultra` as a single shared value halts, because only OpenAI has it;
